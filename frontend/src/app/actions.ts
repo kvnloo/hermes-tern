@@ -17,6 +17,7 @@ import { CommandCatalog } from '../commands/resolve.js'
 import { runSlash, type SlashCx } from '../commands/slash.js'
 import type { LaunchEnv } from '../config/env.js'
 import type { ConnectWatcher } from '../connections/watcher.js'
+import type { Controls } from '../controls/store.js'
 import type { Disposables } from '../core/disposables.js'
 import { errorText } from '../core/errors.js'
 import { Flash } from '../core/flash.js'
@@ -78,6 +79,7 @@ export interface ActionsCx {
   readonly transcript: Transcript
   readonly media: Media
   readonly connect: ConnectWatcher
+  readonly controls: Controls
   readonly sidebar: Sidebar
   readonly prAside: PrAside
   /** Timers with no field of their own (a compaction's summary read). */
@@ -169,6 +171,7 @@ export class AppActions {
     }
     this.events = {
       connect: cx.connect,
+      controls: cx.controls,
       focusComposer: () => {
         cx.hud.release()
         cx.surface().focus(INPUT_ID)

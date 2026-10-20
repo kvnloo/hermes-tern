@@ -4,6 +4,7 @@
 import type { TspEvent } from '@stencil-hq/tern'
 
 import type { ConnectWatcher } from '../connections/watcher.js'
+import type { Controls } from '../controls/store.js'
 
 import { INPUT_ID } from './host.js'
 
@@ -16,6 +17,7 @@ export interface ActionCx {
   /** `url` in the browser. */
   openUrl(url: string): void
   readonly connect: Pick<ConnectWatcher, 'continue' | 'open'>
+  readonly controls: Pick<Controls, 'reopen'>
   /** A modal sheet is on top: the composer's input does not take the keys back. */
   modal(): boolean
   /** The composer's input took Tern's focus: the pills let go of the keys, and the caret stays there. */
@@ -23,7 +25,7 @@ export interface ActionCx {
 }
 
 /** The `act` names with a handler here. */
-export type ActionName = 'connect-continue' | 'connect-open' | 'open-agent' | 'open-process' | 'open-url'
+export type ActionName = 'connect-continue' | 'connect-open' | 'control-open' | 'open-agent' | 'open-process' | 'open-url'
 
 /** What an action does with its (non-empty) value. */
 type ActionHandler = (value: string, cx: ActionCx) => void
@@ -38,6 +40,8 @@ export const ACTIONS = {
 
     cx.connect.open(value.slice(0, at), value.slice(at + 1))
   },
+  // An ask_control card's Answer: its sheet again.
+  'control-open': (value, cx) => cx.controls.reopen(value),
   'open-agent': (value, cx) => cx.openAgent(value),
   'open-process': (value, cx) => cx.openProcess(value),
   // A connect card's Authorize: the app's link in the browser.

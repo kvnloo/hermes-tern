@@ -7,11 +7,13 @@ import type { Agents } from '../agents/store.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { CONNECT_TOOL } from '../connections/cards.js'
 import type { ConnectWatcher } from '../connections/watcher.js'
+import type { Controls } from '../controls/store.js'
 import { toolCallId } from '../core/ids.js'
 import { LINK_TOOLS } from '../github/links.js'
 import type { PullRequests } from '../github/store.js'
 import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
+import { CONTROL_TOOL } from '../tools/control.js'
 import type { Compactions } from '../transcript/compactions.js'
 import type { Transcript } from '../transcript/store.js'
 
@@ -27,6 +29,7 @@ export interface ToolFanout {
   readonly prs: Pick<PullRequests, 'onCall' | 'relink'>
   readonly sidebar: Pick<Sidebar, 'poke'>
   readonly connect: Pick<ConnectWatcher, 'watch'>
+  readonly controls: Pick<Controls, 'show'>
   readonly processes: Pick<Processes, 'poke'>
   /** Has the call's image (a URL's) fetched; its card shows it once it lands. */
   showImage(call: ToolCall | undefined): void
@@ -34,7 +37,7 @@ export interface ToolFanout {
 
 /**
  * After the transcript folded a tool.complete: its image, the delegation's agents, the PRs it
- * linked, the sidebar, the connect cards and the background processes, in that order.
+ * linked, the sidebar, the connect cards, a control's sheet and the background processes, in that order.
  */
 export function afterToolComplete(p: Pick<ToolCompletePayload, 'name' | 'tool_id'>, cx: ToolFanout) {
   cx.showImage(cx.transcript.call(toolCallId(p.tool_id)))
@@ -60,6 +63,11 @@ export function afterToolComplete(p: Pick<ToolCompletePayload, 'name' | 'tool_id
 
   if (p.name === CONNECT_TOOL) {
     cx.connect.watch()
+  }
+
+  if (p.name === CONTROL_TOOL) {
+    // Its sheet opens now; the answer goes as the user's next message.
+    cx.controls.show(cx.transcript.call(toolCallId(p.tool_id)))
   }
 
   if (p.name === 'terminal') {

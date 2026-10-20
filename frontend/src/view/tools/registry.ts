@@ -13,6 +13,7 @@ import { type DetailOf, detailOf, type ToolKey, toolKeyOf } from '../../tools/de
 import { appCard, batchCard } from './cards/app.js'
 import { askView } from './cards/ask.js'
 import { connectView } from './cards/connect.js'
+import { controlView } from './cards/control.js'
 import { patchView, writeView } from './cards/edit.js'
 import { evalView } from './cards/eval.js'
 import {
@@ -48,6 +49,7 @@ export type ErrorReader = (call: ToolCall) => string | undefined
  * generic key gives that key's view: bind() pairs a detail with its own tool's view.
  */
 const VIEWS: { [K in ToolKey]: ToolView<K> } = {
+  ask_control: controlView,
   browser: browserView,
   clarify: askView,
   delegate_task: taskView,

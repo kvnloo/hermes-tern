@@ -16,6 +16,7 @@ import { dispatched } from '../commands/slash.js'
 import type { LaunchEnv } from '../config/env.js'
 import { markViewer } from '../connections/cards.js'
 import { ConnectWatcher } from '../connections/watcher.js'
+import { Controls } from '../controls/store.js'
 import { Disposables } from '../core/disposables.js'
 import { durable } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
@@ -141,6 +142,15 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const sheets = new PromptSheets(chat)
   /** The connect cards, kept current from the plugin's files. */
   const connect = new ConnectWatcher({ changed, openUrl, tell: text => act().submit(text, false), transcript })
+  /** The ask_control calls' sheets; an answer goes to the agent as the user's message. */
+  const controls = new Controls({
+    changed,
+    close: overlay => stack.close(overlay),
+    open: overlay => stack.open(overlay),
+    sid: () => durable(session.ref),
+    tell: text => act().submit(text, false),
+    transcript
+  })
   /** The gateway connection: down until the next gateway.ready, and its redial line. */
   const reconnect = new Reconnect(chat)
   /** The backend warnings shown already (stray output, the last status warning), so each stays one line. */
@@ -192,6 +202,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     changed,
     composer,
     connect,
+    controls,
     hud,
     media,
     notices,
@@ -252,6 +263,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
 export function disposeStores(s: ChatStores) {
   s.timers.dispose()
   s.connect.dispose()
+  s.controls.dispose()
   s.notices.dispose()
   s.reconnect.dispose()
   s.title.dispose()

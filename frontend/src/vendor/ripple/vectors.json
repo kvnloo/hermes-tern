@@ -1,0 +1,101 @@
+{
+  "about": "Conformance vectors for Ripple fast controls. Every renderer and every parser port (z0bridge TS, hermes-tern Python) runs these: `parse` cases say whether a raw control is accepted and what it normalizes to; `answer` cases feed inputs and name the outcome.",
+  "controls": {
+    "db": {
+      "id": "db",
+      "kind": "choice",
+      "prompt": "Which database should the demo use?",
+      "options": [
+        { "id": "postgres", "label": "Postgres", "detail": "the default" },
+        { "id": "sqlite", "label": "SQLite" },
+        { "id": "duckdb", "label": "DuckDB" }
+      ]
+    },
+    "langs": {
+      "id": "langs",
+      "kind": "choice",
+      "prompt": "Which languages?",
+      "multiple": true,
+      "options": [
+        { "id": "ts", "label": "TypeScript" },
+        { "id": "py", "label": "Python" },
+        { "id": "rs", "label": "Rust" }
+      ]
+    },
+    "budget": { "id": "budget", "kind": "slider", "prompt": "Latency budget?", "min": 0, "max": 200, "step": 10, "value": 50, "unit": "ms" },
+    "ship": { "id": "ship", "kind": "confirm", "prompt": "Deploy now?", "confirmLabel": "Deploy", "cancelLabel": "Not yet" },
+    "hero": {
+      "id": "hero",
+      "kind": "candidates",
+      "prompt": "Which hero image?",
+      "candidates": [
+        { "id": "a", "label": "Dusk", "artifactVersion": 3 },
+        { "id": "b", "label": "Noon", "artifactVersion": 4 }
+      ]
+    }
+  },
+  "parse": [
+    { "name": "a three-way choice", "raw": "db", "ok": true },
+    { "name": "a slider", "raw": "budget", "ok": true },
+    { "name": "a confirm", "raw": "ship", "ok": true },
+    { "name": "candidates keep their artifact versions", "raw": "hero", "ok": true },
+    {
+      "name": "choice options drop artifact versions",
+      "raw": { "id": "c", "kind": "choice", "prompt": "Pick", "options": [{ "id": "a", "label": "A", "artifactVersion": 2 }, { "id": "b", "label": "B" }] },
+      "ok": true,
+      "normalized": { "id": "c", "kind": "choice", "prompt": "Pick", "options": [{ "id": "a", "label": "A" }, { "id": "b", "label": "B" }] }
+    },
+    {
+      "name": "text is trimmed",
+      "raw": { "id": "c", "kind": "confirm", "prompt": "  Go?  ", "confirmLabel": " Yes " },
+      "ok": true,
+      "normalized": { "id": "c", "kind": "confirm", "prompt": "Go?", "confirmLabel": "Yes" }
+    },
+    { "name": "one option is not a choice", "raw": { "id": "c", "kind": "choice", "prompt": "Pick", "options": [{ "id": "a", "label": "A" }] }, "ok": false },
+    {
+      "name": "nine options are too many",
+      "raw": { "id": "c", "kind": "choice", "prompt": "Pick", "options": [{ "id": "1", "label": "1" }, { "id": "2", "label": "2" }, { "id": "3", "label": "3" }, { "id": "4", "label": "4" }, { "id": "5", "label": "5" }, { "id": "6", "label": "6" }, { "id": "7", "label": "7" }, { "id": "8", "label": "8" }, { "id": "9", "label": "9" }] },
+      "ok": false
+    },
+    { "name": "duplicate option ids", "raw": { "id": "c", "kind": "choice", "prompt": "Pick", "options": [{ "id": "a", "label": "A" }, { "id": "a", "label": "B" }] }, "ok": false },
+    { "name": "an id with a space", "raw": { "id": "my control", "kind": "confirm", "prompt": "Go?" }, "ok": false },
+    { "name": "an empty prompt", "raw": { "id": "c", "kind": "confirm", "prompt": "  " }, "ok": false },
+    { "name": "markup is just text, but a 201-char prompt is refused", "raw": { "id": "c", "kind": "confirm", "prompt": "<script>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }, "ok": false },
+    { "name": "a slider whose min is not below its max", "raw": { "id": "s", "kind": "slider", "prompt": "How much?", "min": 5, "max": 5 }, "ok": false },
+    { "name": "a slider value outside its range", "raw": { "id": "s", "kind": "slider", "prompt": "How much?", "min": 0, "max": 10, "value": 11 }, "ok": false },
+    { "name": "a slider step larger than its range", "raw": { "id": "s", "kind": "slider", "prompt": "How much?", "min": 0, "max": 10, "step": 11 }, "ok": false },
+    { "name": "an unknown kind", "raw": { "id": "c", "kind": "html", "prompt": "Pick" }, "ok": false },
+    { "name": "a candidate version of zero", "raw": { "id": "h", "kind": "candidates", "prompt": "Pick", "candidates": [{ "id": "a", "label": "A", "artifactVersion": 0 }, { "id": "b", "label": "B" }] }, "ok": false }
+  ],
+  "answer": [
+    { "name": "number key 2 picks the second option", "control": "db", "inputs": [{ "kind": "key", "key": "2" }], "intent": { "controlId": "db", "value": "sqlite", "label": "SQLite" } },
+    { "name": "down, down, enter picks the third", "control": "db", "inputs": [{ "kind": "key", "key": "down" }, { "kind": "key", "key": "down" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "db", "value": "duckdb", "label": "DuckDB" } },
+    { "name": "up wraps to the last", "control": "db", "inputs": [{ "kind": "key", "key": "up" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "db", "value": "duckdb", "label": "DuckDB" } },
+    { "name": "a number past the options does nothing", "control": "db", "inputs": [{ "kind": "key", "key": "4" }], "intent": null },
+    { "name": "escape puts it away", "control": "db", "inputs": [{ "kind": "key", "key": "escape" }], "dismiss": true },
+    { "name": "a click picks", "control": "db", "inputs": [{ "kind": "pick", "id": "postgres" }], "intent": { "controlId": "db", "value": "postgres", "label": "Postgres" } },
+    { "name": "a click on a missing id does nothing", "control": "db", "inputs": [{ "kind": "pick", "id": "mysql" }], "intent": null },
+    { "name": "voice: the second one", "control": "db", "inputs": [{ "kind": "say", "text": "the second one please" }], "intent": { "controlId": "db", "value": "sqlite", "label": "SQLite" } },
+    { "name": "voice: by label", "control": "db", "inputs": [{ "kind": "say", "text": "Let's use DuckDB." }], "intent": { "controlId": "db", "value": "duckdb", "label": "DuckDB" } },
+    { "name": "voice: two labels is ambiguous", "control": "db", "inputs": [{ "kind": "say", "text": "postgres or sqlite" }], "intent": null },
+    { "name": "multiple: numbers toggle, enter answers in option order", "control": "langs", "inputs": [{ "kind": "key", "key": "3" }, { "kind": "key", "key": "1" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "langs", "value": ["ts", "rs"], "label": "TypeScript, Rust" } },
+    { "name": "multiple: a second press unchecks", "control": "langs", "inputs": [{ "kind": "key", "key": "1" }, { "kind": "key", "key": "2" }, { "kind": "key", "key": "1" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "langs", "value": ["py"], "label": "Python" } },
+    { "name": "multiple: enter with nothing checked takes the highlighted row", "control": "langs", "inputs": [{ "kind": "key", "key": "down" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "langs", "value": ["py"], "label": "Python" } },
+    { "name": "slider: right twice then enter", "control": "budget", "inputs": [{ "kind": "key", "key": "right" }, { "kind": "key", "key": "right" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "budget", "value": 70, "label": "70 ms" } },
+    { "name": "slider: page down clamps at min", "control": "budget", "inputs": [{ "kind": "key", "key": "pagedown" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "budget", "value": 0, "label": "0 ms" } },
+    { "name": "slider: end then enter", "control": "budget", "inputs": [{ "kind": "key", "key": "end" }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "budget", "value": 200, "label": "200 ms" } },
+    { "name": "slider: a pointer set snaps to the step", "control": "budget", "inputs": [{ "kind": "set", "value": 84 }, { "kind": "key", "key": "enter" }], "intent": { "controlId": "budget", "value": 80, "label": "80 ms" } },
+    { "name": "slider: voice number", "control": "budget", "inputs": [{ "kind": "say", "text": "make it 120" }], "intent": { "controlId": "budget", "value": 120, "label": "120 ms" } },
+    { "name": "confirm: y", "control": "ship", "inputs": [{ "kind": "key", "key": "y" }], "intent": { "controlId": "ship", "value": "confirm", "label": "Deploy" } },
+    { "name": "confirm: n", "control": "ship", "inputs": [{ "kind": "key", "key": "n" }], "intent": { "controlId": "ship", "value": "cancel", "label": "Not yet" } },
+    { "name": "confirm: enter takes the highlighted confirm", "control": "ship", "inputs": [{ "kind": "key", "key": "enter" }], "intent": { "controlId": "ship", "value": "confirm", "label": "Deploy" } },
+    { "name": "confirm: voice yes", "control": "ship", "inputs": [{ "kind": "say", "text": "yes, go ahead" }], "intent": { "controlId": "ship", "value": "confirm", "label": "Deploy" } },
+    { "name": "candidates carry the artifact version", "control": "hero", "inputs": [{ "kind": "key", "key": "2" }], "intent": { "controlId": "hero", "value": "b", "label": "Noon", "artifactVersion": 4 } }
+  ],
+  "text": [
+    { "control": "db", "intent": { "controlId": "db", "value": "sqlite", "label": "SQLite" }, "text": "Picked \"SQLite\" for: Which database should the demo use? (db = sqlite)" },
+    { "control": "langs", "intent": { "controlId": "langs", "value": ["ts", "rs"], "label": "TypeScript, Rust" }, "text": "Picked \"TypeScript, Rust\" for: Which languages? (langs = ts,rs)" },
+    { "control": "budget", "intent": { "controlId": "budget", "value": 70, "label": "70 ms" }, "text": "Set 70 ms for: Latency budget? (budget = 70)" },
+    { "control": "ship", "intent": { "controlId": "ship", "value": "cancel", "label": "Not yet" }, "text": "Declined: Deploy now? (ship = cancel)" }
+  ]
+}

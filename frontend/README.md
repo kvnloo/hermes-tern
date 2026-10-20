@@ -41,6 +41,8 @@ flowchart LR
 | `src/overlays/` | Floating sheets (`overlay.ts` is their contract): approvals, clarify, masked prompts, completions, pickers |
 | `src/prompts/` | The prompt sheets on the overlay stack: their keys, and closing them when the gateway withdraws their questions |
 | `src/connections/` | Connect cards: the card files the plugin writes (`cards.ts`), and the watcher that keeps each card current and tells the agent |
+| `src/controls/` | `ask_control` sheets: Ripple's fast control drawn with the ask sheet's components (`sheet.tsx`), and the store that opens them, claims an answer across panes and sends it as the user's message |
+| `src/vendor/ripple/` | Ripple's fast-control schema, interaction model and conformance vectors, vendored unchanged |
 | `src/hermes/` | Hermes' own runtime and files: the gateway client, its `state.db` (the session index, the compaction boundaries), paths, shell, history |
 
 The views speak omp's chat vocabulary (`omp.session`, `omp.user`, `omp.assistant`,

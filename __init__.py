@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import connections, pull_requests, tern_env
+from . import connections, controls, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
 
@@ -93,4 +93,5 @@ def register(ctx) -> None:
         description="Writes the rules behind a background process's live chart in `hermes tern`, once per process.")
     pull_requests.register(ctx)
     connections.register(ctx)
+    controls.register(ctx)
     tern_env.register(ctx)

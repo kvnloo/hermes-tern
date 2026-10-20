@@ -55,6 +55,7 @@ hermes tern -c     # every `hermes chat` flag works: -m, -q, --image, --resume, 
 | --- | --- |
 | `hermes tern` | `hermes chat --tui` with this plugin's Tern frontend; the Ink TUI outside Tern |
 | `link_pull_request`, `unlink_pull_request`, `list_pull_requests` | Tools: the PRs a conversation works on, shown above the composer |
+| `ask_control` | Tool: a small question (a choice, a slider, a confirm, a pick from candidates) the user answers with a key or a click |
 | `transform_tool_result` hook | A connector's connect result becomes a card in the chat that started it |
 | `tool_request` middleware | The agent's shell commands run with the chat's `TERN_PANE`, so `tern open` works beside the chat |
 | `tern_charts` auxiliary task | Writes the rules behind a background process's live chart (`auxiliary.tern_charts` picks its model) |
@@ -104,6 +105,21 @@ A turn shows what the agent does while it works: its reasoning, short notes, and
 | `/changes` | The working tree's diff |
 | `/prs [N]` | Pull requests, or PR #N |
 | `/theme` | Paint the chat in Tern's colors, Nous colors or the Hermes skin |
+
+### Questions as controls
+
+When the agent needs a quick decision, it can ask with `ask_control` instead of a question in its reply. The control opens as a sheet over the composer:
+
+| Control | Keys |
+| --- | --- |
+| Choice, candidates | <kbd>1</kbd>…<kbd>8</kbd> picks · <kbd>↑</kbd> <kbd>↓</kbd> and <kbd>Enter</kbd> · a click |
+| Several choices | <kbd>1</kbd>…<kbd>8</kbd> or <kbd>Space</kbd> checks · <kbd>Enter</kbd> sends |
+| Slider | <kbd>←</kbd> <kbd>→</kbd> one step · <kbd>PgUp</kbd> <kbd>PgDn</kbd> ten · <kbd>Home</kbd> <kbd>End</kbd> · the −/+ buttons |
+| Confirm | <kbd>Y</kbd> · <kbd>N</kbd> · <kbd>Enter</kbd> |
+
+<kbd>Esc</kbd> puts the sheet away unanswered; the card in the transcript opens it again. The answer goes to the agent as your next message (`Picked "SQLite" for: Which database? (db = sqlite)`), so it is in the session's history like anything you type. If two panes show the chat, the first answer counts.
+
+The control's shape is [Ripple](https://github.com/kvnloo/ripple)'s fast-control schema, vendored in `frontend/src/vendor/ripple/` with the conformance cases the Python check and the sheet both run. Tern reports clicks, not pointer paths, so there is no drawing or spatial pick here.
 
 ## Background processes
 
@@ -193,7 +209,7 @@ flowchart LR
   F <-->|JSON-RPC| G[Hermes gateway<br/>shared by the profile]
   subgraph Hermes
     G --> A[agent + tools]
-    P[hermes-tern plugin<br/>__init__.py · tern_env.py ·<br/>pull_requests.py · connections.py] -.hooks.-> G
+    P[hermes-tern plugin<br/>__init__.py · tern_env.py ·<br/>pull_requests.py · connections.py ·<br/>controls.py] -.hooks.-> G
   end
   A -->|shell commands, with<br/>the pane's TERN_PANE| T
 ```
@@ -201,6 +217,7 @@ flowchart LR
 - **`__init__.py`** registers `hermes tern`. It runs `hermes chat --tui <flags>` with `HERMES_TUI_DIR` pointing at `frontend/`, so Hermes' own launcher still handles the profile, the working folder, resume, worktrees, the gateway attach and the exit summary. Exit code 75 (no TSP) reruns `hermes chat --tui` without the plugin's frontend.
 - **`frontend/`** is the TSP frontend: a TypeScript app on [`@stencil-hq/tern`](https://www.npmjs.com/package/@stencil-hq/tern). It talks to the profile's shared Hermes gateway (`hermes-gateway-v1`) through Hermes' own gateway client. `frontend/dist/entry.js` is committed, so an install needs no build step. [`frontend/README.md`](frontend/README.md) maps its modules.
 - **`tern_env.py`** is needed because the agent's tools run in that shared gateway, not in the chat's pane. This `tool_request` middleware puts an `export` of the pane's `TERN_PANE` and window variables before each shell command that the agent runs: in the foreground, in the background, and from a Python cell. It reads them from the pane's marker when the call is made. The model's history keeps the command as the model wrote it, and the frontend leaves the prefix out of what it shows. So plain `tern open`, `tern split` and the rest of Tern's CLI act beside the chat. [`docs/tern-blocks.md`](docs/tern-blocks.md) is a short guide to scripting blocks that way: split, run, capture, wait and close.
+- **`controls.py`** registers `ask_control`. The tool checks the control against the schema and returns at once; the pane draws it (`frontend/src/controls/`) and sends the answer as the user's message. Panes claim an answer in `plugin-data/hermes-tern/controls/`, so two panes on one chat send it once and a resumed chat shows it.
 - **`widget_author.py`** runs in Hermes' interpreter when the frontend asks for a background process's chart rules. It calls the auxiliary model (task `tern_charts`) and prints the answer. The frontend validates the rules and runs them (`frontend/src/processes/widgets/`, ported from omp's job widgets). It uses Node's linear-time regex engine, so no rule can stall the chat.
 
 > [!NOTE]
@@ -231,7 +248,7 @@ Pair the fake model with a headless Tern (`tern serve --control PORT`, then `ter
 
 ## Credits
 
-The frontend began as [can1357](https://github.com/can1357)'s `ui-tsp` (`can1357/hermes-agent@tern-frontend`). It keeps omp's chat roles (`omp.session`, …), which Tern's chat styles, tool folding and Carly integration are written against. Some UI patterns come from [T3 Code](https://github.com/pingdotgg/t3code).
+The frontend began as [can1357](https://github.com/can1357)'s `ui-tsp` (`can1357/hermes-agent@tern-frontend`). It keeps omp's chat roles (`omp.session`, …), which Tern's chat styles, tool folding and Carly integration are written against. Some UI patterns come from [T3 Code](https://github.com/pingdotgg/t3code). The control schema and its interaction model come from [Ripple](https://github.com/kvnloo/ripple).
 
 ## License
 

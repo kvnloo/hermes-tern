@@ -10,6 +10,7 @@ import type { NonEmpty } from './core/assert.js'
 import type { BlockKey, EntryId, SubagentKey, ToolCallId } from './core/ids.js'
 import type { ChartView } from './processes/widgets/types.js'
 import type { BatchEntry } from './tools/bridge.js'
+import type { Intent } from './vendor/ripple/index.js'
 
 /** One todo item as the `todo_list` tool reports it. */
 export interface Todo {
@@ -131,6 +132,8 @@ export interface ToolCall {
   connect?: ConnectCard | undefined
   /** The image it showed (media.ts), once a URL's bytes arrived; null when they could not be fetched. */
   image?: ImageSource | null | undefined
+  /** An `ask_control` call's answer, from this pane or another (controls/store.ts). */
+  controlAnswer?: Intent | undefined
 }
 
 /** A part of an assistant turn, in the order it streamed. */

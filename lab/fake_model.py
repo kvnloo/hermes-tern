@@ -8,6 +8,7 @@ the user's prompt, so one home covers every flow:
 
     "approve"   -> a terminal call Hermes flags as dangerous (approval sheet); "approve long": a long one
     "clarify"   -> a clarify call with choices (clarify sheet)
+    "control"   -> an ask_control call: a three-way choice (control sheet); "control slider": a slider
     "tool"      -> a harmless terminal call (tool card)
     "steps"     -> four calls in a row (commands, a read, a search), then an answer
     "work…"     -> (at the start) a turn like a real one: reasoning, short notes and tool calls
@@ -250,6 +251,14 @@ def _calls(prompt: str, target: Path) -> list[dict] | None:
             loop = " && ".join(f"for f in agent/{m}.py tests/test_{m}.py; do wc -l $f; done" for m in ("chat", "tools", "memory"))
             return [_call("terminal", {"command": f"cd {target} && {loop} && rm -rf -- {target}"})]
         return [_call("terminal", {"command": f"rm -rf -- {target}"})]
+    if "control" in words:
+        if "slider" in words:
+            return [_call("ask_control", {"id": "budget", "kind": "slider", "prompt": "Latency budget?", "min": 0,
+                                          "max": 200, "step": 10, "value": 50, "unit": "ms"})]
+        return [_call("ask_control", {"id": "db", "kind": "choice", "prompt": "Which database should the demo use?",
+                                      "options": [{"id": "postgres", "label": "Postgres", "detail": "the default"},
+                                                  {"id": "sqlite", "label": "SQLite"},
+                                                  {"id": "duckdb", "label": "DuckDB"}]})]
     if "clarify" in words:
         return [_call("clarify", {"questions": [{"question": "Which colour?", "choices": ["red", "green", "blue"]}]})]
     if "tool" in words:

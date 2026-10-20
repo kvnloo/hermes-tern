@@ -41,7 +41,7 @@ def test_registers_only_public_plugin_apis(ctx):
 
 def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
     tools = [k["name"] for _, k in ctx.of("register_tool")]
-    assert tools == ["link_pull_request", "unlink_pull_request", "list_pull_requests"]
+    assert tools == ["link_pull_request", "unlink_pull_request", "list_pull_requests", "ask_control"]
     assert f"provides_tools: [{', '.join(tools)}]" in MANIFEST
     assert [a[0] for a, _ in ctx.of("register_hook")] == ["transform_tool_result"]
     assert "provides_hooks: [transform_tool_result]" in MANIFEST

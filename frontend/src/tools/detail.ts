@@ -7,6 +7,7 @@ import type { ToolCall } from '../model.js'
 import { record } from '../wire/json.js'
 
 import { type AskDetail, askDetail } from './ask.js'
+import { type ControlDetail, controlDetail } from './control.js'
 import type { Raw } from './fields.js'
 import { type EditDetail, editDetail, type ReadDetail, readDetail } from './files.js'
 import {
@@ -39,6 +40,7 @@ import { type FetchDetail, fetchDetail, type WebSearchDetail, webSearchDetail } 
 /** A tool call's args and result, read: one variant per tool, `other` for a name none takes. */
 export type ToolDetail =
   | AskDetail
+  | ControlDetail
   | EditDetail
   | EvalDetail
   | FetchDetail
@@ -64,6 +66,7 @@ export type ToolKey = ToolDetail['tool']
 export type DetailOf<K extends ToolKey> = Extract<ToolDetail, { tool: K }>
 
 const PARSERS: { [K in ToolKey]: (raw: Raw) => DetailOf<K> } = {
+  ask_control: controlDetail,
   browser: plainDetail('browser'),
   clarify: askDetail,
   delegate_task: taskDetail,
