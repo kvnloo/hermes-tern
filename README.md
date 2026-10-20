@@ -110,6 +110,8 @@ A turn shows what the agent does while it works: its reasoning, short notes, and
 
 When the agent needs a quick decision, it can ask with `ask_control` instead of a question in its reply. The control opens as a sheet over the composer:
 
+<p align="center"><img alt="A control sheet asking which database the demo should use, with three numbered rows and Not now / Send buttons" src="docs/images/control.png" width="600"></p>
+
 | Control | Keys |
 | --- | --- |
 | Choice, candidates | <kbd>1</kbd>…<kbd>8</kbd> picks · <kbd>↑</kbd> <kbd>↓</kbd> and <kbd>Enter</kbd> · a click |
