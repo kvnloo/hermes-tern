@@ -252,13 +252,15 @@ def _calls(prompt: str, target: Path) -> list[dict] | None:
             return [_call("terminal", {"command": f"cd {target} && {loop} && rm -rf -- {target}"})]
         return [_call("terminal", {"command": f"rm -rf -- {target}"})]
     if "control" in words:
+        # Plugin tools sit behind Tool Search: called through the tool_call bridge, as a real model does.
         if "slider" in words:
-            return [_call("ask_control", {"id": "budget", "kind": "slider", "prompt": "Latency budget?", "min": 0,
-                                          "max": 200, "step": 10, "value": 50, "unit": "ms"})]
-        return [_call("ask_control", {"id": "db", "kind": "choice", "prompt": "Which database should the demo use?",
-                                      "options": [{"id": "postgres", "label": "Postgres", "detail": "the default"},
-                                                  {"id": "sqlite", "label": "SQLite"},
-                                                  {"id": "duckdb", "label": "DuckDB"}]})]
+            control = {"id": "budget", "kind": "slider", "prompt": "Latency budget?", "min": 0, "max": 200, "step": 10,
+                       "value": 50, "unit": "ms"}
+        else:
+            control = {"id": "db", "kind": "choice", "prompt": "Which database should the demo use?",
+                       "options": [{"id": "postgres", "label": "Postgres", "detail": "the default"},
+                                   {"id": "sqlite", "label": "SQLite"}, {"id": "duckdb", "label": "DuckDB"}]}
+        return [_call("tool_call", {"name": "ask_control", "arguments": control}, "call-control")]
     if "clarify" in words:
         return [_call("clarify", {"questions": [{"question": "Which colour?", "choices": ["red", "green", "blue"]}]})]
     if "tool" in words:
