@@ -18,7 +18,19 @@ export function availableModels(options: Pick<ModelOptionsResult, 'providers'>):
       .filter(model => !provider.unavailable_models?.includes(model))
       .map(model => ({ model, provider: provider.slug })))
 
-  return [...new Map(rows.map(row => [modelId(row), row])).values()]
+  const seen = new Set<string>()
+
+  return rows.filter(row => {
+    const id = modelId(row)
+
+    if (seen.has(id)) {
+      return false
+    }
+
+    seen.add(id)
+
+    return true
+  })
 }
 
 /** The pending route wins during a streaming turn; otherwise use the confirmed gateway route. */
