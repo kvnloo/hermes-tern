@@ -13,6 +13,7 @@ import { App } from '../app/chat.js'
 import { readLaunchEnv } from '../config/env.js'
 import { entryId } from '../core/ids.js'
 import { nativeOverlayKey, withinOverlayRoot } from '../overlays/identity.js'
+import { openModelPicker } from '../overlays/models.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
 
@@ -333,6 +334,42 @@ describe('overlay open-instance native ownership', () => {
       const outside: TspEvent = { ev: 'focus', sf: h.surface.id, id: INPUT_ID, raw: {} }
       expect(h.app.stores.stack.nativeReceipt(outside)).toMatchObject({ allowed: true, root: null })
       expect(h.app.stores.stack.nativeReceipt({ ev: 'unknown', sf: h.surface.id, raw: { image: true } })).toMatchObject({ allowed: true, root: null })
+    })
+  })
+
+
+  it('cannot activate a model in a same-key successor using an old picker ID or queued SDK callback', async () => {
+    await withApp(async h => {
+      h.gw.isCanonical = false
+      h.gw.handlers.set('model.options', () => ({
+        providers: [{ slug: 'p', name: 'Provider', models: ['one', 'two'], is_current: true }],
+        model: 'one', provider: 'p'
+      }))
+      h.gw.handlers.set('config.set', () => ({ key: 'model', value: 'two' }))
+      const activate = (id: string) => ({ ev: 'activate', sf: h.surface.id, id, item: 'p\ttwo', raw: {} } as const)
+
+      openModelPicker(h.app)
+      await painted()
+      const oldRoot = root(h)
+      const oldNative = activate(oldRoot)
+      const oldBound = h.surface.dispatch(oldNative)
+      expect(oldBound).toBeTypeOf('function')
+
+      openModelPicker(h.app)
+      await painted()
+      const nextRoot = root(h)
+      expect(nextRoot).not.toBe(oldRoot)
+      expect(View.from({ layer: [h.app.overlays.at(-1)?.node(nextRoot)] }).find(nextRoot)).toBeDefined()
+      expect(h.surface.dispatch(oldNative)).toBeUndefined()
+      await oldBound?.()
+      expect(h.gw.methods('config.set')).toHaveLength(0)
+
+      const current = h.surface.dispatch(activate(nextRoot))
+      expect(current).toBeTypeOf('function')
+      await current?.()
+      await painted()
+      expect(h.gw.methods('config.set')).toHaveLength(1)
+      expect(h.gw.methods('prompt.submit')).toHaveLength(0)
     })
   })
 

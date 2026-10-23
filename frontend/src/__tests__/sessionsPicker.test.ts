@@ -58,7 +58,7 @@ function setup() {
   openSessionPicker(stub(host), reader)
 
   const sheet = must(overlay, 'the picker')
-  const draw = (): NodeJson => tree(sheet.node('layer.sessions'))
+  const draw = (): NodeJson => tree(sheet.node('layer.overlay-1'))
   const press = (name: string, mods = {}) => {
     sheet.onKey(key(name, mods))
 
@@ -111,22 +111,22 @@ describe('the session picker', () => {
     draw()
 
     expect(press('right').p?.['focus']).toBe('preview')
-    expect(host.reveal).toHaveBeenLastCalledWith('layer.sessions.first')
+    expect(host.reveal).toHaveBeenLastCalledWith('layer.overlay-1.first')
 
     press('down')
     press('down')
 
-    expect(host.reveal).toHaveBeenLastCalledWith('layer.sessions.m0')
+    expect(host.reveal).toHaveBeenLastCalledWith('layer.overlay-1.m0')
     expect(reads).not.toContain('page a 5')
 
     press('down')
 
-    expect(host.reveal).toHaveBeenLastCalledWith('layer.sessions.m1')
+    expect(host.reveal).toHaveBeenLastCalledWith('layer.overlay-1.m1')
     expect(reads).toContain('page a 5')
 
     press('page_down')
 
-    expect(host.scroll).toHaveBeenLastCalledWith('layer.sessions.m1', 'page-down')
+    expect(host.scroll).toHaveBeenLastCalledWith('layer.overlay-1.m1', 'page-down')
 
     expect(press('left').p?.['focus']).toBe('list')
   })

@@ -89,7 +89,7 @@ export function openPrSheet(host: PullRequestsSheetHost, focus?: PrKey) {
     modal: true,
     node: id => {
       const now = Date.now()
-      const body = `${id}.body`
+      const body = `${id}.frame.body`
 
       return (
         <overlay anchor="center" key={nativeOverlayKey(id)} modal role="hermes.pr.sheet" size="full">
