@@ -134,3 +134,40 @@ def test_in_process_chat_restores_argv_and_frontend_env_after_early_exit(tern, m
     assert sys.argv is old_argv
     assert os.environ["HERMES_TUI_DIR"] == "/old/frontend"
     assert "HERMES_TERN_RESTORED" not in os.environ
+
+@pytest.mark.parametrize("existing", [None, "old-restored"])
+def test_in_process_chat_restores_argv_and_all_scope_after_unexpected_exception(
+    tern, monkeypatch, existing,
+):
+    """Even errors other than SystemExit must not poison the next launch."""
+    import os
+
+    saved_argv = sys.argv
+    monkeypatch.setenv("HERMES_TUI_DIR", "/old/frontend")
+    monkeypatch.setenv("HERMES_TERN_LAUNCH_CWD", "/old/cwd")
+    if existing is None:
+        monkeypatch.delenv("HERMES_TERN_RESTORED", raising=False)
+    else:
+        monkeypatch.setenv("HERMES_TERN_RESTORED", existing)
+    fake = types.ModuleType("hermes_cli.main")
+
+    def main():
+        assert sys.argv[1:] == ["chat", "--tui", "--pass-session-id"]
+        assert os.environ["HERMES_TUI_DIR"] == "/new/frontend"
+        assert os.environ["HERMES_TERN_RESTORED"] == "fixture-root"
+        assert os.environ["HERMES_TERN_LAUNCH_CWD"] == "/new/cwd"
+        raise RuntimeError("unexpected launcher failure")
+
+    fake.main = main
+    monkeypatch.setitem(sys.modules, "hermes_cli.main", fake)
+    with pytest.raises(RuntimeError, match="unexpected launcher failure"):
+        tern._chat(
+            ["--pass-session-id"], "/new/frontend",
+            {"HERMES_TERN_RESTORED": "fixture-root",
+             "HERMES_TERN_LAUNCH_CWD": "/new/cwd"},
+        )
+    assert sys.argv is saved_argv
+    assert os.environ["HERMES_TUI_DIR"] == "/old/frontend"
+    assert os.environ["HERMES_TERN_LAUNCH_CWD"] == "/old/cwd"
+    assert os.environ.get("HERMES_TERN_RESTORED") == existing
+
