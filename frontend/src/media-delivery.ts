@@ -130,7 +130,7 @@ export class MediaDelivery {
 
   /** Include host/session state, not only async cache writes, in transcript node revisions. */
   token(): string {
-    return JSON.stringify([this.revision, this.#epoch, this.#scope(), this.deps.tern.caps.kinds])
+    return JSON.stringify([this.revision, this.#epoch, this.#scope(), this.deps.tern.caps.kinds, this.deps.tern.caps.features])
   }
 
   preview(source: MediaPath): PreviewState {
