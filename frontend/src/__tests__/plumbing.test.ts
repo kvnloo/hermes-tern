@@ -237,7 +237,7 @@ describe('SurfaceHost', () => {
     expect(host.closed).toBe(false)
   })
 
-  it('sends the caret when it moves, and always when asked outright', () => {
+  it('sends the caret when it moves, and always when asked outright', async () => {
     const tern = fakeTern({ draws: true })
     const host = new SurfaceHost(tern.session, 'hermes', STYLES, {
       changed: vi.fn(), recovered: vi.fn(), report: vi.fn()
@@ -249,10 +249,14 @@ describe('SurfaceHost', () => {
     host.follow('layer.sheet.input')
     host.follow('layer.sheet.input')
     expect(tern.focused).toEqual(['layer.sheet.input'])
+    // The real one-credit peer must ACK a caret frame before the next request.
+    await turn()
 
     host.focus(INPUT_ID)
+    await turn()
     host.focus(INPUT_ID)
     host.follow(INPUT_ID)
+    await turn()
     expect(tern.focused).toEqual(['layer.sheet.input', INPUT_ID, INPUT_ID])
   })
 })
