@@ -363,7 +363,7 @@ export class BtwThreads {
     }
   }
 
-  /** Never resolve a task ID via its question, index, or the currently selected thread. */
+  /** Never resolve a task ID via an older turn, question, index or current selection. */
   #matchCompletions() {
     if (!this.#sid || !this.#owner || this.#owner !== this.host.session.ref) {
       return
@@ -371,7 +371,7 @@ export class BtwThreads {
 
     for (const [taskId, failed] of this.#pendingCompletions) {
       const matches = this.threads.filter(thread =>
-        thread.id === taskId || thread.turns.some(turn => turn.id === taskId)
+        thread.id === taskId || thread.turns.at(-1)?.id === taskId
       )
 
       if (matches.length !== 1) {

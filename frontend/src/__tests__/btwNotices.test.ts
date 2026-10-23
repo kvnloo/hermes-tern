@@ -226,6 +226,30 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
     }
   })
 
+  it('a late completion for an older turn cannot claim a newer completed follow-up', async () => {
+    const multi: BtwThread = {
+      id: 'multi',
+      revision: 3,
+      turns: [
+        { id: 'old-turn', question: 'Old', answer: 'Old answer', state: 'answered' },
+        { id: 'new-turn', question: 'New', answer: 'New answer', state: 'answered' }
+      ]
+    }
+    const f = await appFixture([multi])
+
+    try {
+      complete(f, 'old-turn')
+      await settle(f.gw)
+      expect(f.app.btw.notices).toEqual([])
+      complete(f, 'new-turn')
+      await settle(f.gw)
+      expect(f.app.btw.notices).toMatchObject([{ threadId: 'multi', turnId: 'new-turn' }])
+      expect(f.app.overlays).toEqual([])
+    } finally {
+      await f.close()
+    }
+  })
+
   it('waits for an actual terminal turn before binding an already-identified typed completion', async () => {
     const f = await appFixture([thread('running', 'running')])
 
