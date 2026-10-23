@@ -2,6 +2,7 @@ import { type Op, type Surface, type TspEvent } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
 import { entryId, subagentId, subagentKey, toolCallId } from '../core/ids.js'
+import { transcriptContext, type FrameCx } from '../app/frame.js'
 import type { Entry, TurnEntry } from '../model.js'
 import { Transcript } from '../transcript/store.js'
 import { RELOAD_PAGE, RETAIN_TURNS, Retention, type RetentionLive, retentionBoundary, safeToSettle } from '../view/retention.js'
@@ -375,16 +376,21 @@ describe('retained long-session transcript', () => {
   it('refreshes a late backend version and tip without rebuilding evicted history', () => {
     const entries: Entry[] = [{ id: entryId('welcome'), kind: 'welcome' }, ...history(25)]
     const h = harness()
-    const cx = (version: string, tip = 'First tip'): TranscriptContext =>
-      ({ ...context(), welcome: { version, tip } })
-    h.paint(entries, cx('v1'))
+    const session = { info: { version: '1.0' } }
+    const frame = stub<Pick<FrameCx, 'session' | 'copies' | 'welcome'>>({
+      session, copies: { copy: defaultCopy }, welcome: { version: '', tip: 'First tip' }
+    })
+    h.paint(entries, transcriptContext(frame, 1_000))
     h.gone(['main.u0', 'main.t0'])
-    h.paint(entries, cx('v1'))
+    h.paint(entries, transcriptContext(frame, 1_000))
     const before = h.ops().length
 
-    h.paint(entries, cx('v2', 'Updated tip'))
+    // Session.info can arrive after welcome was first projected.
+    session.info.version = '2.0'
+    frame.welcome.tip = 'Updated tip'
+    h.paint(entries, transcriptContext(frame, 1_001))
     const diff = h.since(before)
-    expect(JSON.stringify(diff)).toContain('v2')
+    expect(JSON.stringify(diff)).toContain('v2.0')
     expect(JSON.stringify(diff)).toContain('Updated tip')
     expect(diff.some(op => op[0] === 'add' && (op[1] === 'main.u0' || op[1] === 'main.t0'))).toBe(false)
     expect(diff.some(op => op[0] === 'del' && (op[1] === 'main.u0' || op[1] === 'main.t0'))).toBe(false)
