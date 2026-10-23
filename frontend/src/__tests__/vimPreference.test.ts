@@ -5,7 +5,7 @@ import { VimPreference, type VimPreferenceHost } from '../draft/vim-preference.j
 
 import { stub } from './fakes.js'
 
-function pref(initial: unknown = true) {
+function pref(initial?: unknown) {
   const composer = new Composer()
   let sid: string | null = 'sid-1'
   let value: unknown = initial
@@ -24,8 +24,15 @@ describe('Vim profile preference', () => {
     expect(h.composer.vim.enabled).toBe(false)
   })
 
-  it('enables from canonical config, without changing the draft or writing a secondary setting', async () => {
+  it('keeps Vim off when the fixture omits the config value altogether', async () => {
     const h = pref()
+    await h.preference.refresh()
+    expect(h.composer.vim.enabled).toBe(false)
+    expect(h.request).toHaveBeenCalledWith('config.get', { key: 'full', session_id: 'sid-1' })
+  })
+
+  it('enables from canonical config, without changing the draft or writing a secondary setting', async () => {
+    const h = pref(true)
     h.composer.set('keep this', { cursor: 3 })
     await h.preference.refresh()
     expect(h.composer.vim.enabled).toBe(true)
