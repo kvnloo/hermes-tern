@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { localCommand } from '../commands/local.js'
 import type { CommandHost } from '../commands/local.js'
+import type { SessionHost } from '../commands/session.js'
 import { entryId, liveSessionId } from '../core/ids.js'
 import { Composer } from '../draft/composer.js'
 import type { Entry } from '../model.js'
-import type { SessionHost } from '../commands/session.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { openPlanReview, type PlanReviewHost } from '../overlays/plan.js'
 import { editPlanExternal } from '../plan-editor.js'
@@ -300,14 +300,12 @@ describe('native plan review', () => {
     f.click('refine')
     const planSheet = must(f.overlays.at(-1))
     const onEdit = f.element('note')?.handlers?.onEdit
-    const onUndo = f.element('note')?.handlers?.onUndo
 
     expect(onEdit).toBeDefined()
     f.host.open(stubOverlay('clarify', { modal: true }))
     if (onEdit) {
       onEdit(stub<Parameters<typeof onEdit>[0]>({ from: 0, to: 0, text: 'unwanted', cursor: 8, len: 0, raw: {} }))
     }
-    onUndo?.()
     planSheet.onKey(key('text', { text: 'unwanted' }))
     f.host.close(must(f.overlays.at(-1)))
 
