@@ -116,6 +116,11 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
   const title = `/${name}${arg ? ` ${arg}` : ''}`
   const report = isReportCommand(name, arg) ? { ticket: cx.host.operations.begin(title, sid) } : undefined
 
+  // No read or action may be dispatched beneath an approval or secret modal.
+  if (report && !report.ticket) {
+    return
+  }
+
   try {
     const r = await rpc(cx.gw, 'slash.exec', { command: text.slice(1), session_id: sid })
 
