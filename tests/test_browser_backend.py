@@ -18,12 +18,18 @@ from hermes_tern_plugin.browser_transport import NativeBrowserError
 
 @dataclass
 class Lease:
+    caller: object | None = None
     attached: bool = True
     closed: bool = False
 
     def assert_current(self):
         if not self.attached or self.closed:
             raise PermissionError("original transport, profile or generation detached")
+
+    def assert_caller(self, current_request):
+        self.assert_current()
+        if current_request is not self.caller:
+            raise PermissionError("not the original gateway caller")
 
     def close(self):
         self.closed = True
@@ -33,7 +39,7 @@ class Caller:
     def __init__(self, profile="work", sid="s1"):
         self.profile = profile
         self.session_id = sid
-        self.lease = Lease()
+        self.lease = Lease(caller=self)
         self.attached = True
         self.captures = 0
 
@@ -44,6 +50,7 @@ class Caller:
     def capture_scope(self):
         self.assert_attached()
         self.captures += 1
+        self.lease = Lease(caller=self)  # each RPC owns an independent, provisional lease
         return self.lease
 
 
@@ -52,6 +59,7 @@ class Context:
 
     def __init__(self, consent=False):
         self.consent = consent
+        self.native_installed = False
         self.methods = {}
         self.tools = []
         self.cleanup = []
@@ -122,6 +130,9 @@ def system(monkeypatch):
     monkeypatch.setattr(backend, "_profile", lambda req: req.profile if req.attached else req.assert_attached())
     monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: owner if sid == "s1" and profile == "work" else None)
     monkeypatch.setattr(backend, "_cdp_selected", lambda: False)
+    monkeypatch.setattr(backend, "_native_tools_ready",
+                        lambda ctx, profile: ctx.consent and ctx.native_installed
+                        and ctx.profile_name == profile)
     monkeypatch.setattr(backend, "_viewer", lambda sid: (
         3, "window-1", (("TERN_PANE", "3"), ("TERN_WINDOW_KEY", "window-1")),
         {"PATH": "/bin"}, "tern", ("window-1", "daemon", "config")
@@ -164,6 +175,7 @@ def test_without_explicit_consent_discovery_stays_read_only(system):
 def test_granted_consent_adopts_and_revocation_fences_effects(system):
     ctx, actor, _, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     assert request("blocks", actor, ctx)["available"]
     assert native.get_driver("work", "s1") is not None
     identity = request("adopt", actor, ctx, target_id="7")
@@ -180,9 +192,84 @@ def test_granted_consent_adopts_and_revocation_fences_effects(system):
     assert native.get_driver("work", "s1").owned().adopted
 
 
+def test_consent_added_after_load_requires_reload_before_any_claim(system):
+    ctx, actor, _, clients = system
+    assert not request("blocks", actor, ctx)["available"]
+    ctx.consent = True  # live grant, but the registration-time native overrides are absent
+    found = request("blocks", actor, ctx)
+    assert found["reason"] == "needs_plugin_reload"
+    assert found["blocks"][0]["target_id"] == "7"
+    assert native.get_driver("work", "s1") is None
+    with pytest.raises(PermissionError, match="reload plugin"):
+        request("adopt", actor, ctx, target_id="7")
+    assert all(cli.calls == [{"op": "blocks"}] for cli in clients)
+
+    ctx.native_installed = True  # models an explicitly granted plugin reload
+    assert request("blocks", actor, ctx)["available"]
+    installed = native.get_driver("work", "s1")
+    assert installed is not None and installed.scope.lease is actor.lease
+    assert request("adopt", actor, ctx, target_id="7")["target_id"] == "7"
+    ctx.consent = False
+    before = list(installed.scope.cli.calls)
+    with pytest.raises(PermissionError, match="explicit"):
+        request("focus", actor, ctx, target_id="7")
+    assert installed.scope.cli.calls == before
+
+
+def test_same_sid_mirror_cannot_reuse_or_effect_and_original_keeps_lease(system):
+    ctx, actor, _, clients = system
+    ctx.consent = True
+    ctx.native_installed = True
+    assert request("blocks", actor, ctx)["available"]
+    driver = native.get_driver("work", "s1")
+    original_lease = driver.scope.lease
+    mirror = Caller(profile="work", sid="s1")  # attached peer and same legacy steer owner
+    assert mirror.attached and mirror.session_id == actor.session_id
+    before = list(driver.scope.cli.calls)
+    for action, params in (
+        ("blocks", {}),
+        ("adopt", {"target_id": "7"}),
+        ("focus", {"target_id": "7"}),
+        ("release", {"target_id": "7"}),
+        ("frame", {"target_id": "7", "frame": "main"}),
+    ):
+        with pytest.raises(PermissionError, match="original gateway caller"):
+            request(action, mirror, ctx, **params)
+    assert driver.scope.cli.calls == before
+    assert native.get_driver("work", "s1").scope.lease is original_lease
+    assert request("adopt", actor, ctx, target_id="7")["target_id"] == "7"
+    assert native.get_driver("work", "s1").scope.lease is original_lease
+
+
+def test_old_gateway_lease_without_public_caller_api_is_read_only(system, monkeypatch):
+    ctx, actor, _, clients = system
+    ctx.consent = True
+    ctx.native_installed = True
+
+    class OldLease:
+        def assert_current(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    legacy = OldLease()
+    monkeypatch.setattr(actor, "capture_scope", lambda: legacy)
+    result = request("blocks", actor, ctx)
+    assert result["available"] is False
+    assert result["reason"] == "caller_binding_unsupported"
+    assert not native._DRIVERS
+    assert legacy.closed
+    assert clients[0].calls == [{"op": "blocks"}]
+    with pytest.raises(NativeBrowserError, match="unsupported"):
+        request("adopt", actor, ctx, target_id="7")
+    assert clients[0].calls == [{"op": "blocks"}]
+
+
 def test_busy_turn_rejects_mutation_without_native_effect(system):
     ctx, actor, owner, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     request("blocks", actor, ctx)
     owner["running"] = True
     before = list(clients[0].calls)
@@ -199,6 +286,7 @@ def test_busy_turn_rejects_mutation_without_native_effect(system):
 def test_refuses_original_task_replacement_session_and_profile(system):
     ctx, actor, owner, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     request("blocks", actor, ctx)
     owner["session_key"] = "replacement-task"
     with pytest.raises(NativeBrowserError, match="ownership"):
@@ -215,6 +303,7 @@ def test_refuses_original_task_replacement_session_and_profile(system):
 def test_original_transport_or_generation_detach_not_redirected(system):
     ctx, actor, owner, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     request("blocks", actor, ctx)
     request("adopt", actor, ctx, target_id="7")
     actor.lease.attached = False
@@ -229,6 +318,7 @@ def test_original_transport_or_generation_detach_not_redirected(system):
 def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system):
     ctx, actor, owner, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     owner.clear()
     backend._legacy_owner = lambda sid, profile: None
     listing = request("blocks", actor, ctx)
@@ -242,6 +332,7 @@ def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system):
 def test_explicit_cdp_wins_before_any_browser_discovery(system, monkeypatch):
     ctx, actor, _, clients = system
     ctx.consent = True
+    ctx.native_installed = True
     monkeypatch.setattr(backend, "_cdp_selected", lambda: True)
     assert request("blocks", actor, ctx) == {
         "available": False, "blocks": [], "reason": "explicit_cdp",
