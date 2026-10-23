@@ -173,6 +173,7 @@ function recordingHost() {
       get entries() {
         return transcript.entries
       },
+      currentTodos: () => transcript.currentTodos(),
       inflight: rec('transcript.inflight'),
       load: rec('transcript.load'),
       reset: ({ session }) => void log.push(`transcript.reset ${session}`)
