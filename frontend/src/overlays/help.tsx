@@ -53,6 +53,7 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
       [[KEYS.agents.label], 'Agents'],
       [[KEYS.background.label], 'Background processes and cron jobs (/ps)'],
       [[KEYS.prs.label], 'Pull requests Hermes linked (/prs)'],
+      [[KEYS.plan.label], 'Review latest plan (/plan; /plan <task> generates via Hermes)'],
       [[KEYS.sidebar.label], 'Session sidebar: branch, PRs, changes (/sidebar)'],
       [[KEYS.clipboardImage.label], 'Attach the clipboard image (also ⌘V of an image, a dropped image file, /paste)'],
       [['down'], 'Focus the agents / shells / PR pills (empty prompt); ← → switch, Enter opens, Esc returns'],
