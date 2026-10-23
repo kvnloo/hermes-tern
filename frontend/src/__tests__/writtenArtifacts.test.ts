@@ -5,7 +5,7 @@ import { confirmedWriteArtifact, writtenArtifactNode } from '../artifacts/writte
 import type { FileContext } from '../artifacts/links.js'
 import { toolNode } from '../view/tools/shell.js'
 
-import { tree } from './fakes.js'
+import { must, tree } from './fakes.js'
 import { call } from './toolFixtures.js'
 
 const local: FileContext = { cwd: '/repo', hostLocal: true, media: true }
@@ -57,7 +57,7 @@ describe('verified Hermes written artifacts', () => {
       throw new Error('expected confirmed source')
     }
 
-    const body = tree(writtenArtifactNode(a, true))
+    const body = tree(must(writtenArtifactNode(a, true)))
     expect(body.p?.['text']).toContain(String.fromCharCode(96).repeat(5) + 'svg\n')
     expect(body.p?.['text']).toContain(source)
   })
@@ -70,7 +70,7 @@ describe('verified Hermes written artifacts', () => {
       throw new Error('expected model')
     }
 
-    expect(tree(writtenArtifactNode(model, true))).toMatchObject({ k: 'media', p: { path: '/repo/scene.glb' } })
+    expect(tree(must(writtenArtifactNode(model, true)))).toMatchObject({ k: 'media', p: { path: '/repo/scene.glb' } })
     expect(writtenArtifactNode(model, false)).toBeUndefined()
     expect(confirmedWriteArtifact(c, '/repo', false)).toBeUndefined()
     expect(JSON.stringify(tree(toolNode(c, 0, { ...local, media: false })))).not.toContain('"k":"media"')
