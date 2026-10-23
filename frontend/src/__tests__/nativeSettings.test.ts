@@ -14,7 +14,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 
-const starting = () => new Map(PROFILE_PREFERENCES.map(field => [field.key, field.options?.[0] ?? 'default']))
+const starting = () => new Map<string, string>(PROFILE_PREFERENCES.map(field => [field.key, field.options?.[0] ?? 'default'] satisfies [string, string]))
 
 function prefsJson(node: NodeJson): Record<string, unknown> {
   expect(node.k).toBe('prefs')

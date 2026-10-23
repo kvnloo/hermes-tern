@@ -13,6 +13,17 @@ if (!report || mode !== 'plain') {
   throw new Error('Expected a report path and plain|vim scenario')
 }
 
+const settingsWords: Record<string, string> = {
+  'busy': 'queue',
+  'approvals.mode': 'manual',
+  'details_mode': 'collapsed',
+  'thinking_mode': 'collapsed',
+  'theme': 'auto',
+  'density': 'off',
+  'focus': 'off',
+  'skin': 'default'
+}
+
 const gw = new FakeGateway({
   replies: {
     'setup.status': () => ({ provider_configured: true }),
@@ -23,11 +34,7 @@ const gw = new FakeGateway({
     }),
     'config.get': params => params['key'] === 'full'
       ? { config: { display: {} } }
-      : { value: ({
-          'busy': 'queue', 'approvals.mode': 'manual', 'details_mode': 'collapsed',
-          'thinking_mode': 'collapsed', 'theme': 'auto', 'density': 'off',
-          'focus': 'off', 'skin': 'default'
-        } as Record<string, string>)[String(params['key'])] ?? 'queue' },
+      : { value: settingsWords[String(params['key'])] ?? 'queue' },
     'commands.catalog': () => ({ canon: { '/ask': '/ask' }, skills: {} }),
     'slash.exec': () => ({ output: 'Command received' })
   }
