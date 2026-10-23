@@ -64,6 +64,8 @@ describe('owning-session binding preferences on pinned config.get', () => {
       { 'app.help': 'enter' },
       { 'app.help': 'space' },
       { 'app.help': 'ctrl+ctrl+k' },
+      { 'app.help': 7 },
+      null,
       { 'app.help': 'alt+y', 'unknown.action': 'alt+h' }
     ]) {
       f.stored = full(bindings)
