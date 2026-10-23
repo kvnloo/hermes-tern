@@ -107,7 +107,7 @@ describe('native general report sheets', () => {
     expect(sheetView(f.app).root).toBeUndefined()
     expect(f.app.transcript.entries.at(-1)).toMatchObject({ kind: 'panel', title: '/compress' })
     for (const [name, arg] of [['status', 'set'], ['tools', 'disable'], ['mcp', 'reload'], ['ssh', 'remove'], ['unknown', '']]) {
-      expect(isReportCommand(name!, arg!)).toBe(false)
+      expect(isReportCommand(must(name), must(arg))).toBe(false)
     }
   })
 
