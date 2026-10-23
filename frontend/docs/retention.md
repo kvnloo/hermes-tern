@@ -51,7 +51,7 @@ Run on OMP's machine with a prepared Hermes source checkout:
 
 ```sh
 cd frontend
-bun run setup
+node scripts/hermes-src.mjs
 bun install --frozen-lockfile
 bun run check
 bun run test src/__tests__/retention.test.ts
