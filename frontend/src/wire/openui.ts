@@ -1,13 +1,14 @@
-// Runtime boundary to the exact OpenUI experiment shipped by a Hermes
-// source checkout. No copied validator or unreviewed schema approximation.
-import { isAbsolute, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+// Runtime boundary to the original, packaged OpenUI preview experiment.
+// The tracked source assets ship beside dist/entry.js with the plugin.
+// Neither Hermes' pinned runtime nor a donor checkout supplies the validator.
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import type { VisualBundle } from '../visuals.js'
 
 import { record } from './json.js'
 
-/** Public exports of ui-tsp/experiments/openui-preview/src/bundle.mjs. */
+/** Public exports of openui/openui-preview/src/bundle.mjs (reviewed donor). */
 export interface OpenUiContract {
   readonly MAX_BYTES: number
   validateBundle(input: unknown): VisualBundle
@@ -27,25 +28,31 @@ function isOpenUiContract(value: unknown): value is OpenUiContract {
   )
 }
 
-/** Require the reviewed real experiment, including its original hash inputs. */
+/**
+ * Vitest executes src/wire/openui.ts; the production esbuild output executes
+ * dist/entry.js. Both resolve the same tracked plugin-local source directory.
+ * No environment variable, working directory or Hermes fork may redirect it.
+ */
+function packagedValidatorUrl(): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const source = basename(here) === 'wire' && basename(dirname(here)) === 'src'
+  const frontend = source ? resolve(here, '../..') : resolve(here, '..')
+
+  return pathToFileURL(join(frontend, 'openui/openui-preview/src/bundle.mjs')).href
+}
+
+/** Load the reviewed validator and its full on-disk fingerprint inputs. */
 export async function openUiContract(): Promise<OpenUiContract> {
-  const root = process.env['HERMES_PYTHON_SRC_ROOT']
-
-  if (!root || !isAbsolute(root)) {
-    throw new Error('OpenUI preview requires an absolute HERMES_PYTHON_SRC_ROOT pointing to the Hermes source checkout.')
-  }
-
-  const url = pathToFileURL(join(root, 'ui-tsp/experiments/openui-preview/src/bundle.mjs')).href
   let loaded: unknown
 
   try {
-    loaded = await import(/* @vite-ignore */ url)
+    loaded = await import(/* @vite-ignore */ packagedValidatorUrl())
   } catch {
-    throw new Error('The Hermes checkout has no OpenUI preview validator. Use the ui-tsp donor checkout to preview prepared files.')
+    throw new Error('Packaged OpenUI preview validator or a required source asset is missing; reinstall the hermes-tern plugin.')
   }
 
   if (!isOpenUiContract(loaded)) {
-    throw new Error('Unsupported Hermes OpenUI preview validator exports.')
+    throw new Error('Unsupported packaged OpenUI preview validator exports.')
   }
 
   return loaded
