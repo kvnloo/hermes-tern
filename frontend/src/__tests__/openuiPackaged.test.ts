@@ -90,10 +90,15 @@ async function mirrorAssets(): Promise<void> {
 
 async function mirroredBuild(): Promise<unknown> {
   const url = pathToFileURL(join(scratch, 'source-copy/openui-preview/src/bundle.mjs')).href
-  const loaded: unknown = await import(/* @vite-ignore */ url)
-  const calculate = record(loaded)?.['fingerprints']
-  if (typeof calculate !== 'function') throw new Error('Missing reviewed fingerprint implementation.')
-  const current: unknown = await calculate()
+  // Execute the same original module under Node, outside Vitest's transform
+  // cache, so mutated on-disk assets are what fingerprints() actually hashes.
+  const { stdout, stderr } = await execute(process.execPath, [
+    '--input-type=module', '--eval',
+    'const mod = await import(process.argv[1]); process.stdout.write(JSON.stringify(await mod.fingerprints()))',
+    url
+  ], { timeout: 10_000, maxBuffer: 16 * 1024 })
+  expect(stderr).toBe('')
+  const current: unknown = JSON.parse(stdout)
   return current
 }
 
