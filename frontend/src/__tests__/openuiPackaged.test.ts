@@ -1,6 +1,6 @@
 // Real packaged CLI → donor validator → Tern preview; no fake parser or LoadVisual.
 import { execFile } from 'node:child_process'
-import { cp, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -79,7 +79,7 @@ afterAll(async () => {
   vi.unstubAllEnvs()
 })
 
-async function mirroredBuild(): Promise<unknown> {
+async function mirrorAssets(): Promise<void> {
   const src = join(scratch, 'source-copy')
   await mkdir(src, { recursive: true })
   for (const relative of hashedAssets) {
@@ -87,7 +87,10 @@ async function mirroredBuild(): Promise<unknown> {
     await mkdir(dirname(dest), { recursive: true })
     await copyFile(join(openui, relative), dest)
   }
-  const url = pathToFileURL(join(src, 'openui-preview/src/bundle.mjs')).href
+}
+
+async function mirroredBuild(): Promise<unknown> {
+  const url = pathToFileURL(join(scratch, 'source-copy/openui-preview/src/bundle.mjs')).href
   const loaded: unknown = await import(/* @vite-ignore */ url)
   const calculate = record(loaded)?.['fingerprints']
   if (typeof calculate !== 'function') throw new Error('Missing reviewed fingerprint implementation.')
@@ -172,6 +175,7 @@ describe('packaged OpenUI preview with real donor assets and Tern SDK', () => {
   it('rejects modified real renderer and parser fingerprints, not just version labels', async () => {
     const contract = await openUiContract()
     const validated = contract.validateBundle(bundle)
+    await mirrorAssets()
     const initial = record(await mirroredBuild())
     const shipped = record(await contract.fingerprints())
     expect(initial).toEqual(shipped)
