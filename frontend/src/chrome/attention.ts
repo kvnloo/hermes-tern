@@ -57,7 +57,7 @@ export class Dispatches {
     const ttl = typeof payload.ttl_ms === 'number' && Number.isFinite(payload.ttl_ms) && payload.ttl_ms > 0
       ? Math.min(payload.ttl_ms, MAX_TTL_MS)
       : DEFAULT_TTL_MS
-    const level = payload.level === 'warn' || payload.level === 'error' || payload.level === 'success' ? payload.level : 'info'
+    const level = payload.level === 'warning' ? 'warn' : payload.level === 'warn' || payload.level === 'error' || payload.level === 'success' ? payload.level : 'info'
     const note: Dispatch = {
       key,
       serial: existing?.serial ?? ++this.#serial,
