@@ -32,6 +32,7 @@ import {
   visionView
 } from './cards/generic.js'
 import { memoryView, skillsView, skillView, todoView } from './cards/inline.js'
+import { lspView } from './cards/lsp.js'
 import { readView } from './cards/read.js'
 import { searchView } from './cards/search.js'
 import { taskView } from './cards/task.js'
@@ -55,6 +56,7 @@ const VIEWS: { [K in ToolKey]: ToolView<K> } = {
   image_generate: imageGenerateView,
   link_pull_request: linkView,
   list_pull_requests: listPullRequestsView,
+  lsp: lspView,
   manage_connections: connectView,
   memory: memoryView,
   other: otherView,

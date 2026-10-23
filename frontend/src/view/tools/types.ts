@@ -26,7 +26,7 @@ export interface Card {
   folded?: boolean | undefined
   preview?: { lines: number } | { tail: number } | undefined
   /** Overrides the derived status (a task stays running while its agents work). */
-  status?: 'running' | undefined
+  status?: 'running' | 'error' | undefined
   /** Overrides the call's own duration (a background task lasts until its agents finish). */
   took?: number | undefined
   body: JSX.Element[]
