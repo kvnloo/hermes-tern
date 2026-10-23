@@ -1,11 +1,14 @@
 // App-level regression checks use the actual Tern JSX Node implementation.
+import { EventEmitter } from 'node:events'
+
+import { Session, View } from '@stencil-hq/tern'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { copyToClipboard } from '../clipboard.js'
 import { isReportCommand } from '../reports.js'
 
-import { setup, settle } from './appSetup.js'
-import { given, key, must, stubOverlay, tree } from './fakes.js'
+import { App, setup, settle } from './appSetup.js'
+import { FakeGateway, given, key, must, stubOverlay, tree } from './fakes.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
@@ -41,6 +44,42 @@ describe('native general report sheets', () => {
     expect(sheetView(f.app).root?.p?.['role']).toBe('omp.overlay.report')
     expect(sheetView(f.app).body).toBe(text)
     expect(f.app.transcript.entries).toEqual(before)
+  })
+
+  it('renders the existing native report overlay into a real SDK Session/View surface', async () => {
+    const input = new EventEmitter()
+    const tern = new Session(input, { write() {} }, { exitHooks: false, record: '' })
+    const connecting = tern.handshake()
+    input.emit('data', `\\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\\x1b\\\\`)
+    expect(await connecting).toBe(true)
+
+    const gw = new FakeGateway()
+    const app = new App(tern, gw.client, 'fixture')
+    const running = app.run()
+    const surface = must(tern.surfaces[0])
+    let rendered = new View()
+    const original = surface.render.bind(surface)
+
+    surface.render = next => { rendered = View.from(next); original(next) }
+
+    try {
+      given.session(app, 's1')
+      const before = [...app.transcript.entries]
+      app.stores.composer.set('  draft 🦉  ', { cursor: 3 })
+      app.operations.showText('/history', '# Native\\n\\nExact 🦉')
+      await new Promise<void>(resolve => setImmediate(resolve))
+      await new Promise<void>(resolve => setImmediate(resolve))
+      const nodes = rendered.regions.find(region => region?.id === 'layer')?.children ?? []
+      expect(JSON.stringify(nodes)).toContain('omp.overlay.report')
+      expect(JSON.stringify(nodes)).toContain('Exact 🦉')
+      expect(app.transcript.entries).toEqual(before)
+      app.close(must(app.overlays.at(-1)))
+      expect(app.stores.composer.text).toBe('  draft 🦉  ')
+      expect(app.stores.composer.cursor).toBe(3)
+    } finally {
+      app.quit()
+      await running
+    }
   })
 
   it('retains the existing native bare /help and does not issue slash.exec', async () => {
