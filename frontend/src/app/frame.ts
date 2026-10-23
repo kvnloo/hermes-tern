@@ -10,6 +10,7 @@ import type { Overlay } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
 import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TableCharts } from '../transcript/tableCharts.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -22,6 +23,7 @@ export interface FrameCx extends DockSources {
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
   readonly transcript: Pick<Transcript, 'currentTodos' | 'entries'>
+  readonly charts: TableCharts
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
   /** Tern has the aside feature: the PR aside or the session sidebar docks at the right edge. */
@@ -70,6 +72,7 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
   return {
+    charts: cx.charts,
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,

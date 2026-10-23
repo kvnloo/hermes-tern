@@ -13,6 +13,7 @@ import { liveSessionId } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
+import { TableCharts } from '../transcript/tableCharts.js'
 import { dockNodes } from '../view/dock.js'
 import { dockModel, shownPills } from '../view/dockModel.js'
 
@@ -188,6 +189,7 @@ function frame(over: Partial<FrameCx> = {}) {
     ...dockSources(),
     actions: dockActions(),
     aside: () => false,
+    charts: new TableCharts({ policy: async () => 'off', plan: async () => 'bar' }, () => undefined),
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },
     copies: { copied: undefined, copy: () => undefined },
     overlays: [],

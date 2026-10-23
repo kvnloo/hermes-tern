@@ -104,6 +104,10 @@ def register(ctx) -> None:
     ctx.register_auxiliary_task(
         "tern_charts", display_name="Tern job charts",
         description="Writes the rules behind a background process's live chart in `hermes tern`, once per process.")
+    # Independent task for opt-in settled-table classification; no gateway RPC.
+    ctx.register_auxiliary_task(
+        "table_charts", display_name="Tern table charts",
+        description="Selects bar, line or no visualization for a settled Markdown table in `hermes tern`.")
     pull_requests.register(ctx)
     connections.register(ctx)
     tern_env.register(ctx)
