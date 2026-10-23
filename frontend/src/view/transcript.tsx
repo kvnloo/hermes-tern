@@ -12,6 +12,7 @@ import { steerState } from '../transcript/messages.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
 
 import { duration } from './format.js'
+import { attachmentImagePath, imagePreviewNode } from './media.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
 import { toolNode } from './tools/shell.js'
@@ -104,7 +105,7 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
         />
         {copyButton(e.text, e.id, 'omp.user.tool', 'Copy message', cx)}
       </row>
-      {e.attachments?.length ? attachmentsRow(e.attachments) : null}
+      {e.attachments?.length ? attachmentsRow(e.attachments, cx) : null}
       {e.text ? <md key="body">{e.text}</md> : null}
     </card>
   )
@@ -114,13 +115,19 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
  * A prompt's attachments over its words, as omp's bubble shows them: each image a thumbnail
  * (a click opens Tern's lightbox, which steps through the others), a file or a gone image a chip.
  */
-function attachmentsRow(list: readonly UserAttachment[]): JSX.Element {
+function attachmentsRow(list: readonly UserAttachment[], cx: TranscriptContext): JSX.Element {
   return (
     <row align="start" gap="sm" key="images" role="omp.user.images" wrap>
-      {list.map((a, i) =>
-        a.source ? (
-          <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
-        ) : (
+      {list.map((a, i) => {
+        const path = a.refPath ?? (a.source && 'path' in a.source ? a.source.path : undefined)
+        const remote = a.kind === 'image' && path && cx.media && !cx.media.context().local
+          ? attachmentImagePath(path, cx.media)
+          : undefined
+
+        return remote && cx.media ? imagePreviewNode(remote, cx.media, a.name, `a${i}`)
+          : a.source && ('blob' in a.source || !cx.media || cx.media.context().local) ? (
+            <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
+          ) : (
           <row
             align="center"
             gap="xs"
@@ -132,7 +139,7 @@ function attachmentsRow(list: readonly UserAttachment[]): JSX.Element {
             <text key="t" text={a.name} truncate="middle" wrap="none" />
           </row>
         )
-      )}
+      })}
     </row>
   )
 }
