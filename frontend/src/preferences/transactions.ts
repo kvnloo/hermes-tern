@@ -20,11 +20,18 @@ function ordered<T>(gateway: GatewayClient, work: () => Promise<T>): Promise<T> 
 export interface ProfileAccess {
   readonly gw: GatewayClient
   readonly sid: string
+  /** Exact canonical SessionInfo.profile_name captured when the sheet opened. */
+  readonly profile: string
   /** Checked before read, immediately before write and before showing a reply. */
   active(): boolean
 }
 
 function assertActive(access: ProfileAccess): void {
+  // Direct dispatch falls back to the connection when a session is reaped.
+  if (!access.sid.trim() || !access.profile.trim()) {
+    throw new Error('Settings has no canonical owner profile. Reopen after session.info.')
+  }
+
   if (!access.active()) {
     throw new Error('Settings session changed or sheet closed. Reopen Settings.')
   }
@@ -32,7 +39,7 @@ function assertActive(access: ProfileAccess): void {
 
 async function readValue(access: ProfileAccess, field: Preference): Promise<string> {
   assertActive(access)
-  const result = await rpc(access.gw, 'config.get', { key: field.key, session_id: access.sid })
+  const result = await rpc(access.gw, 'config.get', { key: field.key, session_id: access.sid, profile: access.profile })
   assertActive(access)
 
   if (typeof result.value !== 'string') {
@@ -82,6 +89,7 @@ export function writeProfile(access: ProfileAccess, field: Preference, requested
     const result = await rpc(access.gw, 'config.set', {
       key: field.key,
       session_id: access.sid,
+      profile: access.profile,
       value: next
     })
     assertActive(access)

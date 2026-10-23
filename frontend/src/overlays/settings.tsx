@@ -18,6 +18,9 @@ import { moveSelection } from './search.js'
 
 export type SettingsHost = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'session' | 'setEffort' | 'transcript'>
 
+// Surface.render swaps callbacks before painting; native root ids must never be reused.
+let nextSettingsRoot = 0
+
 const SESSION_PAGE = 'session'
 const GROUPS = [...new Set(PROFILE_PREFERENCES.map(field => field.group))]
 interface Pending {
@@ -33,7 +36,8 @@ class SettingsSheet implements Overlay {
 
   readonly #host: SettingsHost
   readonly #sid: string
-  readonly #profileName: string | undefined
+  readonly #profileName: string
+  readonly #root = `settings-${++nextSettingsRoot}`
   readonly #search = new Composer()
   readonly #editor = new Composer()
   #alive = true
@@ -49,15 +53,15 @@ class SettingsSheet implements Overlay {
   #busy: string | undefined
   #confirmation: Pending | undefined
 
-  constructor(host: SettingsHost, sid: string) {
+  constructor(host: SettingsHost, sid: string, profile: string) {
     this.#host = host
     this.#sid = sid
-    this.#profileName = host.session.info?.profile_name ?? undefined
+    this.#profileName = profile
   }
 
   #live(): boolean {
     return this.#alive && this.#host.session.ref.live === this.#sid &&
-      (this.#host.session.info?.profile_name ?? undefined) === this.#profileName &&
+      this.#host.session.info?.profile_name === this.#profileName &&
       this.#host.overlays.filter(item => item.key === this.key).at(-1) === this
   }
 
@@ -85,7 +89,8 @@ class SettingsSheet implements Overlay {
       const rows = await readProfile({
         active: () => this.#live() && this.#generation === generation,
         gw: this.#host.gw,
-        sid: this.#sid
+        sid: this.#sid,
+        profile: this.#profileName
       })
 
       if (!this.#live() || generation !== this.#generation) {
@@ -148,7 +153,8 @@ class SettingsSheet implements Overlay {
       const receipt = await writeProfile({
         active: () => this.#live(),
         gw: this.#host.gw,
-        sid: this.#sid
+        sid: this.#sid,
+        profile: this.#profileName
       }, intent.field, intent.value, intent.expected)
 
       if (this.#live()) {
@@ -317,7 +323,7 @@ class SettingsSheet implements Overlay {
   node(id: string): JSX.Element {
     if (!this.#live()) {
       return (
-        <overlay anchor="bottom" key={id.slice('layer.'.length)} modal size="md">
+        <overlay anchor="bottom" key={this.#root} modal size="md">
           <col gap="md" key="expired">
             <text key="warning" text="This Settings sheet belongs to a previous session. Close and reopen it." />
             {button({ key: 'close', label: 'Close', onClick: () => this.#host.close(this) })}
@@ -330,14 +336,14 @@ class SettingsSheet implements Overlay {
 
     if (ask) {
       return (
-        <overlay anchor="bottom" key={id.slice('layer.'.length)} modal size="md">
+        <overlay anchor="bottom" key={this.#root} modal size="md">
           <col gap="md" key="confirm">
             <text key="heading" text="Confirm Hermes profile change" />
             <text key="scope" text={`Profile setting: ${ask.field.label}. This is persistent, not a live session pin.`} wrap="word" />
             <text key="value" text={`Change from ${ask.expected} to ${ask.value}?`} wrap="word" />
             <text key="warning" text="This changes the tool-approval policy for the profile. Enter and Escape cancel by default." wrap="word" />
             <row gap="sm" key="actions" role="omp.actions">
-              {button({ key: 'cancel', label: 'Cancel (default)', onClick: () => { this.#confirmation = undefined; this.#host.changed() } })}
+              {button({ key: 'cancel', label: 'Cancel (default)', onClick: () => { if (this.#interactive() && this.#confirmation === ask) { this.#confirmation = undefined; this.#host.changed() } } })}
               {button({ key: 'confirm', label: 'Confirm profile policy change', onClick: () => {
                 if (this.#interactive() && this.#confirmation === ask) {
                   void this.#save(ask)
@@ -358,7 +364,7 @@ class SettingsSheet implements Overlay {
 
     return (
       <prefs
-        key={id.slice('layer.'.length)}
+        key={this.#root}
         title="Hermes settings"
         lead={`Session: ${this.#sid}. Profile settings use Hermes config.get/set in that session's profile; session model/effort pins remain separate.`}
         page={this.#page}
@@ -372,12 +378,12 @@ class SettingsSheet implements Overlay {
         {...(this.#editing ? { editing: { cursor: this.#editor.cursor, draft: this.#editor.text, option: this.#choice, row: this.#editing } } : {})}
         {...(this.#searching ? { query: this.#search.text } : {})}
         onAction={{
-          close: () => this.#host.close(this),
+          close: () => { if (this.#interactive()) { this.#host.close(this) } },
           edit: event => { if (event.value) { this.#activate(event.value) } },
           model: () => this.#activate('session.model'),
           'model-hub': () => this.#activate('session.hub'),
           effort: () => this.#activate('session.effort'),
-          page: event => { if (event.value) { this.#page = event.value; this.#searching = false; this.#selected = undefined; this.#host.changed() } }
+          page: event => { if (this.#interactive() && event.value) { this.#page = event.value; this.#searching = false; this.#selected = undefined; this.#host.changed() } }
         }}
         onActivate={event => this.#activate(event.item)}
         onChange={event => this.#change(event)}
@@ -388,8 +394,8 @@ class SettingsSheet implements Overlay {
           if (!this.#editing) { this.#searching = true }
           this.#host.changed()
         }}
-        onSelect={event => { this.#selected = event.item; this.#host.changed() }}
-        onUndo={() => { (this.#editing ? this.#editor : this.#search).undo(); this.#host.changed() }}
+        onSelect={event => { if (this.#interactive()) { this.#selected = event.item; this.#host.changed() } }}
+        onUndo={() => { if (this.#interactive()) { (this.#editing ? this.#editor : this.#search).undo(); this.#host.changed() } }}
       >
         <col gap="sm" key="actions">
           {this.#status === 'loading' ? <text key="loading" text="Reading supported Hermes profile settings…" /> : null}
@@ -493,7 +499,15 @@ export function openSettings(host: SettingsHost): void {
     return
   }
 
-  const overlay = new SettingsSheet(host, sid)
+  const profile = host.session.info?.profile_name
+
+  if (typeof profile !== 'string' || !profile.trim()) {
+    host.transcript.notice('Cannot open Settings before Hermes supplies a canonical session profile. Refresh the session and retry.', 'warning')
+
+    return
+  }
+
+  const overlay = new SettingsSheet(host, sid, profile)
   host.open(overlay)
   void overlay.load()
 }

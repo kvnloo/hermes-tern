@@ -20,6 +20,8 @@ interface Provider {
   count: number
 }
 
+let nextModelHubRoot = 0
+
 export function openModelHub(host: ModelHubHost): void {
   const sid = host.session.ref.live
 
@@ -30,6 +32,12 @@ export function openModelHub(host: ModelHubHost): void {
   }
 
   const profile = host.session.info?.profile_name
+  if (typeof profile !== 'string' || !profile.trim()) {
+    host.transcript.notice('Cannot open the model hub without a canonical owner profile. Refresh the session and retry.', 'warning')
+    return
+  }
+
+  const nativeRoot = `model-hub-${++nextModelHubRoot}`
   let alive = true
   let generation = 0
   let status: 'loading' | 'ready' | 'error' = 'loading'
@@ -96,7 +104,7 @@ export function openModelHub(host: ModelHubHost): void {
 
       return (
         <picker
-          key="model-hub"
+          key={nativeRoot}
           title="Hermes model hub"
           noun="providers"
           icon="cpu"
@@ -114,7 +122,7 @@ export function openModelHub(host: ModelHubHost): void {
             { end: true, id: 'close', keys: ['esc'], label: 'Close' }
           ]}
           onAction={{
-            close: () => host.close(overlay),
+            close: () => { if (interactive()) { host.close(overlay) } },
             model: chooseSession,
             reload: () => { if (interactive()) { void load() } }
           }}
@@ -132,7 +140,7 @@ export function openModelHub(host: ModelHubHost): void {
       )
     },
     onKey: (key: Key) => {
-      if (key.name === 'escape') {
+      if (key.name === 'escape' && interactive()) {
         host.close(overlay)
       } else if (interactive() && key.name === 'enter') {
         chooseSession()

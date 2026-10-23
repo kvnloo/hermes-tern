@@ -17,7 +17,7 @@ export interface Preference {
 export const PROFILE_PREFERENCES: readonly Preference[] = [
   { key: 'busy', label: 'While Hermes is busy', group: 'Agent', hint: 'Persistent default for new prompts. Live turns keep their current admission policy.', kind: 'choice', options: ['queue', 'steer', 'interrupt'] },
   { key: 'approvals.mode', label: 'Approval policy', group: 'Safety', hint: 'Profile-wide tool approvals; changing the policy affects future actions and requires explicit confirmation.', kind: 'choice', options: ['manual', 'smart', 'off'], consequential: true },
-  { key: 'details_mode', label: 'Tool detail', group: 'Display', hint: 'Default collapsed or expanded tool details for Hermes.', kind: 'choice', options: ['collapsed', 'expanded'] },
+  { key: 'details_mode', label: 'Tool detail', group: 'Display', hint: 'Default collapsed or expanded tool details for Hermes.', kind: 'choice', options: ['collapsed', 'expanded', 'hidden'] },
   { key: 'thinking_mode', label: 'Thought display', group: 'Display', hint: 'Default thought rendering in Hermes.', kind: 'choice', options: ['collapsed', 'truncated', 'full'] },
   { key: 'theme', label: 'Hermes TUI theme', group: 'Display', hint: 'Hermes profile theme; not the local Tern surface theme set by /theme.', kind: 'choice', options: ['auto', 'light', 'dark'] },
   { key: 'density', label: 'Compact Hermes TUI', group: 'Display', hint: 'Persistent Hermes TUI density; Tern layout remains native.', kind: 'switch', options: ['off', 'on'] },
