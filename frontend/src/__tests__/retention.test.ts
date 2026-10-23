@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { entryId, subagentId, subagentKey, toolCallId } from '../core/ids.js'
 import type { Entry, TurnEntry } from '../model.js'
-import { RELOAD_PAGE, RETAIN_TURNS, Retention, retentionBoundary, safeToSettle } from '../view/retention.js'
+import { Transcript } from '../transcript/store.js'
+import { RELOAD_PAGE, RETAIN_TURNS, Retention, type RetentionLive, retentionBoundary, safeToSettle } from '../view/retention.js'
 import type { TranscriptContext } from '../view/transcript.js'
 
 import { stub } from './fakes.js'
 
-const context = (copy = vi.fn()): TranscriptContext => ({
+const defaultCopy = vi.fn()
+const context = (copy = defaultCopy): TranscriptContext => ({
   copy,
   now: 1_000,
   welcome: { tip: 'A tip', version: 'v1' }
@@ -43,7 +45,10 @@ function turnAt(entries: readonly Entry[], i: number): TurnEntry {
 }
 
 /** Records actual SDK operations, not a second fake retention implementation. */
-function harness() {
+function harness(live?: () => RetentionLive) {
+  let current: readonly Entry[] = []
+  let lifetime = 0
+  const changedEntries = new Set<Entry>()
   const frames: Op[][] = []
   const changed = vi.fn()
   let blocked = false
@@ -56,17 +61,24 @@ function harness() {
     acknowledge: () => undefined
   }
   const surface = stub<Surface>(raw)
-  const retention = new Retention(surface, changed)
+  const retention = new Retention(surface, changed, live ?? (() => ({ entries: current, lifetime })))
   const ops = () => frames.flat()
-  const paint = (entries: readonly Entry[], cx = context(), hold = false) =>
-    retention.paint({ dock: [], layer: [] }, entries, cx, hold)
+  const paint = (entries: readonly Entry[], cx = context(), hold = false) => {
+    current = entries
+    retention.paint({ dock: [], layer: [] }, entries, cx, hold, changedEntries)
+  }
   const gone = (ids: string[], sf = 'hermes') =>
     retention.gone(stub<TspEvent>({ ev: 'gone', ids, sf }))
   const click = (id: string) =>
     retention.dispatch(stub<TspEvent>({ act: 'click', ev: 'action', id, raw: {}, sf: 'hermes' }))
   const since = (start: number) => ops().slice(start)
 
-  return { changed, click, frames, gone, ops, paint, retention, setBlocked: (value: boolean) => { blocked = value }, since, surface }
+  return {
+    changed, click, frames, gone, ops, paint, retention,
+    mark: (entry: Entry) => { changedEntries.add(entry) },
+    replace: (entries: readonly Entry[]) => { current = entries; lifetime++ },
+    setBlocked: (value: boolean) => { blocked = value }, since, surface
+  }
 }
 
 describe('retained long-session transcript', () => {
@@ -141,6 +153,7 @@ describe('retained long-session transcript', () => {
       }
 
       live.rev++
+      h.mark(live)
       h.paint(entries)
     }
 
@@ -216,6 +229,7 @@ describe('retained long-session transcript', () => {
     }
 
     turn.rev++
+    h.mark(turn)
     h.paint(entries)
     expect(h.since(initial)).toContainEqual(['del', 'main.t0'])
     expect(h.since(initial)).toContainEqual(['settle', 'main.t0'])
@@ -223,6 +237,7 @@ describe('retained long-session transcript', () => {
     h.paint(entries)
     const evictedAt = h.ops().length
     turn.rev++
+    h.mark(turn)
     h.paint(entries)
     expect(h.since(evictedAt).some(op => op[0] === 'add' && op[1] === 'main.t0')).toBe(false)
     h.retention.request()
@@ -253,9 +268,11 @@ describe('retained long-session transcript', () => {
     expect(h.ops().some(op => op.length > 1 && op[1] === 'main.retention-load')).toBe(false)
     const action = h.click('main.u0.tools.copy')
     expect(action).toBeTypeOf('function')
-    h.paint([], context(copy))
+    // The reducer replaced the live transcript, but paint has not run yet.
+    h.replace([])
     await action?.()
     expect(copy).not.toHaveBeenCalled()
+    h.paint([], context(copy))
     expect(h.ops()).toContainEqual(['del', 'main.u0'])
     expect(h.ops()).not.toContainEqual(['del', 'main.retention-load'])
   })
@@ -283,6 +300,7 @@ describe('retained long-session transcript', () => {
       const start = h.ops().length
       const last = turnAt(entries, n - 1)
       last.rev++
+      h.mark(last)
       const tail = last.blocks[0]
       if (tail?.kind === 'text') { tail.text += ' token' }
       h.paint(entries)
