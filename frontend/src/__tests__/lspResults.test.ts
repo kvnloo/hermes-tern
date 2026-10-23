@@ -442,9 +442,17 @@ describe('patch and write_file LSP companion diagnostics', () => {
     for (const result of [companion, JSON.stringify(companion)]) {
       const c = call(name, { content: 'new', path: 'src/a.py' }, { result })
       expect(detailOf(c)).toMatchObject({
-        diagnostics: { files: [{ path: 'src/a.py', diagnostics: [
-          { col: 3, line: 2, end: { line: 4, col: 5 }, severity: 'error', source: 'pyright' }
-        ], omitted: 2 }] }
+        diagnostics: { files: [
+          { path: 'src/a.py', diagnostics: [
+            { col: 3, line: 2, end: { line: 4, col: 5 }, message: 'Undefined name', severity: 'error', source: 'pyright' },
+            { col: 8, line: 7, message: 'Unused value', severity: 'warn' },
+            { col: 2, line: 10, message: 'Informational', severity: 'info' },
+            { col: 1, line: 12, message: 'Try this', severity: 'hint' }
+          ], omitted: 2 },
+          { path: 'src/b.py', diagnostics: [
+            { col: 1, line: 8, message: 'Mismatch', severity: 'error' }
+          ], omitted: 0 }
+        ] }
       })
       const root = tree(toolNode(c, 12, local))
       expect(role(root, 'omp.tool.diagnostics')).toHaveLength(1)
