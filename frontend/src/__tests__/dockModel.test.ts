@@ -186,6 +186,7 @@ function frame(over: Partial<FrameCx> = {}) {
   let focused: Pill | undefined = 'todos'
   const cx: FrameCx = {
     ...dockSources(),
+    liveVoice: { blocked: false, node: () => null },
     actions: dockActions(),
     aside: () => false,
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },

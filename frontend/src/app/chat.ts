@@ -41,6 +41,7 @@ import { IMAGE_ONLY_PROMPT } from '../turn/prompt.js'
 import { STYLES } from '../view/styles.js'
 import { noticeSink, onCardFault } from '../view/tools/faults.js'
 import { busyLabel, preparingLabel } from '../view/workLogModel.js'
+import type { LiveVoice } from '../voice/live.js'
 
 import { AppActions } from './actions.js'
 import { drawFrame, type FrameCx } from './frame.js'
@@ -55,6 +56,7 @@ export class App implements ChatPorts {
   // The stores the ports lend (ChatPorts; app/stores.ts says what each one holds).
   readonly session: SessionState
   readonly transcript: Transcript
+  readonly liveVoice: LiveVoice
   readonly agents: Agents
   readonly processes: Processes
   readonly cron: Cron
@@ -84,6 +86,7 @@ export class App implements ChatPorts {
     this.stores = s
     this.session = s.session
     this.transcript = s.transcript
+    this.liveVoice = s.liveVoice
     this.agents = s.agents
     this.processes = s.processes
     this.cron = s.cron
@@ -195,6 +198,7 @@ export class App implements ChatPorts {
   }
 
   changed() {
+    this.stores?.liveVoice.syncOwner()
     this.#renders.request()
   }
 
@@ -253,6 +257,7 @@ export class App implements ChatPorts {
    * pane's session, which `hermes tern` resumes if it starts again in the pane.
    */
   #end(code = 0) {
+    void this.liveVoice.control('stop')
     markViewer(null, durable(this.session.ref))
     this.#done.resolve(code)
   }
@@ -262,10 +267,12 @@ export class App implements ChatPorts {
   }
 
   newSession(title?: string): Promise<void> {
+    void this.liveVoice.control('stop')
     return this.stores.life.newSession(title)
   }
 
   resume(id: StoredSessionId): Promise<void> {
+    void this.liveVoice.control('stop')
     return this.stores.life.resume(id)
   }
 

@@ -19,6 +19,7 @@ import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
+import { HOLD_UNAVAILABLE } from '../voice/hold.js'
 import { rpc } from '../wire/rpc.js'
 
 import { CONTROL_COMMANDS } from './control.js'
@@ -34,6 +35,7 @@ export type CommandHost = Pick<
   | 'busy'
   | 'control'
   | 'gw'
+  | 'liveVoice'
   | 'newSession'
   | 'open'
   | 'openHelp'
@@ -73,6 +75,28 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    help: 'Opt-in live conversation (Alt+Shift+V), separate from /voice dictation',
+    name: 'live',
+    run: (host, arg) => {
+      if (arg && arg !== 'status' && arg !== 'off') {
+        return host.transcript.notice('Usage: /live [status|off]', 'warning')
+      }
+      if (arg === 'status') {
+        return host.transcript.notice('Live voice: ' + host.liveVoice.phase)
+      }
+      if (arg === 'off') {
+        void host.liveVoice.control('stop')
+        return
+      }
+      host.liveVoice.toggle()
+    }
+  },
+  {
+    help: 'Why physical hold-to-talk is unavailable (Alt+Shift+Space)',
+    name: 'ptt',
+    run: host => host.transcript.notice(HOLD_UNAVAILABLE, 'warning')
+  },
   {
     // `/q` is Hermes' /queue.
     aliases: ['exit'],
