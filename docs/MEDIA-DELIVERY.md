@@ -24,11 +24,12 @@ The exact-green gateway seam at kvnloo/hermes-agent
 - Canonical gateway/session_plugin_methods.py: the RPC session_id is the
   durable session key, tied to original subscription, profile, live session
   generation, transport and runtime epoch;
-- Legacy tui_gateway/methods_session.py:377/432/477: session.create/resume
-  exposes both live RPC session_id and distinct stored_session_id. The
-  existing authenticated _current_session_steer_authority helper maps the
-  current legacy worker/transport to its server-owned session_key. No
-  caller-supplied durable ID or viewer field is used for this mapping.
+- Legacy tui_gateway/methods_session.py:377/432/477 exposes both live RPC
+  session_id and a distinct stored_session_id to its own client. However the
+  public registered GatewayRequestContext exposes only the live SID and profile,
+  not an authenticated live-to-stored projection. This plugin does **not**
+  inspect the server's private session table/transport helper or infer an owned
+  durable key from user-supplied values; legacy preview remains unsupported.
 
 No public plugin request contains an authoritative tool execution host or
 completed tool-result provenance. A tool_call_id provided by a client is
@@ -60,17 +61,35 @@ upload and card behavior remains available.
   controller under the original successful lease. Detach, generation change,
   session replacement or plugin unload revokes pending scope. Another viewer
   or profile cannot claim it by replaying the path.
-- A resumed/persisted image is authorized through the owning profile's
-  public SessionDB.get_messages_as_conversation(..., include_ancestors=True):
-  a genuine durable user row must pair the exact @image: or [Image attached at:]
-  reference with an image_url part containing **identical image bytes**.
-  A typed @image directive or copied path alone is never authority.
-  This handles original core uploads and persisted images independently of
-  live staging. Images without such evidence fail closed.
-- The image read validates an exact owned staging parent, regular non-symlink
-  and non-hardlinked file, bounded fd-relative read (16 MiB), raster magic,
-  supplied MIME, original stage byte/inode where applicable and an after-read
-  file/owner/authority check. It never reads a same-named gateway path for a
+- Actual core agent/session_persistence.py:_durable_content transforms inline
+  image_url parts into a **text-only** stored representation. It does not
+  preserve structured image bytes. Therefore a bare durable @image: reference
+  or [Image attached at:] hint is not proof. The old fixture that appended
+  structured image_url parts directly to SessionDB could not occur through
+  production flush and has been replaced by a real write/flush/reload test.
+- For a **canonical** resumed image, all three independent conditions are
+  required: (1) a plugin-owned sidecar witness created **only after successful
+  stage_image_bytes** with exact profile, durable session, path, SHA-256, size
+  and inode; (2) an owning public SessionDB durable user row referencing this
+  exact path; (3) an actual **terminal/completed** canonical
+  session_admissions receipt (read with hermes_state_runtime.list_session_admissions)
+  whose server-captured attachments_v1 contains the same committed SHA-256,
+  byte length and MIME. A staged-only image, failed/queued admission, text
+  marker alone, foreign session, altered file, un-attested same-byte copy
+  or missing/invalid sidecar refuses preview. This is a conservative
+  cryptographically fingerprinted byte witness, not a new input registry or
+  override of canonical admission.
+- Legacy original image.attach_bytes still stages and queues through core;
+  namespaced attach_bytes refuses legacy to prevent duplicate enqueue. Since
+  legacy has neither a plugin staging lease nor a public durable admission
+  receipt plus live-SID mapping, **legacy resumed previews are unsupported**
+  rather than pretending typed paths confer permission.
+- The image read validates an exact configured profile staging parent
+  (including the configured HOME symlink alias, never aliases below HOME),
+  no-follow directory fd ancestry, regular non-symlink and non-hardlinked
+  image and proof files, bounded fd-relative read (16 MiB), raster magic,
+  supplied MIME, original stage byte/inode, and after-read
+  file/root/owner/authority checks. It never reads a same-named gateway path for a
   remote compute source. No owner-loop waits, polling or background IO.
 
 The frontend only probes capabilities on explicit preview load, then calls
@@ -81,14 +100,22 @@ Session.blob(bytes, mime) API.
 
 ## Host boundary and current limits
 
-Real Tern 0.9.5 negotiates media/image/blobs, but its observed session.info
-does not include terminal_backend. No frontend, gateway or compute host can
-be inferred from cwd, localhost, pane environment or an absent field. The
-existing renderer appropriately refuses preview buttons where host identity
-is unknown; even a staged gateway-owned attachment still needs a separate
-renderer-owned source-origin signal before its chip can safely be enabled.
-Do not modify frontend/src/view/media.tsx or global App/frame/stores to
-bypass that restriction from this backend slice.
+Real Tern 0.9.5 negotiates media/image/blobs, but session.info can omit
+terminal_backend. That absence **does not** imply that a normal successful
+gateway-staged composer attachment lives on the compute host. This slice's
+attachmentImagePath and MediaDelivery now treat the independently established
+active gateway attachment route as eligible for a **Load image preview**
+control, even when terminal_backend is unknown. It performs no renderer IO,
+assumes no local backend, and does not treat the client path as final proof:
+the registered backend must positively attest bytes and ownership before
+Session.blob is called. Unsupported/denied RPCs show retry errors, never
+a made-up image or cached blob.
+
+For **tool results**, remote compute locality and completed-tool provenance
+remain unknown without a public server-authenticated contract. Unknown
+terminal_backend still projects tool paths as unavailable. A client-provided
+tool_call_id, a guessed path or a copied attachment scope cannot make the
+server authorize those bytes. The renderer must not probe such paths locally.
 
 Legacy PNG/GLB read_file binary refusals remain refusals; a PDF extracting
 text remains a document extraction, not an image. Remote PDF/video/audio/3D
@@ -132,24 +159,39 @@ bun run bundle
 On the isolated signed-in Tern 0.9.5 AgentDisplay window, confirm the
 existing UNKNOWN backend notice for unproven tool and attachment paths;
 verify original core uploads with and without optional plugin methods; run
-approved canonical image attach/read against the same controller; then
-detach, resume, switch profile and attempt another transport read. Verify
-that only durable genuinely attached image bytes can resume, and that
-PDF/video/audio/3D and binary producer refusals are unchanged. Each
+approved canonical image attach/read against the same controller, and
+genuinely submit + complete a canonical input carrying the image. Confirm
+pending before submit, then detach, resume, switch profile, change backend
+and attempt another transport read. Preview under UNKNOWN terminal_backend
+must show an explicit Load for a gateway-owned staged image; no tool preview
+must appear without independent server host/provenance evidence. Verify
+that only a real stored user reference plus a settled core admission plus
+the plugin's genuine stage witness survives resume. Exercise PNG and JPEG,
+HOME symlink alias, malformed/failed uploads and no stale blob after reset.
+PDF/video/audio/3D and binary producer refusals must remain unchanged. Each
 outside-pane CLI mutation needs an explicitly verified owned --window key.
 
-## Next slices (not implemented here)
+## Next slices (owned separately; not claimed complete)
 
-1. **Hermes gateway public owner facts** (owned by a subsequent
-   kvnloo/hermes-agent seam worker): expose attested local compute-host
-   ownership and exact completed tool evidence through public
-   GatewayRequestContext; do not read actor/history private fields.
-2. **Overlay/renderer attachment origin** (owned by OVERLAYS/B renderer,
-   frontend/src/view/media.tsx and the transcript projection it uses):
-   distinguish a server-attested staged attachment from an unknown tool
-   backend; do not trust client-supplied paths and preserve the UNKNOWN
-   backend refusal for tool paths.
-3. **Native isolated qualification** (OMP operator, not this worker):
-   execute the commands above against the exact heads and genuine
-   signed-in Tern with loopback-only model credentials, then record real
-   counts and receipts after they exist.
+1. **Legacy public proof seam — upstream core owner, NOT this PR**:
+   kvnloo/hermes-agent `hermes_cli/plugin_gateway_methods.py`,
+   `tui_gateway/plugin_methods.py`, `tui_gateway/methods_session.py`,
+   `gateway/session_ingress_media.py` plus their production authority
+   tests. A public authenticated live-to-durable SID identity and successful
+   original queued-image attestation are prerequisite for legacy resumed
+   preview. Do not expose private server session handles or copy grants.
+2. **Tool host/provenance — upstream core owner, NOT this PR**:
+   kvnloo/hermes-agent `hermes_cli/plugin_gateway_methods.py`,
+   `gateway/session_plugin_methods.py`, `tui_gateway/plugin_methods.py`,
+   and exact completed-tool/source tests. Expose public caller-bound compute
+   host and finished-tool witnesses before adding tool image transfers.
+3. **OMP qualification — fork-only Draft PR #24, these owned paths**:
+   `media_backend.py`, `tests/test_media_backend.py`,
+   `frontend/src/media-delivery.ts`, `frontend/src/view/media.tsx`,
+   `frontend/src/__tests__/media-delivery.test.ts`,
+   `frontend/src/__tests__/images.test.ts`,
+   `frontend/src/__tests__/read-media.test.ts`, `docs/MEDIA-DELIVERY.md`.
+   Run the frozen-offline commands above and the isolated native
+   Tern 0.9.5 positive PNG/JPEG, reset, attach, profile, and host-proof
+   regressions. No test/build/lint commands were executed in this
+   GitHub-only implementation worker.

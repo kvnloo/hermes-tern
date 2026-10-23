@@ -1,14 +1,16 @@
 """Caller-bound raster image delivery for the registered Hermes gateway method seam.
 
-No core method overrides, transport tokens, local-host guesses or private history locks.
-The only pending authority is a successful server-side byte upload plus its original
-caller-bound lease. Resumed authority comes from paired, durable image bytes in state.db.
+No core overrides, private legacy transport inspection, or guessed host identity.
+Pending authority requires a successful scoped upload lease. Resumed authority
+requires a real, terminal canonical admission of matching bytes AND an owning
+durable user-row reference; text-only persistence cannot carry image bytes.
 """
 from __future__ import annotations
 
 import base64
 import binascii
 import hashlib
+import json
 import os
 import sqlite3
 import stat
@@ -55,6 +57,7 @@ class AttachParams(BaseModel):
 @dataclass(frozen=True)
 class _Owner:
     home: Path
+    alias: Path
     profile: str
     stored_id: str
     legacy: bool
@@ -82,26 +85,15 @@ def _identity(request, params: dict) -> _Owner:
     from hermes_constants import get_hermes_home
     from tui_gateway.transport import current_transport
 
-    home = Path(get_hermes_home()).resolve()
-    transport = current_transport()
-    if transport is None:
-        # Canonical request.session_id is the durable SessionRef key.
-        return _Owner(home, request.profile, request.session_id, False)
-
-    # The legacy RPC SID is NOT its stored session key. This server helper
-    # authenticates the exact current transport and attached session record.
-    from tui_gateway import server
-    attached_transport, session = server._current_session_steer_authority(request.session_id)
-    if attached_transport is not transport or not isinstance(session, dict):
-        raise _refuse("Legacy session transport is not attached")
-    durable = session.get("session_key")
-    profile_home = session.get("profile_home")
-    if not isinstance(durable, str) or not durable:
-        raise _refuse("Legacy durable session identity is unavailable")
-    if profile_home is not None and Path(profile_home).resolve() != home:
-        raise _refuse("Legacy session profile does not own this request")
-    return _Owner(home, request.profile, durable, True)
-
+    # A configured HERMES_HOME symlink is one supported alias. Do not resolve
+    # children of that home (cache/images), where symlinks are forbidden.
+    alias = Path(os.path.abspath(get_hermes_home()))
+    home = alias.resolve(strict=True)
+    legacy = current_transport() is not None
+    # Legacy transports expose no PUBLIC live-SID -> durable-key projection.
+    # In that mode preview cannot infer an owning durable user conversation;
+    # retain the original core upload path and refuse unsupported preview.
+    return _Owner(home, alias, request.profile, request.session_id, legacy)
 
 def _mime(data: bytes) -> tuple[str, str]:
     for magic, mime, ext in _MIMES:
@@ -119,21 +111,122 @@ def _mime_matches(mime: str, declared: str | None) -> None:
             raise _refuse("Image MIME does not match its magic bytes")
 
 
-def _roots(owner: _Owner) -> tuple[Path, Path]:
-    # The canonical writer stages at cache/images, the legacy writer at images.
-    # Both paths are profile-owned. No cwd, terminal host or viewer path is trusted.
-    from gateway.platforms.base import get_image_cache_dir
-    return (get_image_cache_dir().resolve(), (owner.home / "images").resolve())
+def _roots(owner: _Owner) -> tuple[Path, ...]:
+    """Only configured HOME-relative core staging roots, including HOME alias.
 
+    Never use Path.resolve() on a cache child: that would authorize a symlink
+    planted below the configured home. get_image_cache_dir may select the
+    genuine legacy 'image_cache' fallback, but not an arbitrary external root.
+    """
+    from gateway.platforms.base import get_image_cache_dir
+
+    cache = Path(os.path.abspath(get_image_cache_dir()))
+    try:
+        rel = cache.relative_to(owner.alias)
+    except ValueError:
+        try:
+            rel = cache.relative_to(owner.home)
+        except ValueError as exc:
+            raise _refuse("Image cache is outside the configured profile") from exc
+    if rel.parts not in (("cache", "images"), ("image_cache",)):
+        raise _refuse("Image cache is not a supported profile staging root")
+    paths: list[Path] = []
+    for suffix in (rel, Path("images")):
+        for home in (owner.alias, owner.home):
+            candidate = home / suffix
+            if candidate not in paths:
+                paths.append(candidate)
+    return tuple(paths)
+
+
+def _root_parts(root: Path) -> tuple[Path, tuple[str, ...]]:
+    from hermes_constants import get_hermes_home
+
+    configured = Path(os.path.abspath(get_hermes_home()))
+    for home in (configured, configured.resolve(strict=True)):
+        try:
+            parts = root.relative_to(home).parts
+        except ValueError:
+            continue
+        if parts and all(p not in ("", ".", "..") for p in parts):
+            return configured, parts
+    raise _refuse("Image root is not inside the configured profile")
+
+
+def _open_staging_root(root: Path) -> tuple[int, list[tuple[int, str, int]]]:
+    """Follow only the configured HOME alias; open each child using NOFOLLOW.
+
+    The ancestry witness records parent-fd/name/child-fd for post-read
+    no-follow revalidation, so renames cannot redirect a permitted root.
+    """
+    home, parts = _root_parts(root)
+    fd = os.open(home, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    chain: list[tuple[int, str, int]] = []
+    try:
+        initial = os.fstat(fd)
+        now = os.stat(home)
+        if (initial.st_dev, initial.st_ino) != (now.st_dev, now.st_ino):
+            raise _refuse("Configured home changed")
+        for component in parts:
+            child = os.open(component, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                            | getattr(os, "O_NOFOLLOW", 0), dir_fd=fd)
+            try:
+                opened = os.fstat(child)
+                named = os.stat(component, dir_fd=fd, follow_symlinks=False)
+                if (not stat.S_ISDIR(named.st_mode)
+                        or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino)):
+                    raise _refuse("Image root contains an untrusted link")
+                chain.append((fd, component, child))
+                fd = child
+            except BaseException:
+                os.close(child)
+                raise
+        return fd, chain
+    except BaseException:
+        for _, _, child in reversed(chain):
+            os.close(child)
+        os.close(chain[0][0] if chain else fd)
+        raise
+
+
+def _close_staging_root(fd: int, chain: list[tuple[int, str, int]]) -> None:
+    if chain:
+        for _, _, child in reversed(chain):
+            os.close(child)
+        os.close(chain[0][0])
+    else:
+        os.close(fd)
+
+
+def _check_staging_root(root: Path, fd: int, chain: list[tuple[int, str, int]]) -> None:
+    from hermes_constants import get_hermes_home
+
+    configured = Path(os.path.abspath(get_hermes_home()))
+    home_fd = chain[0][0] if chain else fd
+    current = os.stat(configured)
+    opened = os.fstat(home_fd)
+    if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+        raise _refuse("Configured home changed during image read")
+    for parent, component, child in chain:
+        named = os.stat(component, dir_fd=parent, follow_symlinks=False)
+        opened = os.fstat(child)
+        if (not stat.S_ISDIR(named.st_mode)
+                or (named.st_dev, named.st_ino) != (opened.st_dev, opened.st_ino)):
+            raise _refuse("Image root changed during image read")
+    named_root = os.stat(root, follow_symlinks=False)
+    opened_root = os.fstat(fd)
+    if (not stat.S_ISDIR(named_root.st_mode)
+            or (named_root.st_dev, named_root.st_ino) != (opened_root.st_dev, opened_root.st_ino)):
+        raise _refuse("Image source directory was replaced")
 
 def _key(owner: _Owner, path: str) -> tuple[str, str, str, str]:
     return (str(owner.home), owner.profile, owner.stored_id, path)
 
 
 def _read_regular(path: Path, root: Path) -> tuple[bytes, os.stat_result]:
-    """Open relative to an owned directory FD; reject symlinks, hardlinks and races."""
+    """Bounded no-follow leaf read under an independently walked profile root."""
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
-    root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    root_fd, chain = _open_staging_root(root)
     try:
         fd = os.open(path.name, flags, dir_fd=root_fd)
         try:
@@ -146,22 +239,17 @@ def _read_regular(path: Path, root: Path) -> tuple[bytes, os.stat_result]:
             after = os.fstat(fd)
             named = os.stat(path.name, dir_fd=root_fd, follow_symlinks=False)
             if (not data or len(data) != initial.st_size or len(data) > PREVIEW_MAX_BYTES
-                    or not stat.S_ISREG(named.st_mode)
+                    or not stat.S_ISREG(named.st_mode) or named.st_nlink != 1
                     or any(getattr(a, field) != getattr(b, field)
                            for a, b in ((initial, after), (initial, named))
                            for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
                 raise _refuse("Image changed during the bounded read")
-            # A renamed/replaced root must not permit a same-named foreign leaf.
-            rooted = os.stat(root, follow_symlinks=False)
-            opened_root = os.fstat(root_fd)
-            if (rooted.st_dev, rooted.st_ino) != (opened_root.st_dev, opened_root.st_ino):
-                raise _refuse("Image source directory was replaced")
+            _check_staging_root(root, root_fd, chain)
             return data, initial
         finally:
             os.close(fd)
     finally:
-        os.close(root_fd)
-
+        _close_staging_root(root_fd, chain)
 
 def _reference(value: str) -> str:
     value = value.strip()
@@ -170,53 +258,100 @@ def _reference(value: str) -> str:
     return value
 
 
-def _paired_history_image(message: dict, path: str, data: bytes) -> bool:
-    """A plain typed marker has no authority: the *same durable user row* must
-    contain an image_url part with the exact captured bytes in the matching slot.
-    """
-    if message.get("role") != "user":
-        return False
-    content = message.get("content")
-    if not isinstance(content, list) or not content or not isinstance(content[0], dict):
-        return False
-    head = content[0]
-    if head.get("type") != "text" or not isinstance(head.get("text"), str):
-        return False
-    references: list[str] = []
-    for line in head["text"].splitlines():
-        if line.startswith("@image:"):
-            references.append(_reference(line[len("@image:"):]))
-        elif line.startswith("[Image attached at: ") and line.endswith("]"):
-            references.append(line[len("[Image attached at: "):-1])
-    if not references or len(content) < len(references) + 1:
-        return False
-    for i, reference in enumerate(references):
-        if reference != path:
-            continue
-        part = content[i + 1]
-        if not isinstance(part, dict) or part.get("type") != "image_url":
-            continue
-        image_url = part.get("image_url")
-        url = image_url.get("url") if isinstance(image_url, dict) else None
-        if not isinstance(url, str):
-            continue
-        header, sep, encoded = url.partition(",")
-        if (not sep or not header.lower().startswith("data:image/")
-                or not header.lower().endswith(";base64")
-                or not encoded or len(encoded) > ((PREVIEW_MAX_BYTES + 2) // 3) * 4):
-            continue
-        try:
-            if base64.b64decode(encoded, validate=True) == data:
+def _references_path(text: str, path: str) -> bool:
+    """Recognize the genuine prompt reference syntax, not a substring match."""
+    for line in text.splitlines():
+        if line.startswith("@image:") and _reference(line[len("@image:"):]) == path:
+            return True
+        if line.startswith("[Image attached at: ") and line.endswith("]"):
+            if line[len("[Image attached at: "):-1] == path:
                 return True
-        except (binascii.Error, ValueError):
-            continue
     return False
 
 
+def _proof_name(path: Path) -> str:
+    return path.name + ".tern-proof"
+
+
+def _stage_proof(owner: _Owner, path: Path, data: bytes, source: os.stat_result) -> None:
+    """Write a private per-image witness after actual staging, not from user text.
+
+    The witness never independently grants a preview: a matching terminal
+    canonical admission AND persisted owning user row are still required.
+    """
+    proof = {
+        "version": 1, "profile": owner.profile, "stored_id": owner.stored_id,
+        "path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
+        "size": len(data), "dev": source.st_dev, "ino": source.st_ino,
+    }
+    content = json.dumps(proof, sort_keys=True, separators=(",", ":")).encode("utf8")
+    fd, chain = _open_staging_root(path.parent)
+    try:
+        proof_fd = os.open(_proof_name(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                           | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=fd)
+        try:
+            with os.fdopen(proof_fd, "wb", closefd=False) as out:
+                out.write(content)
+                out.flush()
+                os.fsync(out.fileno())
+            _check_staging_root(path.parent, fd, chain)
+        finally:
+            os.close(proof_fd)
+    finally:
+        _close_staging_root(fd, chain)
+
+
+def _stage_attested(owner: _Owner, path: Path, data: bytes, source: os.stat_result) -> bool:
+    if owner.legacy:
+        return False
+    try:
+        root_fd, chain = _open_staging_root(path.parent)
+        try:
+            proof_fd = os.open(_proof_name(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                               dir_fd=root_fd)
+            try:
+                before = os.fstat(proof_fd)
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > 4096:
+                    return False
+                with os.fdopen(proof_fd, "rb", closefd=False) as stream:
+                    raw = stream.read(4097)
+                after = os.fstat(proof_fd)
+                named = os.stat(_proof_name(path), dir_fd=root_fd, follow_symlinks=False)
+                if (len(raw) != before.st_size or not stat.S_ISREG(named.st_mode)
+                        or any((a.st_dev, a.st_ino, a.st_size, a.st_mtime_ns) !=
+                               (b.st_dev, b.st_ino, b.st_size, b.st_mtime_ns)
+                               for a, b in ((before, after), (before, named)))):
+                    return False
+                _check_staging_root(path.parent, root_fd, chain)
+            finally:
+                os.close(proof_fd)
+        finally:
+            _close_staging_root(root_fd, chain)
+        proof = json.loads(raw)
+        expected = {
+            "version": 1, "profile": owner.profile, "stored_id": owner.stored_id,
+            "path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data), "dev": source.st_dev, "ino": source.st_ino,
+        }
+        return type(proof) is dict and proof == expected
+    except (OSError, ValueError, json.JSONDecodeError, TypeError):
+        return False
+
+
 def _persisted(owner: _Owner, path: str, data: bytes) -> bool:
-    # Public read-only state API preserves compression lineage and durable rows.
-    # Never read private server histories, actor fields, or their locks.
+    """Require two independent production records, not an impossible image_url row.
+
+    Core session_persistence._durable_content converts all image_url parts to
+    text. A user-typed path or screenshot marker cannot grant access. A canonical
+    terminal prompt admission, committed by core with the SHA-256 of its captured
+    image bytes, is independent proof. Legacy has no public durable-key mapping or
+    prompt admission receipt, so no legacy persisted fallback is attempted.
+    """
+    if owner.legacy:
+        return False
     from hermes_state import SessionDB
+    from hermes_state_runtime import list_session_admissions
+
     try:
         db = SessionDB(db_path=owner.home / "state.db", read_only=True)
     except (OSError, sqlite3.Error):
@@ -224,11 +359,32 @@ def _persisted(owner: _Owner, path: str, data: bytes) -> bool:
     try:
         if db.get_session(owner.stored_id) is None:
             return False
-        return any(_paired_history_image(m, path, data) for m in
-                   db.get_messages_as_conversation(owner.stored_id, include_ancestors=True))
+        if not _stage_attested(owner, Path(path), data, os.lstat(path)):
+            return False
+        conversation = db.get_messages_as_conversation(owner.stored_id, include_ancestors=True)
+        if not any(m.get("role") == "user" and isinstance(m.get("content"), str)
+                   and _references_path(m["content"], path) for m in conversation):
+            return False
+        digest = hashlib.sha256(data).hexdigest()
+        # Do not accept queued/cancelled/failed work, foreign admissions,
+        # forged typed hints, or a different image with the same file name.
+        for row in list_session_admissions(db, session_id=owner.stored_id, pending_only=False):
+            if row.get("status") != "terminal" or row.get("outcome") != "completed":
+                continue
+            attached = row.get("payload", {}).get("attachments_v1", {})
+            media = attached.get("media")
+            mimes = attached.get("media_types")
+            if not isinstance(media, list) or not isinstance(mimes, list) or len(media) != len(mimes):
+                continue
+            for ref, mime in zip(media, mimes):
+                if (isinstance(ref, dict) and ref.get("sha256") == digest
+                        and ref.get("size") == len(data) and mime == _mime(data)[0]):
+                    return True
+        return False
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
+        return False
     finally:
         db.close()
-
 
 def _authority(owner: _Owner, request, path: str, data: bytes, fingerprint: os.stat_result) -> None:
     with _PENDING_LOCK:
@@ -260,7 +416,7 @@ def read_image(request, params: dict) -> dict:
     path = Path(raw)
     roots = _roots(owner)
     root = next((item for item in roots if path.parent == item), None)
-    if root is None or path.name in (".", ".."):
+    if root is None or path.name in (".", "..") or ".." in path.parts:
         raise _refuse("Image path is outside this profile's staging directories")
     try:
         data, fingerprint = _read_regular(path, root)
@@ -298,8 +454,8 @@ def read_image(request, params: dict) -> dict:
 def attach_bytes(request, params: dict) -> dict:
     owner = _identity(request, params)
     if owner.legacy:
-        # Legacy image.attach_bytes also queues its private prompt list; a
-        # plugin staging write cannot replace that core behavior.
+        # Original legacy image.attach_bytes queues the exact image bytes once.
+        # Plugin staging cannot substitute for this private queued-image seam.
         raise _refuse("Legacy sessions must use image.attach_bytes")
     encoded = params.get("content_base64")
     if (not isinstance(encoded, str) or not encoded
@@ -317,13 +473,22 @@ def attach_bytes(request, params: dict) -> dict:
     try:
         from gateway.platforms.base import get_image_cache_dir
         from tui_gateway.prompt_attachments import stage_image_bytes
-        path = stage_image_bytes(get_image_cache_dir(), data, ext, prefix="tern_upload")
+        directory = get_image_cache_dir()
+        if directory not in _roots(owner):
+            raise _refuse("Image staging directory does not belong to this profile")
+        directory_fd, chain = _open_staging_root(directory)
+        try:
+            _check_staging_root(directory, directory_fd, chain)
+        finally:
+            _close_staging_root(directory_fd, chain)
+        path = stage_image_bytes(directory, data, ext, prefix="tern_upload")
         request.assert_attached()
         if _identity(request, params) != owner:
             raise _refuse("Image staging owner changed")
         source = os.lstat(path)
         if not stat.S_ISREG(source.st_mode) or source.st_nlink != 1:
             raise _refuse("Image staging source is not regular")
+        _stage_proof(owner, path, data, source)
         stage = _Stage(lease, hashlib.sha256(data).hexdigest(), source.st_dev, source.st_ino)
         with _PENDING_LOCK:
             _PENDING[_key(owner, str(path))] = stage
@@ -337,6 +502,7 @@ def attach_bytes(request, params: dict) -> dict:
                 "text": f"[User attached image: {path.name}]", "bytes": len(data)}
     except BaseException:
         if path is not None:
+            path.with_name(_proof_name(path)).unlink(missing_ok=True)
             path.unlink(missing_ok=True)
         lease.close()
         raise

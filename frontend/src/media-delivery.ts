@@ -142,7 +142,15 @@ export class MediaDelivery {
     const host = this.context()
     const cached = this.#cache.get(this.#key(source))
 
-    if (host.local || source.host !== host.remoteHost) {
+    // An owned prompt attachment is gateway-staged, regardless of UNKNOWN
+    // compute backend. This is only a routing hint for a user-initiated RPC:
+    // Hermes must independently attest stored bytes and session ownership.
+    // Tool-call paths do NOT inherit attachment provenance.
+    const gatewayAttachment = source.host === 'gateway' &&
+      source.scope === 'attachment' && !source.toolCallId && this.deps.gw.attached
+
+    if ((source.scope === 'attachment' && !gatewayAttachment) ||
+        (!gatewayAttachment && (host.local || source.host !== host.remoteHost))) {
       return { label: 'Image path does not belong to the active host.', status: 'unsupported' }
     }
 

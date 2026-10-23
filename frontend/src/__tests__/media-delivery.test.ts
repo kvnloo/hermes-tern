@@ -127,8 +127,15 @@ describe('cross-host previews', () => {
         now: 0, welcome: { tip: '', version: '' }
       }))
       expect(nodes(prompt).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
-      expect(nodes(prompt).some(n => n.p?.['role'] === 'hermes.user.attachment')).toBe(true)
-      expect(attachmentImagePath('/gateway/same.png', delivery)).toBeUndefined()
+      if (attached) {
+        expect(JSON.stringify(prompt)).toContain('Load image preview')
+        expect(attachmentImagePath('/gateway/same.png', delivery)).toMatchObject({
+          host: 'gateway', scope: 'attachment'
+        })
+      } else {
+        expect(nodes(prompt).some(n => n.p?.['role'] === 'hermes.user.attachment')).toBe(true)
+        expect(attachmentImagePath('/gateway/same.png', delivery)).toBeUndefined()
+      }
       expect(delivery.preview(image('same', attached ? 'gateway' : 'frontend')).status).toBe('unsupported')
       await delivery.load(image('same', attached ? 'gateway' : 'frontend'))
       expect(gw.sent('hermes-tern.media.image')).toEqual([])
@@ -457,5 +464,118 @@ describe('cross-host previews', () => {
     expect(delivery.context().remoteHost).toBe('compute')
     expect(delivery.token()).not.toBe(token)
     expect(delivery.preview(image()).status).toBe('unsupported')
+  })
+})
+
+
+describe('gateway-owned prompt attachments with absent terminal_backend', () => {
+  const attachedImage = '/gateway/owned.png'
+  const entry: UserEntry = {
+    at: 0, id: entryId('owned-upload'), kind: 'user', text: 'Please inspect the image',
+    attachments: [{ kind: 'image', name: 'owned.png', refPath: attachedImage }]
+  }
+
+  function draw(delivery: MediaDelivery) {
+    return tree(entryNode(entry, 'main.owned-upload', {
+      copy: () => undefined, media: delivery, mediaRev: delivery.token(),
+      now: 0, welcome: { tip: '', version: '' }
+    }))
+  }
+
+  it('projects real attachmentImagePath to a visible Load, registered byte RPC, then Session.blob', async () => {
+    const { delivery, gw, blob } = setup({ backend: undefined, attached: true, native: true })
+    expect(delivery.context().remoteHost).toBe('unknown')
+    const source = attachmentImagePath(attachedImage, delivery)
+    expect(source).toMatchObject({ host: 'gateway', path: attachedImage, scope: 'attachment' })
+    if (!source) {
+      throw new Error('attached gateway path was not projected')
+    }
+    expect(JSON.stringify(draw(delivery))).toContain('Load image preview')
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([])
+    await delivery.load(source) // same explicit action the visible Load control wires
+    expect(gw.sent('gateway.capabilities')).toEqual([{ session_id: 'session-1' }])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([
+      { session_id: 'session-1', path: attachedImage }
+    ])
+    expect(blob).toHaveBeenCalledOnce()
+    expect(blob).toHaveBeenCalledWith(png, 'image/png')
+    expect(nodes(draw(delivery)).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+    expect(delivery.preview(source)).toEqual({ status: 'ready', blob: 'tern-blob' })
+    expect(projectToolMedia(call('read_file', { path: attachedImage }), delivery.context())).toEqual({
+      kind: 'unavailable'
+    })
+  })
+
+  it('does not reuse blob IDs across backend, attach, session, clear or return-to-source changes', async () => {
+    const { delivery, gw, session, backend, blob } = setup({ backend: undefined })
+    const source = attachmentImagePath(attachedImage, delivery)
+    if (!source) {
+      throw new Error('missing gateway upload source')
+    }
+    await delivery.load(source)
+    expect(delivery.preview(source).status).toBe('ready')
+    backend('docker')
+    expect(delivery.preview(source).status).toBe('available')
+    backend(undefined)
+    expect(delivery.preview(source).status).toBe('available')
+    gw.attached = false
+    expect(delivery.preview(source).status).toBe('unsupported')
+    gw.attached = true
+    expect(delivery.preview(source).status).toBe('available')
+    session('a-second-session')
+    expect(delivery.preview(source).status).toBe('available')
+    await delivery.load(source)
+    expect(gw.sent('hermes-tern.media.image').at(-1)).toEqual({
+      session_id: 'a-second-session', path: attachedImage
+    })
+    delivery.clear()
+    expect(delivery.preview(source).status).toBe('available')
+    expect(blob).toHaveBeenCalledTimes(2) // no cached blob ID survived any transition
+  })
+
+  it('drops stale successful RPC replies on session/backend changes and retries after failure', async () => {
+    const { delivery, gw, backend, session, blob } = setup({ backend: undefined })
+    const source = attachmentImagePath(attachedImage, delivery)
+    if (!source) {
+      throw new Error('missing gateway upload source')
+    }
+    const wait = Promise.withResolvers<unknown>()
+    gw.handlers.set('hermes-tern.media.image', () => wait.promise)
+    const pending = delivery.load(source)
+    await vi.waitFor(() => expect(gw.sent('hermes-tern.media.image')).toHaveLength(1))
+    backend('docker')
+    expect(delivery.preview(source).status).toBe('busy')
+    session('another-session')
+    wait.resolve(response())
+    await pending
+    expect(blob).not.toHaveBeenCalled()
+    gw.handlers.set('hermes-tern.media.image', () => { throw new Error('No committed proof') })
+    await delivery.load(source)
+    expect(delivery.preview(source)).toMatchObject({ status: 'failed', error: 'No committed proof' })
+    expect(blob).not.toHaveBeenCalled()
+    gw.handlers.set('hermes-tern.media.image', response)
+    await delivery.load(source)
+    expect(delivery.preview(source).status).toBe('ready')
+    expect(blob).toHaveBeenCalledOnce()
+  })
+
+  it('refuses typed-marker image paths at backend proof despite a visible Load control', async () => {
+    const { delivery, gw, blob } = setup({ backend: undefined })
+    const source = attachmentImagePath('/gateway/typed-marker.png', delivery)
+    if (!source) {
+      throw new Error('missing attachment route')
+    }
+    expect(delivery.preview(source).status).toBe('available')
+    gw.handlers.set('hermes-tern.media.image', () => { throw new Error('Image is not an authorized, current attachment') })
+    await delivery.load(source)
+    expect(gw.sent('hermes-tern.media.image')).toEqual([
+      { session_id: 'session-1', path: '/gateway/typed-marker.png' }
+    ])
+    expect(delivery.preview(source).status).toBe('failed')
+    expect(blob).not.toHaveBeenCalled()
+    const tool: MediaPath = { ...source, id: 'tool', toolCallId: 'typed-only', scope: 'attachment' }
+    expect(delivery.preview(tool).status).toBe('unsupported')
+    expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
   })
 })

@@ -27,13 +27,49 @@ def install():
     return manager
 
 
-def durable_user_image(db, stored, path, *, image_bytes=PNG, with_bytes=True):
-    parts = [{"type": "text", "text": f"Description\n@image:{path}"}]
-    if with_bytes:
-        parts.append({"type": "image_url", "image_url": {
-            "url": "data:image/png;base64," + base64.b64encode(image_bytes).decode()}})
-    db.append_message(stored, "user", parts)
+def flush_real_user(db, stored, path, *, image_bytes=PNG, with_bytes=True):
+    """Run the actual session-persistence flush and reload, not a synthetic row."""
+    from agent.session_persistence import SessionPersistenceMixin
 
+    class Writer(SessionPersistenceMixin):
+        def __init__(self):
+            self.session_id = stored
+            self._session_db = db
+            self._session_db_created = True
+            self._last_flushed_db_idx = 0
+
+    prompt = f"Actual prompt\n@image:{path}"
+    content = prompt if not with_bytes else [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {
+            "url": "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")}},
+    ]
+    assert Writer()._flush_messages_to_session_db([{"role": "user", "content": content}]) is True
+    rows = db.get_messages_as_conversation(stored, include_ancestors=True)
+    assert rows and isinstance(rows[-1]["content"], str)
+    assert "@image:" in rows[-1]["content"]
+    assert "data:image/png;base64" not in rows[-1]["content"]
+    return rows[-1]
+
+
+def committed_attachment(db, stored, path, *, epoch, request_id="image-1", outcome="completed"):
+    """Core image admission, immutable capture, claim, and terminal settlement."""
+    from gateway.session_ingress_media import admit_attachments, capture_lease
+    from hermes_state_runtime import admit_session_input, claim_session_input, settle_session_input
+
+    with capture_lease():
+        fields = admit_attachments([{"path": str(path), "mime": "image/png"}])
+        queued = admit_session_input(
+            db, epoch=epoch, principal_id="local-test", session_id=stored,
+            request_id=request_id, payload={"text": "Actual prompt", **fields})
+        assert queued["status"] == "queued"
+        running = claim_session_input(db, epoch=epoch, session_id=stored)
+        assert running is not None and running["status"] == "started"
+        settled = settle_session_input(
+            db, epoch=epoch, admission_id=running["admission_id"],
+            generation=running["generation"], outcome=outcome)
+        assert settled["status"] == "terminal"
+        return settled
 
 class Peer:
     def __init__(self):
@@ -88,33 +124,27 @@ def legacy(tmp_path, monkeypatch):
     plugins._reset_plugin_managers_for_tests()
 
 
-def test_real_legacy_dispatch_uses_different_live_and_stored_id_and_resumes(legacy):
+def test_real_legacy_cannot_invent_durable_authority_from_a_live_sid(legacy):
     image = legacy.home / "images" / "persisted.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(PNG)
-    ask = lambda peer, sid="live-alice": legacy.call(
+    read = lambda peer, sid="live-alice": legacy.call(
         peer, media.IMAGE_METHOD, sid=sid, path=str(image), mime="image/png")
-    # A forged @image line alone, even from this account, has no server-side byte provenance.
-    durable_user_image(legacy.db, "durable-alice", image, with_bytes=False)
-    assert ask(legacy.alice)["error"]["code"] == 4016
-    durable_user_image(legacy.db, "durable-alice", image)
-    assert ask(legacy.alice)["result"] == {
-        "content_base64": base64.b64encode(PNG).decode(),
-        "mime": "image/png", "bytes": len(PNG),
-    }
-    # The distinct durable key, not a live SID or viewer/cwd hint, survives reattachment.
-    original = legacy.server._sessions.pop("live-alice")
-    legacy.server._sessions["live-resumed"] = original
-    assert ask(legacy.alice, "live-alice")["error"]["code"] == 4001
-    assert ask(legacy.alice, "live-resumed")["result"]["bytes"] == len(PNG)
-    assert ask(legacy.bob, "live-resumed")["error"]["code"] == 4001
-
+    flush_real_user(legacy.db, "durable-alice", image)
+    # The core writer projects inline images to text and the public legacy
+    # GatewayRequestContext has no authenticated live->durable key mapping.
+    assert read(legacy.alice)["error"]["code"] == 4016
+    owned = legacy.server._sessions.pop("live-alice")
+    legacy.server._sessions["live-resumed"] = owned
+    assert read(legacy.alice, "live-alice")["error"]["code"] == 4001
+    assert read(legacy.alice, "live-resumed")["error"]["code"] == 4016
+    assert read(legacy.bob, "live-resumed")["error"]["code"] == 4001
 
 def test_real_legacy_rejects_cross_session_profile_path_and_tool_claims(legacy):
     image = legacy.home / "images" / "same.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(PNG)
-    durable_user_image(legacy.db, "durable-alice", image)
+    flush_real_user(legacy.db, "durable-alice", image)
     call = legacy.call
     assert call(legacy.bob, media.IMAGE_METHOD, sid="live-bob", path=str(image))["error"]["code"] == 4016
     assert call(legacy.alice, media.IMAGE_METHOD, sid="live-alice",
@@ -134,9 +164,9 @@ def test_legacy_file_nonregular_removed_oversized_and_mismatched_magic(legacy):
     image = legacy.home / "images" / "bounded.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(PNG)
-    durable_user_image(legacy.db, "durable-alice", image)
+    flush_real_user(legacy.db, "durable-alice", image)
     read = lambda: legacy.call(legacy.alice, media.IMAGE_METHOD, sid="live-alice", path=str(image))
-    assert read()["result"]["mime"] == "image/png"
+    assert read()["error"]["code"] == 4016
     image.unlink()
     assert read()["error"]["code"] == 4016
     image.symlink_to(legacy.home / "state.db")
@@ -155,7 +185,7 @@ def test_legacy_file_nonregular_removed_oversized_and_mismatched_magic(legacy):
     image.write_bytes(b"not a raster")
     assert read()["error"]["code"] == 4016
     image.write_bytes(PNG)
-    assert read()["result"]["bytes"] == len(PNG)
+    assert read()["error"]["code"] == 4016
 
 
 class NativeTransport:
@@ -254,7 +284,9 @@ async def test_canonical_registered_dispatch_pending_caller_and_persisted_resume
         assert (await preview(viewer, path))["error"]["code"] == 4001
         await resume(viewer)
         assert (await preview(viewer, path))["error"]["code"] == 4016
-        durable_user_image(native.db, "owned", path)
+        flush_real_user(native.db, "owned", path)
+        assert (await preview(viewer, path))["error"]["code"] == 4016
+        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch)
         assert (await preview(viewer, path))["result"]["mime"] == "image/png"
     finally:
         await viewer.close()
@@ -302,5 +334,98 @@ async def test_canonical_removed_and_replaced_source_and_generation(native):
         path.write_bytes(PNG)
         # Even identical replacement bytes cannot inherit the original stage inode.
         assert (await preview(viewer, str(path)))["error"]["code"] == 4016
+    finally:
+        await viewer.close()
+
+
+@pytest.mark.asyncio
+async def test_durable_image_needs_real_stage_and_successful_owned_admission(native):
+    viewer, other = connect(native.authority), connect(native.authority)
+    try:
+        token = await resume(viewer)
+        await resume(other, "foreign")
+        upload = await staged(viewer)
+        assert "result" in upload, upload
+        path = upload["result"]["path"]
+        flush_real_user(native.db, "owned", path, with_bytes=False)
+        await rpc(viewer, "session.detach", {
+            "session_id": "owned", "subscription_id": token})
+        await resume(viewer)
+        assert (await preview(viewer, path))["error"]["code"] == 4016
+
+        # Actual persisted user text plus failed work still has no authority.
+        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch,
+                             request_id="failed-1", outcome="failed")
+        assert (await preview(viewer, path))["error"]["code"] == 4016
+        assert (await preview(other, path, sid="foreign"))["error"]["code"] == 4016
+
+        # A second real core stage lacks the plugin-owned upload witness even
+        # when its bytes match another session-owned terminal admission.
+        from tui_gateway.prompt_attachments import stage_image_bytes
+        from gateway.platforms.base import get_image_cache_dir
+        unproven = stage_image_bytes(get_image_cache_dir(), PNG, ".png", prefix="unproven")
+        flush_real_user(native.db, "owned", unproven, with_bytes=False)
+        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch,
+                             request_id="success-2")
+        assert (await preview(viewer, str(unproven)))["error"]["code"] == 4016
+        assert (await preview(viewer, path))["result"]["bytes"] == len(PNG)
+        assert (await preview(other, path, sid="foreign"))["error"]["code"] == 4016
+    finally:
+        await viewer.close()
+        await other.close()
+
+
+def test_real_staging_helper_accepts_home_alias_but_rejects_children_links(tmp_path, monkeypatch):
+    from gateway.platforms.base import get_image_cache_dir
+    from tui_gateway.prompt_attachments import stage_image_bytes
+
+    real_home = tmp_path / "profiles" / "primary"
+    real_home.mkdir(parents=True)
+    alias = tmp_path / "home-alias"
+    alias.symlink_to(real_home, target_is_directory=True)
+    monkeypatch.setenv("HERMES_HOME", str(alias))
+    directory = get_image_cache_dir()
+    image = stage_image_bytes(directory, PNG, ".png", prefix="actual_core")
+    owner = media._Owner(real_home, alias, "primary", "owned", False)
+    assert directory in media._roots(owner)
+    assert media._read_regular(image, directory)[0] == PNG
+    # Normal nested cache/image directories must remain strictly regular.
+    linked_leaf = directory / "linked.png"
+    linked_leaf.symlink_to(image)
+    with pytest.raises((OSError, ValueError)):
+        media._read_regular(linked_leaf, directory)
+    linked_leaf.unlink()
+
+    outside = tmp_path / "outside"
+    (outside / "images").mkdir(parents=True)
+    (outside / "images" / "external.png").write_bytes(PNG)
+    # Plant the malicious link below the legitimate configured HOME, not
+    # elsewhere. A Path.resolve-based authorization would accept this.
+    original_cache = real_home / "cache"
+    original_cache.rename(real_home / "cache-original")
+    original_cache.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OSError):
+        media._read_regular(alias / "cache" / "images" / "external.png",
+                            alias / "cache" / "images")
+
+    sibling = tmp_path / "profiles" / "sibling" / "cache" / "images"
+    sibling.mkdir(parents=True)
+    with pytest.raises(Exception, match="Image root is not inside"):
+        media._root_parts(sibling)
+
+
+@pytest.mark.asyncio
+async def test_canonical_rejects_sibling_profile_and_traversal(native):
+    viewer = connect(native.authority)
+    try:
+        await resume(viewer)
+        staged_result = await staged(viewer)
+        good = staged_result["result"]["path"]
+        sibling = native.home.parent / "other-profile" / "cache" / "images"
+        sibling.mkdir(parents=True)
+        (sibling / "picture.png").write_bytes(PNG)
+        assert (await preview(viewer, str(sibling / "picture.png")))["error"]["code"] == 4016
+        assert (await preview(viewer, str(Path(good).parent / ".." / "images" / "picture.png")))["error"]["code"] == 4016
+        assert (await preview(viewer, good, tool_call_id="typed-call-id"))["error"]["code"] == 4016
     finally:
         await viewer.close()
