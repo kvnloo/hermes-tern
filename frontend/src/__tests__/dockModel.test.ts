@@ -11,6 +11,7 @@ import { drawFrame, type FrameCx } from '../app/frame.js'
 import type { Pill } from '../chrome/hud.js'
 import { liveSessionId } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
+import { busyHint } from '../turn/busyInput.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
 import { dockNodes } from '../view/dock.js'
@@ -77,10 +78,18 @@ describe('dockModel: the queue', () => {
     expect(dockModel(dockSources({ activity: { busy: null, compacting } }), NOW).queue.canSteer).toBe(false)
   })
 
+  it('uses the configured busy input mode for the visible key hint', () => {
+    const idle = dockSources()
+    const src = dockSources({ session: { ...idle.session, busyMode: 'steer' } })
+
+    expect(dockModel(src, NOW).queue.hint).toBe(busyHint('steer'))
+    expect(dockModel(idle, NOW).queue.hint).toBe(busyHint('queue'))
+  })
+
   it('draws Steer only when it can, and the constant actions take the row\'s index', () => {
     const on = dockActions()
-    const idle = dockNodes(dockContext({ queue: { canSteer: false, rows: [...rows()] } }), on)
-    const running = dockNodes(dockContext({ queue: { canSteer: true, rows: [...rows()] } }), on)
+    const idle = dockNodes(dockContext({ queue: { canSteer: false, hint: busyHint('queue'), rows: [...rows()] } }), on)
+    const running = dockNodes(dockContext({ queue: { canSteer: true, hint: busyHint('queue'), rows: [...rows()] } }), on)
 
     expect(byRole(idle, 'omp.queue.steer')).toEqual([])
     click(byRole(running, 'omp.queue.steer')[1])
@@ -96,7 +105,7 @@ describe('dockModel: the composer and pills', () => {
 
     expect(dockModel(src, NOW).composer).toMatchObject({ ghost: 'lp', ready: false })
     expect(dockModel(src, NOW).pills.focused).toBe('agents')
-    expect(dockModel({ ...src, session: { info: null, ref: { live: liveSessionId('s1') }, usage: null } }, NOW).composer.ready).toBe(true)
+    expect(dockModel({ ...src, session: { busyMode: 'queue', info: null, ref: { live: liveSessionId('s1') }, usage: null } }, NOW).composer.ready).toBe(true)
 
     const modal = dockModel({ ...src, overlays: [{ modal: true }] }, NOW)
     expect(modal.composer.ghost).toBe('')
@@ -106,6 +115,7 @@ describe('dockModel: the composer and pills', () => {
   it('reads the context window and the rates from usage, and the route from info', () => {
     const src = dockSources({
       session: {
+        busyMode: 'queue',
         info: { model: 'gpt', reasoning_effort: 'high', reasoning_effort_wire: '' },
         ref: { live: null },
         usage: { avg_tps: 0, cache_hit_pct: 40, context_max: 1000, context_used: 250, total: 1200 }

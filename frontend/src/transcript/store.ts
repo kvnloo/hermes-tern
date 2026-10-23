@@ -38,6 +38,8 @@ export class Transcript {
   #counters: Counters | undefined
   /** The streaming turn: set by start, cleared by complete, reset and load (notices may land after it). */
   #live: TurnEntry | undefined
+  /** Invalidates ownership captured before reset/load, including same-runtime-ID replay gaps. */
+  #generation = 0
   /** The reason line for the next turn, when Hermes' own notice started it. */
   #continued: string | undefined
   /**
@@ -60,6 +62,7 @@ export class Transcript {
    * (a reload's stored compactions get their numbers from the ones seen).
    */
   reset({ session, usage }: { session: 'other' | 'same'; usage: Usage | undefined }) {
+    this.#generation++
     this.#entries = [{ id: this.id('w'), kind: 'welcome' }]
     this.#live = undefined
     this.#ended = undefined
@@ -113,6 +116,10 @@ export class Transcript {
     return this.#live
   }
 
+  get generation(): number {
+    return this.#generation
+  }
+
   push(entry: Entry) {
     this.#entries.push(entry)
   }
@@ -121,15 +128,33 @@ export class Transcript {
    * A steer the gateway took for the running turn: it shows inside that turn, where it was sent,
    * since the agent reads it before its next step. With no turn running it is a plain prompt.
    */
-  steer(text: string, at = Date.now()) {
-    const turn = this.live
+  steer(text: string, at = Date.now(), owner: TurnEntry | undefined = this.live) {
+    // A delayed steer confirmation may belong to a completed turn. Never mark another turn,
+    // or a session that replaced this transcript while the request was in flight.
+    if (owner && !this.#entries.includes(owner)) {
+      return
+    }
 
-    if (!turn) {
+    if (!owner) {
       return this.user({ at, text })
     }
 
-    turn.blocks.push({ at, id: this.id('s'), kind: 'steer', text })
-    turn.rev++
+    owner.blocks.push({ at, id: this.id('s'), kind: 'steer', text })
+    owner.rev++
+  }
+
+  /** Records an acknowledged correction in the current transcript before its draft is taken. */
+  steerAccepted(text: string, { at = Date.now(), generation, owner, runningAt }: { at?: number; generation: number; owner: TurnEntry | undefined; runningAt: number | undefined }) {
+    // A reset/load can replace every turn even if a session ticket still names the same ID.
+    const retained = generation === this.#generation && owner && this.#entries.includes(owner) ? owner : undefined
+    const current = retained ?? (runningAt !== undefined ? this.messageStart(runningAt) : undefined)
+
+    if (current) {
+      this.steer(text, at, current)
+    } else {
+      // The turn may have finished before the RPC resolved; never drop its accepted words.
+      this.user({ at, text })
+    }
   }
 
   /** A prompt bubble at the end. */
@@ -451,6 +476,7 @@ export class Transcript {
    * on after one, else between turns.
    */
   load(messages: TranscriptMessage[], stored: readonly StoredCompaction[] = []) {
+    this.#generation++
     const kept = this.#entries.filter(e => e.kind === 'welcome')
     this.#live = undefined
     this.#ended = undefined

@@ -19,6 +19,7 @@ const WORD = /[\p{L}\p{N}_]/u
 /** The prompt editor: text, caret, undo/redo, prompt history and kill ring, driven by keys and native edits. */
 export class Composer {
   #text = ''
+  #revision = 0
   #cursor = 0
   #anchor: number | undefined
   readonly #steps = new UndoHistory()
@@ -33,6 +34,11 @@ export class Composer {
   /** The draft; only the composer's own edits change it. */
   get text(): string {
     return this.#text
+  }
+
+  /** Every input, selection and history mutation invalidates a pending correction. */
+  get revision(): number {
+    return this.#revision
   }
 
   /** The caret's offset in the draft. */
@@ -85,6 +91,7 @@ export class Composer {
 
   /** Clears the draft after a submit, remembering it in the prompt history. */
   take(): string {
+    ++this.#revision
     const text = this.text
     appendHistory(text)
     this.#pasted = []
@@ -126,6 +133,7 @@ export class Composer {
     }
 
     if (ev.from === ev.to && !ev.text) {
+      ++this.#revision
       this.#cursor = clamp(ev.cursor, this.text.length)
       const anchor = ev.raw?.['anchor']
       this.#anchor = typeof anchor === 'number' && anchor !== this.cursor ? clamp(anchor, this.text.length) : undefined
@@ -162,6 +170,7 @@ export class Composer {
   /** Puts back the draft an undo or redo step held, if there was one, with the pastes it held. */
   #restore(step: Snapshot | undefined) {
     if (step) {
+      ++this.#revision
       this.#text = step.text
       this.#cursor = step.cursor
       this.#pasted = [...step.pasted]
@@ -445,6 +454,7 @@ export class Composer {
       this.#browse = -1
     }
 
+    ++this.#revision
     this.#text = text
     this.#cursor = text.length
     this.#anchor = undefined
@@ -454,6 +464,7 @@ export class Composer {
 
   #move(to: number): true {
     if (to !== this.cursor || this.anchor !== undefined) {
+      ++this.#revision
       this.#cursor = clamp(to, this.text.length)
       this.#anchor = undefined
       this.#steps.breakBurst()
@@ -487,6 +498,7 @@ export class Composer {
 
   /** Saves an undo step; typing bursts merge into one. Every edit runs it, so it also ends a history walk. */
   #record({ merge }: { merge: boolean }) {
+    ++this.#revision
     // An edited history entry is the draft now: the next Up saves it and starts from the newest entry.
     this.#browse = -1
     this.#anchor = undefined

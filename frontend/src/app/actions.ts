@@ -47,6 +47,7 @@ import { INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
 import type { Activity } from '../turn/activity.js'
+import { BusyDraft, busyIntent } from '../turn/busyInput.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
 import type { PromptQueue } from '../turn/queue.js'
@@ -92,6 +93,7 @@ export interface ActionsCx {
 /** The app's actions and the contexts its entry points reach, made once. */
 export class AppActions {
   readonly #cx: ActionsCx
+  readonly #busyDraft: BusyDraft
   /** The entry whose Copy button reads Copied, until its time is up. */
   readonly #copied = new Flash<string>(() => this.#cx.changed())
   /** The folder last reported to Tern by OSC 7. */
@@ -111,6 +113,8 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    const admit = () => !isModal(chat.overlays) && !life.switching && !attachments.any && !attachments.uploading
+    this.#busyDraft = new BusyDraft({ activity: cx.activity, admit, composer, gw, router: cx.router, session: cx.state, transcript, changed })
 
     this.dock = {
       onAgents: () => openAgents(chat),
@@ -132,7 +136,7 @@ export class AppActions {
       onQueueSteer: i => queue.steer(i),
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
-        this.submit(ev.text)
+        this.submitNative(ev.text)
         changed()
       },
       onShells: () => openBackground(chat),
@@ -164,6 +168,7 @@ export class AppActions {
       queue,
       quit: () => chat.quit(),
       submitDraft: () => this.submitDraft(),
+      steerDraft: () => this.submitDraft(true),
       toggleSidebar: () => this.toggleSidebar(),
       transcript
     }
@@ -186,7 +191,7 @@ export class AppActions {
       gw,
       host: chat,
       life,
-      prompt: item => cx.router.route(item, cx.state.busyMode),
+      prompt: item => cx.router.route(item, 'queue'),
       transcript
     }
     this.host = {
@@ -223,10 +228,45 @@ export class AppActions {
   // ── Prompts and commands ───────────────────────────────────────────
 
   /** Sends the composer's draft, with the pastes it holds. */
-  submitDraft() {
-    const pasted = [...this.#cx.composer.pasted]
+  submitDraft(alternate = false) {
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    const raw = this.#cx.composer.text
 
-    this.submit(this.#cx.composer.take(), true, this.#cx.state.busyMode, pasted)
+    if (this.#shouldSteer(raw, alternate)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    const pasted = [...this.#cx.composer.pasted]
+    this.submit(this.#cx.composer.take(), true, 'queue', pasted)
+  }
+
+  /** Tern native Send obeys the same busy intent as keyboard Enter. */
+  submitNative(raw: string) {
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    if (this.#shouldSteer(raw, false)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
+  }
+
+  /** Never redirect a live turn implicitly. Shell, slash, images and modal answers keep their own paths. */
+  #shouldSteer(raw: string, alternate: boolean): boolean {
+    const cx = this.#cx
+    const text = raw.trim()
+
+    return Boolean(
+      cx.activity.busy && cx.state.ref.live && !cx.life.switching &&
+      !isModal(cx.chat.overlays) && !cx.attachments.any && !cx.attachments.uploading &&
+      text && !text.startsWith('/') && !text.startsWith('!') &&
+      busyIntent(cx.state.busyMode, alternate) === 'steer'
+    )
   }
 
   /**
@@ -235,7 +275,7 @@ export class AppActions {
    * a typed one; a message the app writes (a connect result) waits behind the turn. `pasted`:
    * the draft's pastes, whose `{!cmd}`s and leading `!` stay as written.
    */
-  submit(raw: string, draft = true, busy: BusyMode = draft ? this.#cx.state.busyMode : 'queue', pasted: readonly string[] = []) {
+  submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     const text = raw.trim()
 
