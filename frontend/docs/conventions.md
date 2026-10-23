@@ -145,8 +145,9 @@ A previously unseen nested batch id is the sole exception: its first explicit ev
 must name a fresh `subagent_id` (or an id-less child already tied to that exact parent)
 and a unique, existing `parent_id` whose noncyclic ancestry reaches one verified root
 dispatch or resumed row; task ordinals and any reported depth must agree. Before
-that explicit event, an id-less nested spawn does not inherit the outer batch id. A repeated child or ancestor id, duplicate root batch, unknown parent, conflicting
-nested batch parent or cross-call hint rejects the event without mutating a transcript.
+that explicit event, an id-less nested spawn does not inherit the outer batch id.
+Ambiguous duplicate child or ancestor ids, duplicate root batches, unknown parents,
+conflicting nested batch parents or cross-call hints reject the event without mutation.
 The accepted nested row retains its distinct batch id; later events route by that id
 even if their parent hint is absent, and id-less follow-ups never replace it with the
 outer delegation. Truly id-less legacy events still require a unique existing child or
