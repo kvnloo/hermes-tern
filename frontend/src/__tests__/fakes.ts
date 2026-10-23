@@ -104,6 +104,8 @@ export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOp
   const surface = draws
     ? {
         closed: false,
+        blocked: false,
+        send: () => undefined,
         focus: (id: string | null) => void focused.push(id),
         palette: () => undefined,
         render: (tree: Renderable) => void (frame = tree),
