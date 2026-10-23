@@ -29,7 +29,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
   let working = false
   let message = 'Loading Tern browser blocks…'
   let selected: string | undefined
-  let editing: string | undefined
+  let editing: BrowserBlock | undefined
   const frame = new Composer()
   frame.set('main')
 
@@ -41,6 +41,8 @@ export function openBrowserBlocks(host: BrowserHost): void {
       return
     }
 
+    // Revoke this edit before refresh can replace or remove its owner, or fail.
+    editing = undefined
     loading = true
     host.changed()
 
@@ -87,10 +89,10 @@ export function openBrowserBlocks(host: BrowserHost): void {
     (block.owned || (block.available && !host.busy))
   const mayModify = (block: BrowserBlock) => available && block.owned && !working && !loading && !host.busy
 
-  /** Pointer actions capture a rendered block; keyboard actions resolve a live block at the key press. */
+  /** Pointer actions capture their listing; keyboard selection resolves on keypress, but a frame edit keeps its original owner. */
   const choose = async (block: BrowserBlock | undefined, intent: 'use' | 'release' | 'frame') => {
     if (!live() || !block || !present(block) || !available || working ||
-      (intent === 'frame' && editing !== block.target_id) ||
+      (intent === 'frame' && editing !== block) ||
       (intent === 'use' ? !mayChoose(block) : !mayModify(block))) {
       return
     }
@@ -103,7 +105,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
         await releaseBrowserBlock(host.gw, sid, block.target_id)
 
         if (live()) {
-          if (editing === block.target_id) {
+          if (editing === block) {
             editing = undefined
           }
 
@@ -115,7 +117,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
 
         if (live()) {
           message = `Block ${result.target_id} · evaluation frame ${result.frame ?? 'main'}`
-          if (editing === block.target_id) {
+          if (editing === block) {
             editing = undefined
           }
         }
@@ -143,7 +145,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
       return
     }
 
-    editing = block.target_id
+    editing = block
     frame.set('main')
     host.changed()
   }
@@ -151,7 +153,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    focus: id => editing ? `${id}.body.block-${editing}.frame-form.frame-path` : null,
+    focus: id => editing && present(editing) ? `${id}.body.block-${editing.target_id}.frame-form.frame-path` : null,
     node: () => (
       <overlay anchor="center" head="Tern browser blocks" key={KEY} modal role="omp.overlay.browser" size="lg">
         <col gap="sm" key="body">
@@ -194,7 +196,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
                   </row>
                 </col>
               ) : null}
-              {editing === block.target_id ? (
+              {editing === block ? (
                 <col gap="sm" key="frame-form">
                   <text key="help" text="Select main or an exact native index path (0, 1.0). Hermes verifies it before selection." wrap="word" />
                   <input
@@ -202,7 +204,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
                     cursor={frame.cursor}
                     key="frame-path"
                     onEdit={ev => {
-                      if (live() && present(block) && editing === block.target_id && !working) {
+                      if (live() && present(block) && editing === block && !working) {
                         frame.edit(ev)
                         host.changed()
                       }
@@ -212,7 +214,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
                   />
                   {actionsRow([
                     { key: 'apply-frame', label: 'Verify and select frame', onClick: () => void choose(block, 'frame') },
-                    { key: 'cancel-frame', label: 'Cancel', onClick: () => { if (live() && present(block) && editing === block.target_id && !working) { editing = undefined; host.changed() } } }
+                    { key: 'cancel-frame', label: 'Cancel', onClick: () => { if (live() && present(block) && editing === block && !working) { editing = undefined; host.changed() } } }
                   ])}
                 </col>
               ) : null}
@@ -226,6 +228,11 @@ export function openBrowserBlocks(host: BrowserHost): void {
       </overlay>
     ),
     onKey: (key: Key) => {
+      // A replaced or removed listing may not own an invisible input sink.
+      if (editing && !present(editing)) {
+        editing = undefined
+      }
+
       if (editing) {
         if (key.name === 'escape') {
           editing = undefined
@@ -233,7 +240,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
           // Moving the keyboard selection leaves the frame form bound to its original block.
           selected = moveSelection(key, blocks.map(block => block.target_id), selected) ?? selected
         } else if (frame.key(key) === 'submit') {
-          void choose(blocks.find(block => block.target_id === editing), 'frame')
+          void choose(editing, 'frame')
         }
 
         host.changed()

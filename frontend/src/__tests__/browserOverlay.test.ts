@@ -240,6 +240,115 @@ describe('browser-block SDK callback ownership', () => {
     await vi.waitFor(() => expect(h.gateway.sent('browser.frame')).toEqual([{ session_id: 's1', target_id: '7', frame: 'main' }]))
   })
 
+
+  it('a new native SDK Apply cannot submit old frame text after same-id refresh', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      sheet.onKey(key('f'))
+      sheet.onKey(key('u', { ctrl: true }))
+      sheet.onKey(key('paste', { text: '12.3' }))
+      expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('12.3')
+
+      const before = sdk.render('layer', sheet.node('layer.browser-blocks'))
+      const oldApply = sdk.capture(before, 'layer', 'apply-frame', '7')
+      const refresh = sdk.capture(before, 'layer', 'refresh')
+      h.gateway.handlers.set('browser.blocks', () => ({
+        available: true,
+        blocks: [{ ...first, title: 'Replacement block 7' }, owned]
+      }))
+      await refresh()
+      await vi.waitFor(() => expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('Replacement block 7'))
+
+      const newView = sdk.render('layer', sheet.node('layer.browser-blocks'))
+      expect(() => sdk.capture(newView, 'layer', 'apply-frame', '7')).toThrow('Missing native Tern handler node')
+      expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).not.toContain('Evaluation frame path')
+      expect(sheet.focus?.('layer.browser-blocks')).toBeNull()
+      await oldApply()
+      expect(h.gateway.methods('browser.frame')).toHaveLength(0)
+
+      sheet.onKey(key('enter'))
+      await vi.waitFor(() => expect(h.gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }]))
+      expect(h.gateway.methods('browser.frame')).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('only an explicit new edit exposes a clean frame Apply after same-id refresh', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      sheet.onKey(key('f'))
+      sheet.onKey(key('u', { ctrl: true }))
+      sheet.onKey(key('paste', { text: '12.3' }))
+      const oldView = sdk.render('layer', sheet.node('layer.browser-blocks'))
+      const oldApply = sdk.capture(oldView, 'layer', 'apply-frame', '7')
+      const refresh = sdk.capture(oldView, 'layer', 'refresh')
+      h.gateway.handlers.set('browser.blocks', () => ({
+        available: true,
+        blocks: [{ ...first, title: 'Replacement block 7' }, owned]
+      }))
+      await refresh()
+      await vi.waitFor(() => expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('Replacement block 7'))
+
+      await oldApply()
+      expect(h.gateway.methods('browser.frame')).toHaveLength(0)
+      sheet.onKey(key('f'))
+      const apply = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'apply-frame', '7')
+      await apply()
+      await vi.waitFor(() => expect(h.gateway.sent('browser.frame')).toEqual([
+        { session_id: 's1', target_id: '7', frame: 'main' }
+      ]))
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it.each(['removed', 'error'] as const)('%s listing clears the native form and hidden keyboard sink', async outcome => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      sheet.onKey(key('f'))
+      sheet.onKey(key('u', { ctrl: true }))
+      sheet.onKey(key('paste', { text: '12.3' }))
+      const before = sdk.render('layer', sheet.node('layer.browser-blocks'))
+      const oldApply = sdk.capture(before, 'layer', 'apply-frame', '7')
+      const refresh = sdk.capture(before, 'layer', 'refresh')
+      h.gateway.handlers.set('browser.blocks', () => {
+        if (outcome === 'error') {
+          throw new Error('Listing failed')
+        }
+
+        return { available: true, blocks: [owned] }
+      })
+      await refresh()
+      await vi.waitFor(() => {
+        const shown = JSON.stringify(tree(sheet.node('layer.browser-blocks')))
+        expect(shown).toContain(outcome === 'error' ? 'Listing failed' : 'Hermes page')
+        expect(shown).not.toContain('Evaluation frame path')
+      })
+
+      const current = sdk.render('layer', sheet.node('layer.browser-blocks'))
+      expect(() => sdk.capture(current, 'layer', 'apply-frame', '7')).toThrow('Missing native Tern handler node')
+      expect(sheet.focus?.('layer.browser-blocks')).toBeNull()
+      await oldApply()
+      expect(h.gateway.methods('browser.frame')).toHaveLength(0)
+
+      // Escape must close the overlay, not just the now-invisible editor.
+      sheet.onKey(key('escape'))
+      expect(h.overlays).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
+  })
+
   it('a refresh revokes captured SDK actions, including same-id replacement and removed blocks', async () => {
     const h = harness([first, owned])
     const sheet = await h.sheet()
