@@ -338,7 +338,8 @@ describe('retained long-session transcript', () => {
 
     const currentAction = h.click(`main.${current.id}.tools.copy`)
     await currentAction?.()
-    expect(copy).toHaveBeenCalledExactlyOnceWith('Current prompt', current.id)
+    expect(copy).toHaveBeenCalledTimes(1)
+    expect(copy).toHaveBeenCalledWith('Current prompt', current.id)
 
     const staleLoad = h.click(`main.${current.id}.tools.copy`)
     transcript.load([])
