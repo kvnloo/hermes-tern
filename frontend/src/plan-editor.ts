@@ -10,8 +10,8 @@ export type PlanOpener = (path: string) => void | Promise<void>
 
 /** A fixed argv invocation; never run a shell or use user-controlled plan bytes as arguments. */
 export const openPlanFile: PlanOpener = path => {
-  const inTern = Boolean(process.env.TERN_WINDOW_KEY)
-  const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim().split(/\s+/)
+  const inTern = Boolean(process.env['TERN_WINDOW_KEY'])
+  const command = (process.env['VISUAL'] || process.env['EDITOR'] || 'vi').trim().split(/\s+/)
   const argv = inTern ? ['tern', 'open', '--wait', path] : [...command, path]
   const wasRaw = process.stdin.isRaw
 
