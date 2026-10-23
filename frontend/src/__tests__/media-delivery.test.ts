@@ -254,6 +254,6 @@ describe('cross-host previews', () => {
     backend('docker')
     expect(delivery.context().remoteHost).toBe('compute')
     expect(delivery.token()).not.toBe(token)
-    expect(delivery.preview(image()).status).toBe('available')
+    expect(delivery.preview(image()).status).toBe('unsupported')
   })
 })
