@@ -1,8 +1,8 @@
 // Gateway-owned side threads, rendered independently of the main transcript.
 // Only the selected thread, unsent drafts and UI lifetime live in this pane.
 import type { ChatPorts } from './app/ports.js'
-import type { EventOf } from './gateway/dispatch.js'
 import { Composer } from './draft/composer.js'
+import type { EventOf } from './gateway/dispatch.js'
 import { openBtwOverlay } from './overlays/btw.js'
 import type { Overlay } from './overlays/overlay.js'
 import { btwEvent, cancelBtw, listBtw, submitBtw, type BtwThread } from './wire/side.js'
