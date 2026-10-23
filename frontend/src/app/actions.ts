@@ -117,7 +117,7 @@ export class AppActions {
     const changed = () => cx.changed()
     this.bindings = new BindingPreferences({
       gw,
-      sid: () => cx.state.ref.live,
+      session: cx.state,
       changed,
       notice: text => chat.notice(text, 'warning')
     })
