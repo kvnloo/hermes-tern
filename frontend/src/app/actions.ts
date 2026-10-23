@@ -175,6 +175,7 @@ export class AppActions {
       },
       modal: () => isModal(chat.overlays),
       openAgent: id => void this.openAgent(id),
+      openAgents: () => openAgents(chat),
       openProcess: id => openBackground(chat, id),
       openUrl
     }

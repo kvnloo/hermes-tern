@@ -11,6 +11,8 @@ import { INPUT_ID } from './host.js'
 export interface ActionCx {
   /** Shows subagent `id` beside the chat, or in its timeline sheet. */
   openAgent(id: string): void
+  /** The agents hub, including agents hidden by a compact wait frame's limit. */
+  openAgents(): void
   /** The Background sheet at process `id`. */
   openProcess(id: string): void
   /** `url` in the browser. */
@@ -23,7 +25,7 @@ export interface ActionCx {
 }
 
 /** The `act` names with a handler here. */
-export type ActionName = 'connect-continue' | 'connect-open' | 'open-agent' | 'open-process' | 'open-url'
+export type ActionName = 'connect-continue' | 'connect-open' | 'open-agent' | 'open-agents' | 'open-process' | 'open-url'
 
 /** What an action does with its (non-empty) value. */
 type ActionHandler = (value: string, cx: ActionCx) => void
@@ -39,6 +41,7 @@ export const ACTIONS = {
     cx.connect.open(value.slice(0, at), value.slice(at + 1))
   },
   'open-agent': (value, cx) => cx.openAgent(value),
+  'open-agents': (_value, cx) => cx.openAgents(),
   'open-process': (value, cx) => cx.openProcess(value),
   // A connect card's Authorize: the app's link in the browser.
   'open-url': (value, cx) => cx.openUrl(value)
