@@ -164,8 +164,8 @@ export function parseLspResult(value: unknown): LspResult | undefined {
   const path = row?.['path']
   const server = row?.['server']
 
-  if (typeof path !== 'string' || (server !== null && typeof server !== 'string') ||
-      row?.['position_encoding'] !== 'utf-16') {
+  if (!row || typeof path !== 'string' || (server !== null && typeof server !== 'string') ||
+      row['position_encoding'] !== 'utf-16') {
     return undefined
   }
 
