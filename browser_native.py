@@ -54,6 +54,14 @@ class BrowserScope:
     cli: TernBrowserCLI = field(repr=False)
     driver: BrowserDriver | None = field(default=None, repr=False)
 
+    def require_caller(self, request: Any) -> None:
+        """A live registered RPC must match this scope's ORIGINAL gateway caller."""
+        check = getattr(self.lease, "assert_caller", None)
+        if not callable(check):
+            raise NativeBrowserError("unsupported")
+        check(request)
+        self.require_current()
+
     def require_current(self) -> None:
         from gateway.session_authorities import served_profile_name
         from hermes_constants import get_hermes_home
