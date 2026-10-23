@@ -3,8 +3,10 @@
 The real plugin _run -> _chat -> pinned Hermes _launch_tui -> Node path runs
 against independently built Tern and Ink entries. The Node recorder only writes
 lossless JSON argv/environment receipts, then execs the actual Node interpreter.
-Every subprocess owns a new process group; both PTY and pipe captures are bounded
-and clean up the whole owned group, even if the Python driver has already exited.
+Every subprocess owns a new process group and cleans up the whole group, even
+if the Python driver has exited. Native PTY/pipe output retains a 2,000,000-byte
+cap; immutable Git verification metadata alone has a distinct 16,000,000-byte
+combined pipe cap. Both fail on overflow without truncation.
 Detached gateway cleanup is Linux-only: Python 3.11+, pidfd_open,
 pidfd_send_signal, select.poll and accessible /proc start-time and cmdline
 identity are mandatory. It fails closed without a process handle, never
@@ -47,6 +49,7 @@ BANNER = b"starting the regular TUI"
 TSP_FRAME = b"\x1b_"  # TSP is carried in APC; Ink must never emit another frame.
 INK_HELP_MARKER = b"/quit"  # The real pinned Ink HelpHint, opened with '?'.
 OUTPUT_LIMIT = 2_000_000
+GIT_METADATA_LIMIT = 16_000_000  # Complete pinned Git verification metadata only.
 
 # -I ignores inherited PYTHONPATH; the isolated source is inserted explicitly.
 # A resume fixture is created using the REAL pinned SessionDB API before launch,
@@ -128,15 +131,19 @@ def _cleanup_owned_group(child: subprocess.Popen) -> None:
 
 def _bounded_capture(
     argv: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 20,
+    output_limit: int = OUTPUT_LIMIT,
 ) -> tuple[int, bytes, bytes]:
-    """Drain BOTH non-TTY streams incrementally; overflow fails, never truncates.
+    """Drain BOTH non-TTY streams; overflow fails instead of truncating.
 
-    Capturing via subprocess.run(timeout=...) would kill only the Python parent
-    and could leave Hermes' subprocess.call(Node) holding the pipe writers.
-    This helper owns a new session, enforces a combined byte budget, and reaps
-    the entire group on every success and failure path.
+    Native driver/Node output uses the unchanged 2,000,000-byte default.
+    Only _git_bytes opts into 16,000,000 bytes for complete immutable pinned
+    Git metadata, never native terminal output. The budget covers BOTH pipes.
+    subprocess.run(timeout=...) could leave Hermes' child Node holding pipes;
+    this helper owns and reaps the entire process group on every path.
     """
     assert os.name == "posix"
+    if type(output_limit) is not int or not 0 < output_limit <= GIT_METADATA_LIMIT:
+        raise ValueError("Non-TTY capture requires a positive bounded byte budget")
     child = subprocess.Popen(
         argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
@@ -165,14 +172,14 @@ def _bounded_capture(
                         )
                 for key, _ in readers.select(min(0.15, remaining)):
                     # Read one past the remaining budget to positively detect overflow.
-                    remaining_bytes = OUTPUT_LIMIT - len(stdout) - len(stderr)
+                    remaining_bytes = output_limit - len(stdout) - len(stderr)
                     chunk = os.read(key.fileobj.fileno(), min(65536, remaining_bytes + 1))
                     if not chunk:
                         readers.unregister(key.fileobj)
                         continue
                     if len(chunk) > remaining_bytes:
                         raise AssertionError(
-                            f"Native non-TTY output exceeded {OUTPUT_LIMIT} bytes"
+                            f"Non-TTY capture exceeded {output_limit} bytes"
                         )
                     key.data.extend(chunk)
                 if not readers.get_map() and child.poll() is None:
@@ -361,9 +368,14 @@ def _pty_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes]:
 
 
 def _git_bytes(cwd: Path, *args: str) -> bytes:
+    """Capture complete pinned Git metadata, not native TTY/Node output.
+
+    Recursive NUL-terminated ls-tree metadata can exceed the native 2 MB
+    terminal budget. Fail (never truncate) if combined Git output exceeds 16 MB.
+    """
     code, stdout, stderr = _bounded_capture(
         ["git", "-C", str(cwd), *args], cwd=cwd, env=dict(os.environ),
-        timeout=12,
+        timeout=12, output_limit=GIT_METADATA_LIMIT,
     )
     assert code == 0, (args, code, stdout[-800:], stderr[-800:])
     return stdout
@@ -736,6 +748,112 @@ def test_explicit_ordinary_tui_uses_real_ink_without_a_tern_attempt(native_sourc
     assert BANNER not in stderr, stderr[-1500:]
     assert code == 0, (code, stdout[-1200:], stderr[-1200:])
     assert TSP_FRAME not in stdout + stderr, "No TSP entry was launched"
+
+
+# POLICY-ONLY capture checks: these inert Python children are not native
+# Tern/Ink executions, do not produce launcher receipts, and prove no fallback.
+
+
+def test_policy_native_capture_default_still_fails_above_two_mb(tmp_path):
+    """POLICY ONLY: the native combined pipe default must stay at 2,000,000."""
+    assert OUTPUT_LIMIT == 2_000_000
+    assert GIT_METADATA_LIMIT == 16_000_000
+    script = "import sys; sys.stdout.buffer.write(b'x' * 2_000_001)"
+    with pytest.raises(AssertionError, match="Non-TTY capture exceeded 2000000 bytes"):
+        _bounded_capture(
+            [sys.executable, "-I", "-c", script], cwd=tmp_path, env=dict(os.environ),
+        )
+
+
+def test_policy_git_metadata_preserves_complete_nul_records_above_two_mb(tmp_path):
+    """POLICY ONLY: the separate verification budget is lossless, not native proof."""
+    script = (
+        "import sys\n"
+        "sys.stdout.buffer.write((b'path:' + b'x' * 750_000 + b'\\0') * 3)\n"
+    )
+    code, stdout, stderr = _bounded_capture(
+        [sys.executable, "-I", "-c", script], cwd=tmp_path,
+        env=dict(os.environ), output_limit=GIT_METADATA_LIMIT,
+    )
+    expected = (b"path:" + b"x" * 750_000 + b"\0") * 3
+    assert OUTPUT_LIMIT < len(expected) < GIT_METADATA_LIMIT
+    assert (code, stdout, stderr) == (0, expected, b"")
+    assert stdout.count(b"\0") == 3 and stdout.endswith(b"\0")
+
+
+def test_policy_git_metadata_overflow_fails_and_reaps_owned_group(tmp_path, monkeypatch):
+    """POLICY ONLY: exceeding 16 MB still fails and reaps the fresh session."""
+    module = sys.modules[__name__]
+    real_cleanup = _cleanup_owned_group
+    observed = []
+
+    def observe_cleanup(child):
+        try:
+            group_is_owned = os.getpgid(child.pid) == child.pid
+        finally:
+            real_cleanup(child)
+        observed.append((child, group_is_owned))
+
+    monkeypatch.setattr(module, "_cleanup_owned_group", observe_cleanup)
+    script = (
+        "import sys, time\n"
+        "for _ in range(245):\n"
+        "    sys.stdout.buffer.write(b'x' * 65536)\n"
+        "sys.stdout.buffer.flush()\n"
+        "time.sleep(30)\n"
+    )
+    with pytest.raises(AssertionError, match="Non-TTY capture exceeded 16000000 bytes"):
+        _bounded_capture(
+            [sys.executable, "-I", "-c", script], cwd=tmp_path, timeout=10,
+            env=dict(os.environ), output_limit=GIT_METADATA_LIMIT,
+        )
+    assert len(observed) == 1
+    child, group_is_owned = observed[0]
+    assert group_is_owned and child.returncode is not None
+
+
+def test_policy_combined_stdout_stderr_still_share_native_budget(tmp_path):
+    """POLICY ONLY: two individually acceptable pipes cannot exceed 2 MB together."""
+    script = (
+        "import sys\n"
+        "sys.stdout.buffer.write(b'a' * 1_250_000)\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stderr.buffer.write(b'b' * 800_000)\n"
+        "sys.stderr.buffer.flush()\n"
+    )
+    with pytest.raises(AssertionError, match="Non-TTY capture exceeded 2000000 bytes"):
+        _bounded_capture(
+            [sys.executable, "-I", "-c", script], cwd=tmp_path, env=dict(os.environ),
+        )
+
+
+@pytest.mark.parametrize("invalid", [0, -1, True, GIT_METADATA_LIMIT + 1])
+def test_policy_unbounded_or_invalid_capture_limit_refused_before_spawn(tmp_path, invalid):
+    """POLICY ONLY: even explicit verification limits must remain bounded."""
+    with pytest.raises(ValueError, match="positive bounded byte budget"):
+        _bounded_capture(
+            [sys.executable, "-I", "-c", "raise AssertionError('spawned')"],
+            cwd=tmp_path, env=dict(os.environ), output_limit=invalid,
+        )
+
+
+def test_policy_only_git_metadata_raises_budget_not_native_driver(monkeypatch, tmp_path):
+    """POLICY ONLY: Git opts in; the Python/native driver does not."""
+    observed = []
+
+    def fake_capture(argv, **kwargs):
+        observed.append((argv, kwargs))
+        return 0, b"tracked\0", b""
+
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_bounded_capture", fake_capture)
+    monkeypatch.setattr(module, "_stop_isolated_gateway", lambda *_: None)
+    assert _git_bytes(tmp_path, "ls-tree", "-rz", "--full-tree", "HEAD") == b"tracked\0"
+    assert _capture_driver(tmp_path, {}) == (0, b"tracked\0", b"")
+    assert observed[0][0][0] == "git"
+    assert observed[0][1]["output_limit"] == GIT_METADATA_LIMIT
+    assert "output_limit" not in observed[1][1]
+    assert observed[1][1]["timeout"] == 65
 
 
 # POLICY-ONLY: exec the exact cleanup script without its __main__ entry. Its
