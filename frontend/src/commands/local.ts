@@ -34,6 +34,7 @@ export type CommandHost = Pick<
   | 'busy'
   | 'control'
   | 'gw'
+  | 'editExternal'
   | 'newSession'
   | 'open'
   | 'openHelp'
@@ -73,6 +74,11 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    help: 'Edit the current draft in Tern or $VISUAL/$EDITOR',
+    name: 'editor',
+    run: (host, arg) => arg.trim() ? host.transcript.notice('Usage: /editor', 'warning') : host.editExternal()
+  },
   {
     // `/q` is Hermes' /queue.
     aliases: ['exit'],
