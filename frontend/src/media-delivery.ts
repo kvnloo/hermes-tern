@@ -46,7 +46,7 @@ export interface MediaDeliveryDeps {
 
 /** SSH makes frontend/Tern host paths non-interchangeable, including stdio gateways. */
 export function ternSharesFrontendHost(env: NodeJS.ProcessEnv = process.env): boolean {
-  return !env.SSH_CONNECTION && !env.SSH_CLIENT && !env.SSH_TTY
+  return !env['SSH_CONNECTION'] && !env['SSH_CLIENT'] && !env['SSH_TTY']
 }
 
 /** Open only regular, non-symlink leaf files. Bound allocation and each read, even if file grows. */

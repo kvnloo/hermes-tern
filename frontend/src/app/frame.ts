@@ -75,8 +75,7 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
-    media: cx.mediaDelivery,
-    mediaRev: cx.mediaDelivery?.token(),
+    ...(cx.mediaDelivery ? { media: cx.mediaDelivery, mediaRev: cx.mediaDelivery.token() } : {}),
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
 }

@@ -236,7 +236,7 @@ export function projectToolMedia(call: ToolCall, cx: MediaContext): ToolMedia | 
       host: cx.remoteHost,
       id: String(call.id),
       kind: 'path',
-      mime,
+      ...(mime === undefined ? {} : { mime }),
       path: absolute,
       toolCallId: String(call.id)
     }
