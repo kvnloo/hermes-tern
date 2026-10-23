@@ -29,7 +29,7 @@ From frontend/:
     bun run check
     bun run bundle
 
-Record typecheck, Vitest, full check, bundle and real Tern acceptance separately on the **final PR head**. Earlier MBP receipts at `9c1c801d4da4ed74f92a56bd0117556e79cdea09` qualify that older head only; GitHub-only work cannot run any of these commands.
+Record typecheck, Vitest, full check, bundle and real Tern acceptance separately on the **final PR head**. The image tests now include real App deferred switch/drain and refused native oversized-byte notice. These are in-process SDK-shaped fixtures, **not** proof of native Tern host paste/drop behavior. Earlier MBP receipts at `9c1c801d4da4ed74f92a56bd0117556e79cdea09` qualify that older head only; GitHub-only work cannot run any of these commands.
 
 ## Remaining (separate TRN3 artifact ownership)
 

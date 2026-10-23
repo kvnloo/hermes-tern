@@ -10,8 +10,8 @@ import { Attachments, type AttachmentsHost, type Image } from '../draft/attachme
 import { SessionState } from '../session/state.js'
 import { onTernEvent, type ActionCx } from '../surface/actions.js'
 
-import { setup } from './appSetup.js'
-import { FakeGateway, key } from './fakes.js'
+import { App, setup } from './appSetup.js'
+import { FakeGateway, fakeTern, given, key, must, settle } from './fakes.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 
@@ -181,6 +181,112 @@ describe('the session-owned image controller', () => {
     expect(app.stores.attachments.items).toEqual([])
   })
 
+  it('an actual deferred App switch rejects taken A images at B drain and restores text before a valid B retry', async () => {
+    const reply = Promise.withResolvers<unknown>()
+    const { app, press, sent, type } = setup({
+      'session.resume': () => reply.promise,
+      'prompt.submit': () => ({ admission_id: 'b1', status: 'started' })
+    })
+    await app.stores.attachments.fromDataUrl(url, 'A.png')
+    expect(app.stores.attachments.items.map(image => image.path)).toEqual(['/uploads/1.png'])
+    const switching = app.resume(storedSessionId('stored-b'))
+    expect(app.stores.life.switching).toBe(true)
+    await type('Please inspect both images')
+    await press(key('enter'))
+    expect(app.stores.queue.held).toMatchObject([{ text: 'Please inspect both images', images: [{ path: '/uploads/1.png' }] }])
+    expect(sent('prompt.submit')).toEqual([])
+
+    reply.resolve({ info: { stored_session_id: 'stored-b' }, session_id: 's2', subscription_id: 'sub-b', messages: [] })
+    await switching
+    expect(app.session.ref.live).toBe('s2')
+    expect(app.stores.queue.held).toEqual([])
+    expect(sent('prompt.submit')).toEqual([])
+    expect(app.stores.composer.text).toBe('Please inspect both images')
+    expect(app.stores.attachments.items).toEqual([])
+    expect(app.transcript.entries.some(e => e.kind === 'notice' && e.text.includes('an image belongs to another session'))).toBe(true)
+
+    await app.stores.attachments.fromDataUrl(url, 'B.png')
+    await press(key('enter'))
+    expect(sent('prompt.submit')).toMatchObject([{
+      session_id: 's2', text: 'Please inspect both images',
+      attachments: [{ mime: 'image/png', path: '/uploads/2.png' }]
+    }])
+    expect(JSON.stringify(sent('prompt.submit'))).not.toContain('/uploads/1.png')
+  })
+
+  it('preserves a text-only NEXT prompt on B adoption', async () => {
+    const reply = Promise.withResolvers<unknown>()
+    const { app, press, sent, type } = setup({ 'session.resume': () => reply.promise })
+    const switching = app.resume(storedSessionId('stored-b'))
+    await type('a legitimate NEXT prompt')
+    await press(key('enter'))
+    expect(sent('prompt.submit')).toEqual([])
+    reply.resolve({ info: { stored_session_id: 'stored-b' }, session_id: 's2', subscription_id: 'sub-b' })
+    await switching
+    expect(sent('prompt.submit')).toMatchObject([{ session_id: 's2', text: 'a legitimate NEXT prompt' }])
+  })
+
+  it('on failed switch, the held prompt can still use the exact original A image', async () => {
+    const reply = Promise.withResolvers<unknown>()
+    const { app, press, sent, type } = setup({ 'session.resume': () => reply.promise })
+    await app.stores.attachments.fromDataUrl(url, 'A.png')
+    const original = app.session.ref
+    const switching = app.resume(storedSessionId('unavailable'))
+    await type('still belongs to A')
+    await press(key('enter'))
+    expect(sent('prompt.submit')).toEqual([])
+    reply.reject(new Error('session backend offline'))
+    await expect(switching).rejects.toThrow('session backend offline')
+    await vi.waitFor(() => expect(sent('prompt.submit')).toHaveLength(1))
+    expect(app.session.ref).toBe(original)
+    expect(sent('prompt.submit')).toMatchObject([{
+      session_id: 's1', text: 'still belongs to A',
+      attachments: [{ mime: 'image/png', path: '/uploads/1.png' }]
+    }])
+  })
+
+  it('rejects mixed A/B images atomically, restores B image and the unsent text', async () => {
+    const { app, sent } = setup()
+    await app.stores.attachments.fromDataUrl(url, 'A.png')
+    const old = must(app.stores.attachments.take()[0])
+    app.session.ref = { live: liveSessionId('s2'), stored: storedSessionId('stored-b') }
+    await app.stores.attachments.fromDataUrl(url, 'B.png')
+    const valid = must(app.stores.attachments.take()[0])
+    app.stores.router.send({ kind: 'typed', images: [old, valid], pasted: [], text: 'keep both references for review' })
+    expect(sent('prompt.submit')).toEqual([])
+    expect(app.stores.composer.text).toBe('keep both references for review')
+    expect(app.stores.attachments.items).toEqual([valid])
+    expect(app.transcript.entries.some(e => e.kind === 'notice' && e.text.includes('an image belongs to another session'))).toBe(true)
+  })
+
+  it('rejects a foreign image before shared-gateway busy queue admission', async () => {
+    const { app, sent } = setup()
+    await app.stores.attachments.fromDataUrl(url, 'A.png')
+    const old = must(app.stores.attachments.take()[0])
+    app.session.ref = { live: liveSessionId('s2'), stored: storedSessionId('stored-b') }
+    given.busy(app.stores, { label: 'Working…', since: {}, startedAt: 0 })
+    app.stores.router.route({ kind: 'typed', images: [old], pasted: [], text: 'queued but stale' }, 'queue')
+    await vi.waitFor(() => expect(app.stores.composer.text).toBe('queued but stale'))
+    expect(sent('prompt.submit')).toEqual([])
+    expect(app.stores.queue.server.queued()).toEqual([])
+  })
+
+  it('exposes a visible App notice for oversized pinned-SDK-wrapped native image bytes', async () => {
+    const gw = new FakeGateway()
+    const tern = fakeTern({ draws: true })
+    const app = new App(tern.session, gw.client, '1.0.0')
+    void app.run()
+    given.session(app, 's1')
+    await vi.waitFor(() => expect(tern.reading).toBe(true))
+    tern.send({
+      ev: 'unknown', sf: 'hermes',
+      raw: { ev: 'paste', raw: { data: 'A'.repeat(4 * Math.ceil(20 * 1024 * 1024 / 3) + 4), mime: 'image/png' } }
+    })
+    await settle(gw)
+    expect(app.transcript.entries.some(e => e.kind === 'notice' && e.text.includes('larger than 20 MiB'))).toBe(true)
+    expect(gw.sent('image.attach_bytes')).toEqual([])
+  })
+
   it('keeps already-landed A refs out of B take/send and refuses A restore in B', async () => {
     const s = host()
     s.gw.handlers.set('image.attach_bytes', () => ({ path: '/a/file.png' }))
@@ -199,6 +305,7 @@ describe('the session-owned image controller', () => {
 
     // Even returning to the same canonical and runtime id is a fresh ref.
     s.changeSession('session-a', 'canonical-a')
+    expect(s.a.ownsForSend(liveSessionId('session-a'), aTake)).toBe(false)
     s.a.restore(aTake)
     expect(s.a.items).toEqual([])
   })
