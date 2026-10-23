@@ -53,15 +53,20 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
     cx.completion.update(cx.composer)
   }
 
-  cx.surface.render({
+  const chrome = {
     dock: dockNodes(dockModel(cx, now), cx.actions),
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
       ...cx.overlays.map(o => o.node(`layer.${o.key}`)),
       ...(modal ? [] : cx.completion.nodes(COMPOSER_ID))
-    ],
-    main: cx.transcript.entries.map(e => entryNode(e, `main.${e.id}`, entries))
-  })
+    ]
+  }
+
+  if (cx.retention) {
+    cx.retention.paint(chrome, cx.transcript.entries, entries, modal)
+  } else {
+    cx.surface.render({ ...chrome, main: cx.transcript.entries.map(e => entryNode(e, `main.${e.id}`, entries)) })
+  }
 
   cx.surface.follow(focusOf(cx))
 }
