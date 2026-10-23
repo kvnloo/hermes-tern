@@ -12,14 +12,14 @@ Open **Tern browser blocks** with `Alt+Shift+B` or `/browser-blocks`.
 The sheet lists the native block id, title, URL, and owner. Select a block
 with Up/Down or click its row. Enter (or its action) means:
 
-- **Hand over to agent** on an available, undriven block: request `browser.adopt`.
-- **Focus** on an already owned block: request `browser.focus`.
+- **Hand over to agent** on an available, undriven block: request `hermes-tern.browser.adopt`.
+- **Focus** on an already owned block: request `hermes-tern.browser.focus`.
 
 For an owned block, **Release / close owned block** requests
-`browser.release`: adopted pages remain open, agent-created pages close, and
+`hermes-tern.browser.release`: adopted pages remain open, agent-created pages close, and
 the sheet reloads only after the server confirms release. A failed cleanup is
 reported, not presented as success. **Evaluation frame…** requests
-`browser.frame` with `main` or an exact native index path such as `0`
+`hermes-tern.browser.frame` with `main` or an exact native index path such as `0`
 or `1.0`; Hermes must verify the frame. Child-frame snapshot, input,
 navigation and capture are not available. Console buffering, recording and
 annotated capture are not emulated.
@@ -32,22 +32,65 @@ The browser tool card shows a confirmed `tern_target` identity when a
 stored or live tool result contains one, but never treats that metadata
 as authority.
 
-## Gateway compatibility
+## Gateway compatibility and authority
 
-`frontend/hermes-src.lock` pins Hermes
-`22063fc099ec9ad8357d7f8f6e6248a0400680d3`, whose generated
-`apps/shared/src/gateway-contract.generated.ts` does **not** yet declare the
-browser-block RPCs. The donor at `kvnloo/hermes-agent` branch
-`preview/tern-frontend` declares:
+The generic seam is green on the Hermes downstream
+`kvnloo/hermes-agent#650` head
+`ba42d324b3300639b826fd7cdb20173935561389`.
+This plugin registers its own five `hermes-tern.browser.*` methods
+through `PluginContext.register_gateway_method`. No core Python methods,
+runtime pin or JSON-RPC router are altered. `gateway.capabilities`
+must advertise those exact registrations for a live `session_id`;
+an older gateway explicitly refuses them. This frontend retains its frozen
+Hermes source pin for builds, while native acceptance needs the *separate*
+green gateway checkout.
 
-`browser.blocks`, `browser.adopt`, `browser.focus`, `browser.release`,
-and `browser.frame`.
+The frontend obtains canonical identity from the attached session's
+server-supplied `session.info.profile_name` and its original `session.ref`.
+It issues the existing profile-qualified *core* request
+`config.get({key:'profile',session_id,profile})` (KEY head b93ca91).
+It then queries `gateway.capabilities({session_id})` and calls
+`hermes-tern.browser.*({session_id,...})` without a `profile` field:
+the green seam rejects such a client-selected field. Missing or changed
+profile identity refuses rather than guessing `default` or falling back
+to a session-id-only pin.
 
-`src/wire/browser.ts` validates replies at that versioned boundary.
-Older gateways report an unsupported method, with no fallback that could
-silently adopt another page or switch the user's browser backend.
-The plugin alone does not install the backend adapter. Any runtime rollout
-must use a gateway that implements and enforces the donor contracts.
+The gateway validates the live original peer, transport, session generation,
+and owning profile. Its `GatewayRequestContext.capture_scope()` is an
+opaque caller-bound lease: a Tern viewer marker from the MODULE helper
+`tern_env.pane_env(session_id)` supplies live pane variables, not authority.
+The plugin freezes the first viewer, window and original task; replacing a
+viewer cannot redirect old claimed pages.
+
+Drive requires **explicit operator consent** via the per-profile
+`plugins.entries.hermes-tern.allow_tool_override: true` or
+`tools.override` capability. This plugin never grants consent or mutates
+a user profile. Without it, discovery may list pages but cannot drive.
+With it, browser tools are overridden only through the public
+`ctx.register_tool(...,override=True)` so Hermes scope, pre-tool hook and
+guardrail checks precede native effects. A `tool_execution` middleware
+runs before those checks and is forbidden for native browser dispatch.
+Revoking consent disables effects. Explicit CDP wins initially; once
+native ownership is claimed, a failed effect never switches to CDP or
+another page/backend.
+
+**Known canonical prerequisite:** the green registered-method request
+context exposes profile, session and captured lease, but does not expose
+a documented task/busy-turn snapshot. The legacy TUI backend uses the
+existing `_current_session_steer_authority` to obtain task identity and
+the running fence. Canonical sessions lacking an equivalent trusted
+task/busy accessor can discover read-only, but adoption/focus/release/frame
+remain explicitly unsupported; the backend must not infer this from
+frontend state. The subsequent gateway API projection belongs in
+`kvnloo/hermes-agent`, not in this fork's runtime pin.
+
+Undriven blocks require explicit handover. Foreign driven blocks cannot
+be adopted. Adopted pages release without closing; created pages close
+on release. Failed cleanup retains its claim. Indeterminate opens
+quarantine their original window; only the exact late open response ID
+can identify a page for cleanup. Titles, URLs or list differences
+never establish ownership. Child frames are verified exact paths and
+support evaluation only, not trusted child input/snapshot/nav/capture.
 
 ## Checks for OMP
 
@@ -55,9 +98,16 @@ With `HERMES_SRC` pointing to a checkout of the pinned Hermes SHA:
 
 ```sh
 cd frontend
-HERMES_SRC=/path/to/hermes-agent bun run setup
+HERMES_SRC=/path/to/pinned-hermes-agent bun run setup
 bun run test -- src/__tests__/browserBlocks.test.ts src/__tests__/browserOverlay.test.ts src/__tests__/keys.test.ts
 bun run check
+bun run build
+```
+
+Test the Python plugin against the separate green Hermes source checkout:
+
+```sh
+PYTHONPATH=/path/to/green-hermes-agent python -m pytest -q tests/test_browser_native.py tests/test_browser_backend.py tests/test_browser_gateway_dispatch.py tests/test_plugin_registration.py
 ```
 
 These are validation commands, not a claim they have been run here.
