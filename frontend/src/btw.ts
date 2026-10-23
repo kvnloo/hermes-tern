@@ -1,0 +1,247 @@
+// Gateway-owned side threads, rendered independently of the main transcript.
+// Only the selected thread, unsent drafts and UI lifetime live in this pane.
+import type { ChatPorts } from './app/ports.js'
+import { Composer } from './draft/composer.js'
+import { openBtwOverlay } from './overlays/btw.js'
+import type { Overlay } from './overlays/overlay.js'
+import { btwEvent, cancelBtw, listBtw, submitBtw, type BtwThread } from './wire/side.js'
+
+type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'scroll' | 'session'>
+
+export class BtwThreads {
+  readonly host: Host
+  threads: BtwThread[] = []
+  selected: string | null = null
+  state: 'idle' | 'loading' | 'submitting' = 'idle'
+  error = ''
+  #sid: string | null = null
+  #epoch = 0
+  #sheet: Overlay | undefined
+  #drafts = new Map<string, Composer>()
+
+  constructor(host: Host) {
+    this.host = host
+  }
+
+  adopt(sid: string | null) {
+    if (this.#sid === sid) {
+      return
+    }
+
+    this.#sid = sid
+    this.#epoch++
+
+    if (this.#sheet) {
+      this.host.close(this.#sheet)
+      this.#sheet = undefined
+    }
+
+    this.threads = []
+    this.selected = null
+    this.state = 'idle'
+    this.error = ''
+    this.#drafts.clear()
+    this.host.changed()
+  }
+
+  get thread(): BtwThread | undefined {
+    return this.threads.find(item => item.id === this.selected)
+  }
+
+  get draft(): Composer {
+    const id = this.selected ?? 'new'
+    let draft = this.#drafts.get(id)
+
+    if (!draft) {
+      draft = new Composer()
+      this.#drafts.set(id, draft)
+    }
+
+    return draft
+  }
+
+  select(id: string | null) {
+    if (id === null || this.threads.some(item => item.id === id)) {
+      this.selected = id
+      this.host.changed()
+    }
+  }
+
+  owns(sheet: Overlay): boolean {
+    return this.#sheet === sheet &&
+      this.host.overlays.includes(sheet) &&
+      this.host.overlays.at(-1) === sheet &&
+      this.host.session.ref.live === this.#sid
+  }
+
+  closed(sheet: Overlay) {
+    if (this.#sheet === sheet) {
+      this.#sheet = undefined
+      this.#epoch++
+      this.state = 'idle'
+    }
+  }
+
+  close() {
+    const sheet = this.#sheet
+
+    if (sheet && this.owns(sheet)) {
+      this.host.close(sheet)
+    }
+  }
+
+  /** Merge the newest gateway revision; an RPC reply may lag behind stream deltas. */
+  update(thread: BtwThread) {
+    const index = this.threads.findIndex(item => item.id === thread.id)
+
+    if (index < 0) {
+      this.threads.push(thread)
+    } else if (this.threads[index] && this.threads[index].revision < thread.revision) {
+      this.threads[index] = thread
+    } else {
+      return
+    }
+
+    this.host.changed()
+  }
+
+  /** The gateway event is already tagged to a conversation; never append it to main history. */
+  onEvent(raw: unknown) {
+    const parsed = btwEvent(raw)
+
+    if (!parsed.success || parsed.data.session_id !== this.#sid ||
+        parsed.data.session_id !== this.host.session.ref.live) {
+      return
+    }
+
+    this.update(parsed.data.payload.thread)
+  }
+
+  async show(question = '') {
+    const sid = this.host.session.ref.live
+
+    if (!sid) {
+      return
+    }
+
+    this.adopt(sid)
+    // If the user supplied a question, it starts a fresh side thread, never an
+    // accidental follow-up to the last selected history item.
+    if (question.trim()) {
+      this.selected = null
+    }
+
+    const sheet = openBtwOverlay(this)
+    this.#sheet = sheet
+    const epoch = ++this.#epoch
+    this.state = 'loading'
+    this.error = ''
+    this.host.changed()
+
+    try {
+      const found = await listBtw(this.host.gw, sid)
+
+      if (!this.#current(sid, epoch, sheet)) {
+        return
+      }
+
+      for (const thread of found) {
+        this.update(thread)
+      }
+
+      this.selected ??= question.trim() ? null : this.threads.at(-1)?.id ?? null
+      this.state = 'idle'
+
+      if (question.trim()) {
+        this.draft.set(question)
+        await this.submit()
+      }
+    } catch {
+      if (this.#current(sid, epoch, sheet)) {
+        // The pinned gateway may not yet implement BTW history. Do not send a
+        // legacy prompt.btw request that would change conversation semantics.
+        this.error = 'Side-thread history is unavailable on this Hermes gateway.'
+        this.state = 'idle'
+      }
+    }
+
+    this.host.changed()
+  }
+
+  async submit(text?: string) {
+    const sid = this.host.session.ref.live
+    const sheet = this.#sheet
+    const draft = this.draft
+    const question = (text ?? draft.text).trim()
+    const previous = this.selected
+
+    if (!sid || sid !== this.#sid || !sheet || !this.owns(sheet) || this.state !== 'idle' ||
+        !question || this.thread?.turns.at(-1)?.state === 'running') {
+      return
+    }
+
+    const epoch = this.#epoch
+    const rev = draft.rev
+    this.state = 'submitting'
+    this.error = ''
+    this.host.changed()
+
+    try {
+      const answer = await submitBtw(this.host.gw, sid, question, previous ?? undefined)
+
+      if (!this.#current(sid, epoch, sheet)) {
+        return
+      }
+
+      this.update(answer.thread)
+
+      if (this.selected === previous) {
+        this.selected = answer.thread.id
+      }
+
+      if (draft.rev === rev) {
+        draft.set('')
+      }
+    } catch {
+      if (this.#current(sid, epoch, sheet)) {
+        this.error = 'Could not send side question. The draft was preserved.'
+      }
+    } finally {
+      if (this.#current(sid, epoch, sheet)) {
+        this.state = 'idle'
+        this.host.changed()
+      }
+    }
+  }
+
+  async cancel() {
+    const sid = this.host.session.ref.live
+    const sheet = this.#sheet
+    const thread = this.thread
+    const turn = thread?.turns.at(-1)
+    const epoch = this.#epoch
+
+    if (!sid || sid !== this.#sid || !sheet || !this.owns(sheet) ||
+        !thread || turn?.state !== 'running') {
+      return
+    }
+
+    try {
+      const answer = await cancelBtw(this.host.gw, sid, thread.id, turn.id)
+
+      if (this.#current(sid, epoch, sheet)) {
+        this.update(answer.thread)
+      }
+    } catch {
+      if (this.#current(sid, epoch, sheet)) {
+        this.error = 'Could not stop the side turn.'
+        this.host.changed()
+      }
+    }
+  }
+
+  #current(sid: string, epoch: number, sheet: Overlay): boolean {
+    return this.#epoch === epoch && this.#sid === sid && this.host.session.ref.live === sid &&
+      this.#sheet === sheet && this.host.overlays.includes(sheet)
+  }
+}
