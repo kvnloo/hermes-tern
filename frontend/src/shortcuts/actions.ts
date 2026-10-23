@@ -27,8 +27,8 @@ export const APP_SHORTCUTS: readonly Shortcut[] = [
   { id: 'app.message.alternate', group: 'Control', title: 'Steer from the queue when busy', keys: ['alt+enter'], legacy: legacy(['alt']) },
   { id: 'app.model.select', group: 'Models', title: 'Select model', keys: ['alt+m'] },
   { id: 'app.model.cycleForward', group: 'Models', title: 'Next recent model', keys: ['ctrl+p'] },
-  { id: 'app.model.cycleBackward', group: 'Models', title: 'Previous recent model', keys: ['ctrl+shift+p'] },
-  { id: 'app.palette', group: 'Navigation', title: 'Command palette', keys: ['ctrl+shift+k'] },
+  { id: 'app.model.cycleBackward', group: 'Models', title: 'Previous recent model', keys: ['ctrl+alt+p'] },
+  { id: 'app.palette', group: 'Navigation', title: 'Command palette', keys: ['alt+k'] },
   { id: 'app.help', group: 'Navigation', title: 'Commands and shortcuts', keys: ['f1', 'alt+/'] }
 ]
 
@@ -59,8 +59,10 @@ export function normalizeChord(raw: string): string {
     throw new Error(`Invalid key chord: ${raw}`)
   }
 
+  // Tern 0.9.5 reserves Ctrl+Shift+P (host palette) and Ctrl+Shift+K
+  // (clear scrollback); reject unreachable profile overrides.
   if (parts.includes('meta') ||
-    (parts.includes('ctrl') && parts.includes('shift') && ['c', 'v'].includes(name)) ||
+    (parts.includes('ctrl') && parts.includes('shift') && ['c', 'v', 'k', 'p'].includes(name)) ||
     (parts.includes('alt') && ['f4', 'tab'].includes(name))) {
     throw new Error(`Host-reserved key chord: ${raw}`)
   }

@@ -10,8 +10,8 @@ This port uses the existing Hermes Tern gateway, app ports, native `@stencil-hq/
 | Shift+Tab | Cycle reasoning effort |
 | Alt+Up / Alt+Enter | Edit oldest queued prompt / steer queued prompt while busy |
 | Alt+M | Select model (session-aware native picker) |
-| Ctrl+P / Ctrl+Shift+P | Next / previous recent model |
-| Ctrl+Shift+K | Native command palette |
+| Ctrl+P / Ctrl+Alt+P | Next / previous recent model |
+| Alt+K | Native command palette |
 | F1 / Alt+/ | Help and current bindings |
 | /palette | Open the command palette |
 
@@ -25,17 +25,17 @@ Example:
 
 ```json
 {
-  "app.palette": ["ctrl+shift+k", "alt+k"],
+  "app.palette": ["alt+k"],
   "app.model.select": "alt+m",
   "app.help": null
 }
 ```
 
-The JSON above is the value of `display.tern_keybindings` in the owning Hermes profile's config, not a plugin settings file. Invalid or overlapping bindings are rejected atomically, with defaults for a new session and the previous valid map preserved for the current session. Host-reserved chords and composer-owned keys cannot be rebound. A delayed response from another session is ignored. No profile settings are written by this port.
+The JSON above is the value of `display.tern_keybindings` in the owning Hermes profile's config, not a plugin settings file. Invalid or overlapping bindings are rejected atomically, with defaults for a new session and the previous valid map preserved for the current session. Tern 0.9.5 reserves Ctrl+Shift+P for its host Command palette and Ctrl+Shift+K for clear screen/scrollback; neither can be used as a profile override. Host-reserved chords and composer-owned keys cannot be rebound. A delayed response from another session is ignored. No profile settings are written by this port.
 
 ## Command palette
 
-`/palette` and Ctrl+Shift+K open a modal Tern `picker`. It searches the existing local command registry and the gateway's `commands.catalog`, excluding hidden/refused commands and duplicates. **Enter** explicitly runs the selected slash command through the existing dispatcher; **Tab** inserts it into the draft without submitting; **Esc** closes without changing the draft. A stale gateway catalog cannot change the new session's palette.
+`/palette` and Alt+K open a modal Tern `picker`. It searches the existing local command registry and the gateway's `commands.catalog`, excluding hidden/refused commands and duplicates. **Enter** explicitly runs the selected slash command through the existing dispatcher; **Tab** inserts it into the draft without submitting; **Esc** closes without changing the draft. A stale gateway catalog cannot change the new session's palette.
 
 Implemented local commands, including `/palette`, remain searchable. A matching gateway entry appears only once.
 
@@ -56,7 +56,7 @@ bun run check
 bun run test src/shortcuts/__tests__/actions.test.ts src/shortcuts/__tests__/binding-preferences.test.ts src/shortcuts/__tests__/model-cycle.test.ts src/shortcuts/__tests__/palette.test.ts src/__tests__/keys.test.ts --reporter=verbose
 ```
 
-Also manually verify Tern key input (modified F1, Alt+/ and Ctrl+Shift+K), Enter vs Tab in the palette, model confirmation on both gateway modes, reconnect/session replacement while reads are outstanding, and canonical and private gateway `config.get` full/profile behavior.
+Also manually verify Tern key input (modified F1, Alt+/ and Alt+K), Enter vs Tab in the palette, model confirmation on both gateway modes, reconnect/session replacement while reads are outstanding, and canonical and private gateway `config.get` full/profile behavior.
 
 ### Provenance
 

@@ -35,7 +35,7 @@ function fixture(initial: ConfigGetResult = full(), identity = profile('Work')) 
 
 describe('owning-session binding preferences on pinned config.get', () => {
   it('reads full and opted-in profile identity from the exact session owner', async () => {
-    const f = fixture(full({ 'app.help': 'alt+k' }, true))
+    const f = fixture(full({ 'app.help': 'alt+h' }, true))
     expect(f.prefs.profile).toBe('')
     await f.prefs.refresh()
     expect(f.gw.sent('config.get')).toEqual([
@@ -55,12 +55,14 @@ describe('owning-session binding preferences on pinned config.get', () => {
   })
 
   it('rejects invalid, overlapping, host-reserved and editor-owned maps atomically', async () => {
-    const f = fixture(full({ 'app.help': 'alt+k' }))
+    const f = fixture(full({ 'app.help': 'alt+h' }))
     await f.prefs.refresh()
 
     for (const bindings of [
       { 'app.help': 'alt+a' },
       { 'app.help': 'ctrl+shift+c' },
+      { 'app.help': 'ctrl+shift+p' },
+      { 'app.help': 'ctrl+shift+k' },
       { 'app.help': 'enter' },
       { 'app.help': 'space' },
       { 'app.help': 'ctrl+ctrl+k' },
@@ -91,7 +93,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
     f.gw.handlers.set('config.get', p => p['key'] === 'full' ? first.promise : profile('Work'))
     const pending = f.prefs.refresh()
     f.sid = 's2'
-    expect(f.prefs.accept(full({ 'app.help': 'alt+k' }, true), 's2', profile('Personal'))).toBe(true)
+    expect(f.prefs.accept(full({ 'app.help': 'alt+h' }, true), 's2', profile('Personal'))).toBe(true)
     first.resolve(full({ 'app.help': [] }, true))
     await pending
     expect(f.prefs.profile).toBe('Personal')
@@ -101,15 +103,15 @@ describe('owning-session binding preferences on pinned config.get', () => {
     f.gw.handlers.set('config.get', p => p['key'] === 'full' ? later.promise : profile('Personal'))
     const reading = f.prefs.refresh()
     f.prefs.accept(full({ 'app.help': [] }), 's2')
-    later.resolve(full({ 'app.help': 'alt+k' }))
+    later.resolve(full({ 'app.help': 'alt+h' }))
     await reading
     expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(false)
   })
 
   it('does not apply an old profile lookup to the replacement session', async () => {
-    const f = fixture(full({ 'app.help': 'alt+k' }, true))
+    const f = fixture(full({ 'app.help': 'alt+h' }, true))
     const pendingIdentity = Promise.withResolvers<ConfigGetResult>()
-    f.gw.handlers.set('config.get', p => p['key'] === 'profile' ? pendingIdentity.promise : full({ 'app.help': 'alt+k' }, true))
+    f.gw.handlers.set('config.get', p => p['key'] === 'profile' ? pendingIdentity.promise : full({ 'app.help': 'alt+h' }, true))
     const pending = f.prefs.refresh()
     await vi.waitFor(() => expect(f.gw.sent('config.get')).toContainEqual({ key: 'profile', session_id: 's1' }))
     f.sid = 's2'
@@ -121,10 +123,10 @@ describe('owning-session binding preferences on pinned config.get', () => {
   })
 
   it('retains bindings when optional profile identity cannot be fetched', async () => {
-    const f = fixture(full({ 'app.help': 'alt+k' }, true))
+    const f = fixture(full({ 'app.help': 'alt+h' }, true))
     f.gw.handlers.set('config.get', p => {
       if (p['key'] === 'profile') throw new Error('Profile lookup unavailable')
-      return full({ 'app.help': 'alt+k' }, true)
+      return full({ 'app.help': 'alt+h' }, true)
     })
     await f.prefs.refresh()
     expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(true)
