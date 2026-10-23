@@ -68,10 +68,10 @@ def test_only_enum_and_real_auxiliary_route(helper, answer, kind):
     assert "[redacted]" in req["messages"][1]["content"]
 
 
-@pytest.mark.parametrize("request", [{}, {"source": ""}, {"source": 42}, {"source": "x" * 8193}])
-def test_invalid_inputs_never_reach_provider(helper, request):
+@pytest.mark.parametrize("payload", [{}, {"source": ""}, {"source": 42}, {"source": "x" * 8193}])
+def test_invalid_inputs_never_reach_provider(helper, payload):
     invoke, seen = helper
-    assert invoke(request) == {"kind": "bar"}
+    assert invoke(payload) == {"kind": "bar"}
     assert seen == []
 
 
