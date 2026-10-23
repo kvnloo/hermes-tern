@@ -117,6 +117,7 @@ def test_in_process_chat_restores_argv_and_frontend_env_after_early_exit(tern, m
     import os
 
     old_argv = sys.argv
+    monkeypatch.delenv("HERMES_TERN_RESTORED", raising=False)
     monkeypatch.setenv("HERMES_TUI_DIR", "/old/frontend")
     fake = types.ModuleType("hermes_cli.main")
 
