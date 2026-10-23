@@ -8,6 +8,7 @@ import type { JSX } from '@stencil-hq/tern'
 import { optional } from '../core/assert.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
+import type { TableCharts } from '../transcript/tableCharts.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
 
 import { duration } from './format.js'
@@ -22,6 +23,8 @@ import { parts, pieces } from './workLogModel.js'
 
 /** What entry views need from the app. */
 export interface TranscriptContext {
+  /** Presentation-only, session-scoped Markdown table charts. */
+  charts?: TableCharts
   now: number
   welcome: WelcomeContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
@@ -50,7 +53,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}`
+  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}:chart${cx.charts?.revision ?? 0}`
   const cached = built[kNode]
 
   if (cached?.rev === rev) {
@@ -239,7 +242,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {b.text}
+            {live ? b.text : (cx.charts?.markdown(b.text, turn.end.status === 'done') ?? b.text)}
           </md>
         )
 

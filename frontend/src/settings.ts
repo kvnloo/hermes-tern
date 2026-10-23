@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import type { ChartMode } from './transcript/tableCharts.js'
 import { readSettings, readStoredSettings, settingsOf } from './wire/files.js'
 
 /** Whose colors the surface wears: Tern's theme, the Nous palette, or the Hermes skin. */
@@ -17,6 +18,8 @@ export interface Settings {
   thoughts?: boolean | undefined
   /** Live charts of background processes, their rules written by Hermes' auxiliary model once per process (default on). */
   jobCharts?: boolean | undefined
+  /** Automatic charts for eligible settled tables: off by default; smart asks the Hermes gateway. */
+  tableCharts?: ChartMode | undefined
 }
 
 export function settingsFile(env: NodeJS.ProcessEnv = process.env): string {
