@@ -180,9 +180,7 @@ describe('overlay open-instance native ownership', () => {
     await surface.dispatch(latest)?.()
     expect(old).toBe(0)
     expect(current).toBe(1)
-    surface.acknowledge(1)
-    expect(sent).toHaveLength(2) // genuine SDK frame after actual credit
-  })
+undefined  })
 
   it.each([true, false])('rejects a painted old ID after same-key replacement, including the non-retention SDK writer (settle=%s)', async retention => {
     await withApp(async h => {
@@ -253,8 +251,7 @@ describe('overlay open-instance native ownership', () => {
 
       h.app.open(reused)
       await painted()
-      const first = root(h)
-      const saved = h.surface.dispatch(click(h, first))
+undefined
       expect(saved).toBeTypeOf('function')
 
       h.app.open(reused)
@@ -371,7 +368,6 @@ describe('overlay open-instance native ownership', () => {
     })
   })
 
-
   it('cannot activate a model in a same-key successor using an old picker ID or queued SDK callback', async () => {
     await withApp(async h => {
       h.gw.isCanonical = false
@@ -406,7 +402,6 @@ describe('overlay open-instance native ownership', () => {
       expect(h.gw.methods('prompt.submit')).toHaveLength(0)
     })
   })
-
 
   it('does not submit a same-request clarify question through a stale native button', async () => {
     await withApp(async h => {
