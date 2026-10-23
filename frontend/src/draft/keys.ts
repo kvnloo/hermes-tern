@@ -32,6 +32,7 @@ export interface KeyMatch {
 export type KeyAction =
   | 'agents'
   | 'background'
+  | 'browser'
   | 'cancel'
   | 'clearOrStop'
   | 'clipboardImage'
@@ -51,6 +52,7 @@ export type KeyAction =
 export const KEYS: Record<KeyAction, KeyMatch> = {
   agents: { label: 'alt+a', name: 'a', with: ['alt'], without: ['ctrl', 'meta'] },
   background: { label: 'alt+j', name: 'j', with: ['alt'], without: ['ctrl', 'meta'] },
+  browser: { label: 'alt+shift+b', name: 'b', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
   cancel: { label: 'ctrl+c', name: 'c', with: ['ctrl'] },
   // Pressed twice: a single Esc never cancels work.
   clearOrStop: { label: 'escape escape', name: 'escape', with: [] },
@@ -96,6 +98,7 @@ export interface KeyCx {
   cycleEffort(): void
   openAgents(): void
   openBackground(): void
+  openBrowserBlocks(): void
   openPrs(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
@@ -211,6 +214,7 @@ const effort: KeyRule = (key, cx) => {
 const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
   [KEYS.agents, cx => cx.openAgents()],
   [KEYS.background, cx => cx.openBackground()],
+  [KEYS.browser, cx => cx.openBrowserBlocks()],
   [KEYS.sidebar, cx => cx.toggleSidebar()],
   [KEYS.prs, cx => cx.openPrs()]
 ]

@@ -20,6 +20,7 @@ import { nonEmpty } from '../../format.js'
 import { namedStep } from '../steps.js'
 import type { CallView, Card, ToolView } from '../types.js'
 
+import { browserBlockCard } from './browser.js'
 import { imageCard } from './image.js'
 
 /** The omp tool a card-less call resembles: its icon and layout, and the card's title. */
@@ -57,6 +58,7 @@ export const imageGenerateView: ToolView<'image_generate'> = {
 /** The browser tools (`browser_navigate`, `browser_vision`…): a screenshot shows as its image. */
 export const browserView: ToolView<'browser'> = {
   ...plain(call => ({ name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), 'browser'),
+  card: (call, d) => browserBlockCard(genericCard(call, d, { name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), call),
   hubIcon: name => (name === 'browser_navigate' ? 'web' : 'wrench')
 }
 
