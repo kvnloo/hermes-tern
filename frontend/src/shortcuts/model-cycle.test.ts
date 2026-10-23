@@ -5,6 +5,7 @@ import type { ModelsHost } from '../overlays/models.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { liveSessionId } from '../core/ids.js'
 import { SessionState } from '../session/state.js'
+import { Transcript } from '../transcript/store.js'
 import { FakeGateway, key } from '../__tests__/fakes.js'
 
 import { activeModel, availableModels, cycleModel, cycleTarget } from './model-cycle.js'
@@ -24,7 +25,8 @@ function fixture(models = ['alpha', 'beta', 'gamma'], expensive = false) {
   const state = new SessionState(() => {})
   state.ref = { live: liveSessionId('s1'), stored: null }
   state.info = { model: 'alpha', provider: 'fixture' }
-  const notice = vi.fn()
+  const transcript = new Transcript()
+  const notice = vi.spyOn(transcript, 'notice')
   const overlays: Overlay[] = []
   const changed = vi.fn()
   gw.handlers.set('model.options', () => ({ ...options(models), model: current }))
@@ -37,12 +39,12 @@ function fixture(models = ['alpha', 'beta', 'gamma'], expensive = false) {
 
     return { key: 'model', value: current }
   })
-  const host = {
-    gw: gw.client, session: state, transcript: { notice }, changed,
+  const host: ModelsHost = {
+    gw: gw.client, session: state, transcript, changed,
     open: (overlay: Overlay) => void overlays.push(overlay),
     close: (overlay: Overlay) => void overlays.splice(overlays.indexOf(overlay), 1),
     setEffort: async () => undefined
-  } as unknown as ModelsHost
+  }
 
   return { gw, host, state, notice, overlays, changed }
 }
@@ -81,7 +83,13 @@ describe('model recents and cycling', () => {
     await cycleModel(f.host, 1)
     expect(f.state.info?.model).toBe('alpha')
     expect(f.overlays[0]?.key).toBe('confirm:Switch to an expensive model?')
-    f.overlays[0]!.onKey(key('y'))
+    const confirm = f.overlays[0]
+
+    if (!confirm) {
+      throw new Error('No expensive-model confirmation overlay')
+    }
+
+    confirm.onKey(key('y'))
     await vi.waitFor(() => expect(f.state.info?.model).toBe('beta'))
     expect(f.gw.sent('config.set')).toEqual([
       { key: 'model', session_id: 's1', value: 'beta --provider fixture --session', confirm_expensive_model: false },
@@ -106,7 +114,14 @@ describe('model recents and cycling', () => {
       { model: 'beta', provider: 'p' },
       { model: 'gamma', provider: 'p' }
     ]
-    expect(cycleTarget(all, [all[0]!, all[2]!], all[2]!, 1)).toEqual(all[0])
-    expect(cycleTarget(all.slice(0, 1), [], all[0]!, 1)).toBeNull()
+    const alpha = all[0]
+    const gamma = all[2]
+
+    if (!alpha || !gamma) {
+      throw new Error('Fixture requires three models')
+    }
+
+    expect(cycleTarget(all, [alpha, gamma], gamma, 1)).toEqual(alpha)
+    expect(cycleTarget([alpha], [], alpha, 1)).toBeNull()
   })
 })
