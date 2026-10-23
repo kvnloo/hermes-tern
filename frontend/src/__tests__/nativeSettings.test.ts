@@ -227,7 +227,7 @@ describe('native Settings registrations and real App rendering', () => {
 
     expect(sent('model.options')).toEqual([])
     openModelHub(app)
-    await vi.waitFor(() => expect(sent('model.options')).toHaveLength(1))
+    await vi.waitFor(() => expect(sent('model.options')).toEqual([{ session_id: 's1', profile: 'Work' }]))
     const hub = must(app.overlays.find(o => o.key === 'model-hub'))
     const rendered = JSON.stringify(tree(hub.node('layer.model-hub')))
     expect(rendered).toContain('Safe provider')

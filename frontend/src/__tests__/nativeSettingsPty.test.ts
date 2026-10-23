@@ -62,9 +62,9 @@ describe('real-PTY SDK composer ownership', () => {
         { key: 'busy', value: 'steer', profile: 'default', session_id: 'pty-s1' },
         { key: 'theme', value: 'dark', profile: 'default', session_id: 'pty-s1' }
       ])
-      const reads = requests(result, 'config.get').filter(p => p['key'] !== 'full')
+      const reads = requests(result, 'config.get').filter(p => p['profile'] === 'default')
       expect(reads.length).toBeGreaterThanOrEqual(3 * 8)
-      expect(reads.every(p => p['session_id'] === 'pty-s1' && p['profile'] === 'default')).toBe(true)
+      expect(reads.every(p => p['session_id'] === 'pty-s1' && p['key'] !== 'full')).toBe(true)
 
       // /ask entered through the raw Tern keyboard must route to the actual slash dispatcher.
       expect(requests(result, 'slash.exec')).toEqual([

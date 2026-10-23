@@ -55,7 +55,7 @@ export function openModelHub(host: ModelHubHost): void {
     host.changed()
 
     try {
-      const result = await rpc(host.gw, 'model.options', { session_id: sid })
+      const result = await rpc(host.gw, 'model.options', { session_id: sid, profile })
 
       if (!live() || generation !== version) {
         return

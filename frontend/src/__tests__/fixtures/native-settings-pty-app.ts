@@ -11,7 +11,7 @@ import { openSettings } from '../../overlays/settings.js'
 const report = process.argv[2]
 const mode = process.argv[3]
 if (!report || mode !== 'plain') {
-  throw new Error('Expected a report path and plain|vim scenario')
+  throw new Error('Expected a report path and plain scenario')
 }
 
 const settingsWords: Record<string, string> = {
@@ -76,21 +76,21 @@ const status = () => {
   const node = settings?.node('layer.settings')
   const props = node instanceof Node ? node.props : undefined
   writeFileSync(report, JSON.stringify({
-  calls: gw.calls,
-  draft: app.stores.composer.text,
-  pasted: [...app.stores.composer.pasted],
-  caret: app.stores.composer.cursor,
-  settingsRoot: props?.['key'],
-  settingsPage: props?.['page'],
-  settingsBusy: settingsWords['busy'],
-  settingsTheme: settingsWords['theme'],
-  canonicalProfile: app.session.info?.profile_name,
-  ready: app.session.ref.live === 'pty-s1',
-  idle: app.stores.activity.busy === null,
-  vim: false,
-  vimMode: 'insert',
-  overlays: app.overlays.map(item => item.key),
-  closed
+    calls: gw.calls,
+    draft: app.stores.composer.text,
+    pasted: [...app.stores.composer.pasted],
+    caret: app.stores.composer.cursor,
+    settingsRoot: props?.['key'],
+    settingsPage: props?.['page'],
+    settingsBusy: settingsWords['busy'],
+    settingsTheme: settingsWords['theme'],
+    canonicalProfile: app.session.info?.profile_name,
+    ready: app.session.ref.live === 'pty-s1',
+    idle: app.stores.activity.busy === null,
+    vim: false,
+    vimMode: 'insert',
+    overlays: app.overlays.map(item => item.key),
+    closed
   }))
 }
 const running = app.run()
