@@ -206,7 +206,9 @@ describe('native plan review', () => {
     first()
     await paint()
 
-    expect(f.send).toHaveBeenCalledExactlyOnceWith('Approved — proceed with the plan.')
+    expect(f.send).toHaveBeenCalledTimes(1)
+
+    expect(f.send).toHaveBeenCalledWith('Approved — proceed with the plan.')
     expect(f.enqueue).not.toHaveBeenCalled()
     expect(f.overlays).toHaveLength(0)
     expect(f.gw.sent('plan.decide')).toEqual([])
@@ -232,7 +234,9 @@ describe('native plan review', () => {
     submit()
     await paint()
 
-    expect(f.send).toHaveBeenCalledExactlyOnceWith('Refine the plan: Add rollback checks')
+    expect(f.send).toHaveBeenCalledTimes(1)
+
+    expect(f.send).toHaveBeenCalledWith('Refine the plan: Add rollback checks')
     expect(f.gw.sent('plan.decide')).toEqual([])
     expect(f.enqueue).not.toHaveBeenCalled()
     expect(f.draft.text).toBe('Keep this draft and caret')
@@ -246,7 +250,8 @@ describe('native plan review', () => {
     await paint()
 
     f.click('approve')
-    expect(f.enqueue).toHaveBeenCalledExactlyOnceWith('Approved — proceed with the plan.')
+    expect(f.enqueue).toHaveBeenCalledTimes(1)
+    expect(f.enqueue).toHaveBeenCalledWith('Approved — proceed with the plan.')
     expect(f.send).not.toHaveBeenCalled()
     expect(f.gw.sent('plan.decide')).toEqual([])
     expect(f.draft.text).toBe('Keep this draft and caret')
@@ -321,7 +326,8 @@ describe('native plan review', () => {
     openPlanReview(f.host)
     await paint()
     f.click('external-editor')
-    expect(editPlanExternal).toHaveBeenCalledExactlyOnceWith(initial().plan.text)
+    expect(editPlanExternal).toHaveBeenCalledTimes(1)
+    expect(editPlanExternal).toHaveBeenCalledWith(initial().plan.text)
     f.host.open(stubOverlay('approval', { modal: true }))
     finish('# Late edit from $EDITOR')
     await paint()
