@@ -15,7 +15,7 @@ import type { Overlay } from './overlay.js'
 /** The existing app's narrow ports; no duplicate gateway or session authority. */
 export type PlanReviewHost = Pick<
   ChatPorts,
-  'busy' | 'changed' | 'close' | 'gw' | 'notice' | 'open' | 'overlays' | 'scroll' | 'session' | 'transcript'
+  'busy' | 'changed' | 'close' | 'control' | 'gw' | 'notice' | 'open' | 'overlays' | 'scroll' | 'session' | 'transcript'
 >
 
 interface Target {
@@ -51,10 +51,13 @@ export function openPlanReview(host: PlanReviewHost): void {
   let busy = false
   let submitted = false
   let closed = false
+  let version = 0
   let error = ''
   const note = new Composer()
 
-  const owned = () => !closed && host.overlays.includes(overlay) && host.session.ref.live === sid
+  // An obscured sheet can receive read-only status snapshots but cannot act.
+  const alive = () => !closed && host.overlays.includes(overlay) && host.session.ref.live === sid
+  const active = () => alive() && host.overlays.at(-1) === overlay
   const target = (): Target | undefined =>
     status?.plan ? { plan_id: status.plan.id, revision: status.plan.revision, session_id: sid } : undefined
   const same = (expected: Target | undefined) => {
@@ -63,9 +66,42 @@ export function openPlanReview(host: PlanReviewHost): void {
     return Boolean(expected && actual && expected.session_id === actual.session_id &&
       expected.plan_id === actual.plan_id && expected.revision === actual.revision)
   }
+  // Rendered native callbacks retain both the sheet's revision and its presentation epoch.
+  // Undefined target is meaningful: it is never interchangeable with a later backend plan.
+  const current = (stamp: number, expected: Target | undefined) =>
+    active() && stamp === version && (expected ? same(expected) : target() === undefined)
   const canDecide = () =>
     Boolean(status?.enabled && status.plan?.decision === 'pending' && !status.generating && !host.busy && !busy && !submitted)
-  const close = () => host.close(overlay)
+  const canOrdinary = () =>
+    Boolean(plan && !loading && !status?.enabled && !status?.plan && !status?.generating && !busy && !submitted)
+  const close = () => {
+    if (active()) {
+      host.close(overlay)
+    }
+  }
+
+  const decideOrdinary = (text: string, stamp: number, expected: Target | undefined) => {
+    if (!current(stamp, expected) || !canOrdinary() || !text.trim()) {
+      return
+    }
+
+    // The command host maps to the ONE existing PromptRouter. App prompts carry no draft
+    // images/pastes; a running turn queues, never steers or redirects this decision.
+    const control = host.control()
+
+    if (control.stale() || control.sid !== sid) {
+      return
+    }
+
+    submitted = true
+    host.close(overlay)
+
+    if (control.busy || host.busy) {
+      control.enqueue(text)
+    } else {
+      control.send(text)
+    }
+  }
 
   const update = (next: unknown) => {
     const verified = planStatusOf(next)
@@ -76,13 +112,14 @@ export function openPlanReview(host: PlanReviewHost): void {
 
     status = verified
     plan = verified.plan ? reviewPlanText(verified.plan.text) : latestPlan(host.transcript.entries)
+    version++
     selected = Math.min(selected, Math.max(0, (plan?.sections.length ?? 1) - 1))
     editing = undefined
     note.set('')
   }
 
   const transact = async (request: () => Promise<unknown>, closeOnSuccess = false) => {
-    if (!owned() || busy || submitted || host.busy) {
+    if (!active() || busy || submitted || host.busy) {
       return
     }
 
@@ -93,7 +130,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     try {
       const result = await request()
 
-      if (!owned()) {
+      if (!alive()) {
         return
       }
 
@@ -104,33 +141,36 @@ export function openPlanReview(host: PlanReviewHost): void {
         close()
       }
     } catch (cause) {
-      if (owned()) {
+      if (alive()) {
         error = errorText(cause)
       }
     } finally {
       busy = false
 
-      if (owned()) {
+      if (alive()) {
         host.changed()
       }
     }
   }
 
-  const choose = (index: number) => {
-    if (!owned() || !plan?.sections[index] || editing) {
+  const choose = (index: number, stamp: number, expected: Target | undefined) => {
+    if (!current(stamp, expected) || !plan?.sections[index] || editing) {
       return
     }
 
     selected = index
+    version++
     host.changed()
     host.scroll('layer.plan.body.markdown', 'start')
   }
 
-  const startEdit = (kind: EditKind) => {
-    if (!owned() || !canDecide() || !plan) {
+  const startEdit = (kind: EditKind, stamp: number, expected: Target | undefined) => {
+    if (!current(stamp, expected) || !plan ||
+      !(canDecide() || (kind === 'refine' && canOrdinary()))) {
       return
     }
 
+    version++
     editing = kind
     editingSection = selected
     note.set(
@@ -141,12 +181,24 @@ export function openPlanReview(host: PlanReviewHost): void {
     host.changed()
   }
 
-  const write = (revision: Target | undefined) => {
-    if (!owned() || !canDecide() || !revision || !same(revision) || !editing) {
+  const write = (revision: Target | undefined, stamp: number) => {
+    if (!current(stamp, revision) || !editing) {
       return
     }
 
     const text = note.text.trim()
+
+    if (!revision) {
+      if (editing === 'refine' && canOrdinary() && text) {
+        decideOrdinary('Refine the plan: ' + text, stamp, revision)
+      }
+
+      return
+    }
+
+    if (!canDecide() || !same(revision)) {
+      return
+    }
 
     if (editing === 'annotation') {
       if (text.length > 16000) {
@@ -185,8 +237,18 @@ export function openPlanReview(host: PlanReviewHost): void {
     }
   }
 
-  const approve = (revision: Target | undefined) => {
-    if (!owned() || !canDecide() || !revision || !same(revision) || editing) {
+  const approve = (revision: Target | undefined, stamp: number) => {
+    if (!current(stamp, revision) || editing) {
+      return
+    }
+
+    if (!revision) {
+      decideOrdinary('Approved — proceed with the plan.', stamp, revision)
+
+      return
+    }
+
+    if (!canDecide() || !same(revision)) {
       return
     }
 
@@ -196,8 +258,8 @@ export function openPlanReview(host: PlanReviewHost): void {
     )
   }
 
-  const toggleMode = () => {
-    if (!owned() || !status || busy || submitted || host.busy) {
+  const toggleMode = (stamp: number, expected: Target | undefined) => {
+    if (!current(stamp, expected) || !status || busy || submitted || host.busy) {
       return
     }
 
@@ -206,16 +268,16 @@ export function openPlanReview(host: PlanReviewHost): void {
     void transact(() => host.gw.request<unknown>('plan.mode', { enabled, session_id: sid }))
   }
 
-  const externalEdit = (revision: Target | undefined, initial: string | undefined) => {
-    if (!owned() || !canDecide() || !revision || !same(revision) || initial === undefined) {
+  const externalEdit = (revision: Target | undefined, initial: string | undefined, stamp: number) => {
+    if (!current(stamp, revision) || !canDecide() || !revision || !same(revision) || initial === undefined) {
       return
     }
 
     void transact(async () => {
       const text = await editPlanExternal(initial)
 
-      if (!owned() || !same(revision)) {
-        throw new Error('Plan review or revision changed; external edit was discarded.')
+      if (!current(stamp, revision) || !same(revision)) {
+        throw new Error('Plan review was preempted or revised; external edit was discarded.')
       }
 
       if (!text.trim() || text.length > 200000) {
@@ -228,17 +290,28 @@ export function openPlanReview(host: PlanReviewHost): void {
 
   const render = (): JSX.Element => {
     const revision = target()
+    const stamp = version
     const allowed = canDecide()
+    const ordinary = canOrdinary()
     const section = plan?.sections[selected]
     const annotations = status?.plan?.annotations.filter(item => item.section === selected) ?? []
     const actions: ButtonProps[] = []
 
     if (editing) {
-      actions.push({ key: 'review', label: 'Back to plan', onClick: () => { editing = undefined; host.changed() } })
-      actions.push({ key: 'save', label: editing === 'refine' ? 'Send refinement' : 'Save revision', onClick: () => write(revision) })
-    } else if (allowed && plan && revision) {
-      actions.push({ key: 'approve', label: 'Approve exact revision (no execution)', onClick: () => approve(revision) })
-      actions.push({ key: 'refine', label: 'Refine', onClick: () => startEdit('refine') })
+      actions.push({ key: 'review', label: 'Back to plan', onClick: () => {
+        if (!current(stamp, revision)) return
+        editing = undefined
+        version++
+        host.changed()
+      } })
+      actions.push({ key: 'save', label: editing === 'refine' ? 'Send refinement' : 'Save revision', onClick: () => write(revision, stamp) })
+    } else if (plan && (allowed || ordinary)) {
+      actions.push({
+        key: 'approve',
+        label: allowed && revision ? 'Approve exact revision (no execution)' : 'Continue (ordinary prompt)',
+        onClick: () => approve(revision, stamp)
+      })
+      actions.push({ key: 'refine', label: 'Refine', onClick: () => startEdit('refine', stamp, revision) })
     }
 
     actions.push({ hint: 'escape', key: 'close', label: 'Close', onClick: close })
@@ -250,7 +323,7 @@ export function openPlanReview(host: PlanReviewHost): void {
           (status.generating ? 'Generating; not approvable' :
             status.plan ? status.plan.id + ' · revision ' + status.plan.revision + ' · ' + status.plan.decision :
               'No authoritative plan')
-        : 'Plan authority unavailable. Markdown is for inspection only; no approval is implied.'
+        : 'Plan authority unavailable. Continue sends an ordinary prompt, not plan approval.'
 
     return (
       <overlay anchor="center" head="Plan review" key="plan" modal role="omp.overlay.plan" size="lg">
@@ -261,13 +334,13 @@ export function openPlanReview(host: PlanReviewHost): void {
           {status && !loading && !busy && !host.busy ? button({
             key: 'mode',
             label: status.enabled ? 'Disable plan mode' : 'Enable plan mode',
-            onClick: toggleMode
+            onClick: () => toggleMode(stamp, revision)
           }) : null}
           {allowed && plan && revision ? (
             <row gap="sm" key="tools" role="omp.plan.tools">
-              {button({ key: 'annotate', label: 'Annotate section', onClick: () => startEdit('annotation') })}
-              {button({ key: 'edit-plan', label: 'Edit plan', onClick: () => startEdit('plan') })}
-              {button({ key: 'external-editor', label: 'Edit in $EDITOR', onClick: () => externalEdit(revision, plan?.text) })}
+              {button({ key: 'annotate', label: 'Annotate section', onClick: () => startEdit('annotation', stamp, revision) })}
+              {button({ key: 'edit-plan', label: 'Edit plan', onClick: () => startEdit('plan', stamp, revision) })}
+              {button({ key: 'external-editor', label: 'Edit in $EDITOR', onClick: () => externalEdit(revision, plan?.text, stamp) })}
             </row>
           ) : null}
           {!editing && plan ? (
@@ -276,7 +349,7 @@ export function openPlanReview(host: PlanReviewHost): void {
               {plan.sections.map((part, index) => button({
                 key: 'section-' + index,
                 label: '  '.repeat(Math.max(0, part.level - 1)) + part.title,
-                onClick: () => choose(index)
+                onClick: () => choose(index, stamp, revision)
               }))}
             </col>
           ) : null}
@@ -296,13 +369,13 @@ export function openPlanReview(host: PlanReviewHost): void {
                 cursor={note.cursor}
                 key="note"
                 onEdit={ev => {
-                  if (owned() && editing) {
+                  if (current(stamp, revision) && editing && !busy) {
                     note.edit(ev)
                     host.changed()
                   }
                 }}
                 onUndo={() => {
-                  if (owned() && editing) {
+                  if (current(stamp, revision) && editing && !busy) {
                     note.undo()
                     host.changed()
                   }
@@ -335,9 +408,14 @@ export function openPlanReview(host: PlanReviewHost): void {
     node: render,
     onClose: () => { closed = true },
     onKey: (key: Key) => {
+      if (!active()) {
+        return true
+      }
+
       if (key.name === 'escape') {
         if (editing) {
           editing = undefined
+          version++
           host.changed()
         } else {
           close()
@@ -348,7 +426,7 @@ export function openPlanReview(host: PlanReviewHost): void {
 
       if (editing) {
         if (note.key(key) === 'submit') {
-          write(target())
+          write(target(), version)
         }
 
         host.changed()
@@ -357,13 +435,13 @@ export function openPlanReview(host: PlanReviewHost): void {
       }
 
       if (key.name === 'up' && !key.ctrl && !key.alt && !key.meta) {
-        choose(selected - 1)
+        choose(selected - 1, version, target())
       } else if (key.name === 'down' && !key.ctrl && !key.alt && !key.meta) {
-        choose(selected + 1)
+        choose(selected + 1, version, target())
       } else if (key.name === 'a' && key.alt && !key.ctrl && !key.meta) {
-        approve(target())
+        approve(target(), version)
       } else if (key.name === 'r' && key.alt && !key.ctrl && !key.meta) {
-        startEdit('refine')
+        startEdit('refine', version, target())
       }
 
       return true
@@ -375,7 +453,7 @@ export function openPlanReview(host: PlanReviewHost): void {
   // A missing or incompatible plan RPC never silently turns an ordinary answer into approval.
   void host.gw.request<unknown>('plan.status', { session_id: sid })
     .then(reply => {
-      if (!owned()) {
+      if (!alive()) {
         return
       }
 
@@ -391,7 +469,7 @@ export function openPlanReview(host: PlanReviewHost): void {
       host.changed()
     })
     .catch(() => {
-      if (owned()) {
+      if (alive()) {
         loading = false
         error = 'This Hermes gateway does not expose plan review RPCs; inspection only.'
         host.changed()
