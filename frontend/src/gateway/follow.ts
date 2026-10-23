@@ -27,6 +27,8 @@ export type FollowCx = EventCx & {
   readonly eventLog: string
   /** Shown-session events after dispatch, excluding cancelled queued admissions. */
   onShown?(ev: AnyGatewayEvent): void
+  /** The backend died; the activity icon must not show phantom ongoing work. */
+  onLost?(): void
 }
 
 /** Follows `gw`'s events, requests and exits, then lets the events it held come. */
@@ -62,6 +64,7 @@ export function followGateway(gw: Pick<GatewayClient, 'attached' | 'drain' | 'on
     // reattaches, and nothing can answer the held requests now.
     cx.life.lost()
     cx.activity.endBusy()
+    cx.onLost?.()
     // Nothing can answer the sheets either; the reattach re-opens the questions still pending.
     cx.sheets.dropAll()
     cx.transcript.interrupt()
