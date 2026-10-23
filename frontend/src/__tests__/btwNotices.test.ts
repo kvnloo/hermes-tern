@@ -85,7 +85,7 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       await settle(f.gw)
 
       expect(previous).toBe('two')
-      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:one-turn', threadId: 'one', taskId: 'one-turn', sid: 's1' }])
+      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:one', threadId: 'one', taskId: 'one-turn', sid: 's1' }])
       expect(walk(topNodes(f.tern.region('dock'))).filter(n => n.props['role'] === 'omp.btw.notice')).toHaveLength(1)
       expect(f.app.transcript.entries).toEqual(entries)
 
@@ -201,7 +201,7 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       expect(f.app.btw.notices).toEqual([])
       f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: thread('later') } })
       await settle(f.gw)
-      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:later-turn', threadId: 'later' }])
+      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:later', threadId: 'later' }])
 
       f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: {
         ...thread('a'), turns: [{ ...must(thread('a').turns[0]), id: 'ambiguous-turn' }]
@@ -220,6 +220,48 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       expect(f.app.btw.selected).toBe('later')
       expect(f.app.transcript.entries).toEqual(entries)
       expect(f.gw.methods('prompt.submit')).toEqual([])
+    } finally {
+      await sdk?.close()
+      await f.close()
+    }
+  })
+
+  it('projects real terminal btw.update into an exact-thread View, without a legacy completion or duplicate notices', async () => {
+    const f = await appFixture([])
+    let sdk: Awaited<ReturnType<typeof nativeBrowserSurface>> | undefined
+
+    try {
+      const before = [...f.app.transcript.entries]
+      f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: thread('native') } })
+      await settle(f.gw)
+      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:native', threadId: 'native', turnId: 'native-turn' }])
+      sdk = await nativeBrowserSurface()
+      const notice = sdk.render('main', row(f))
+      const dismiss = sdk.capture(notice, 'main', 'dismiss')
+      const stale = sdk.capture(notice, 'main', 'view')
+      await dismiss()
+      await stale()
+      expect(f.app.overlays).toEqual([])
+      expect(f.app.btw.notices).toEqual([])
+
+      // Replayed or revised copies of the same terminal turn must not undo dismissal.
+      f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: thread('native', 'answered', 2) } })
+      complete(f, 'native-turn')
+      await settle(f.gw)
+      expect(f.app.btw.notices).toEqual([])
+
+      const next = { ...thread('native', 'answered', 3), turns: [
+        ...thread('native').turns,
+        { id: 'next-turn', question: 'Follow-up 🦉', answer: 'Ready', state: 'answered' as const }
+      ] }
+      f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: next } })
+      await settle(f.gw)
+      expect(f.app.btw.notices).toMatchObject([{ id: 'btw:native', turnId: 'next-turn' }])
+      const view = sdk.capture(sdk.render('main', row(f)), 'main', 'view')
+      await view()
+      await settle(f.gw)
+      expect(f.app.btw.selected).toBe('native')
+      expect(f.app.transcript.entries).toEqual(before)
     } finally {
       await sdk?.close()
       await f.close()

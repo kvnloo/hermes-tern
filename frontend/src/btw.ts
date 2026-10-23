@@ -14,6 +14,7 @@ export interface BtwNotice {
   readonly id: string
   readonly taskId: string
   readonly threadId: string
+  readonly turnId: string
   readonly sid: string
   readonly owner: object
   readonly nonce: number
@@ -37,6 +38,8 @@ export class BtwThreads {
   #pendingCompletions = new Map<string, boolean>()
   #seenCompletions = new Set<string>()
   #notices = new Map<string, NoticeRecord>()
+  #noticedTurns = new Map<string, string>()
+  #dismissedTurns = new Map<string, string>()
   #owner: object | undefined
   #noticeTicket = 0
   #noticeNonce = 0
@@ -58,6 +61,8 @@ export class BtwThreads {
     this.#pendingCompletions.clear()
     this.#seenCompletions.clear()
     this.#notices.clear()
+    this.#noticedTurns.clear()
+    this.#dismissedTurns.clear()
 
     // Reattaching the same live ID revokes queued notice handlers without losing side drafts.
     if (!switched) {
@@ -143,18 +148,38 @@ export class BtwThreads {
     }
   }
 
-  /** Merge the newest gateway revision; an RPC reply may lag behind stream deltas. */
-  update(thread: BtwThread) {
+  /**
+   * Merge the newest gateway revision. A real btw.update (not list or RPC)
+   * can announce a terminal turn, as in the donor's noticed-thread projection.
+   */
+  update(thread: BtwThread, noticed = false) {
     const index = this.threads.findIndex(item => item.id === thread.id)
-
     const previous = this.threads[index]
+    let current: BtwThread
 
     if (index < 0) {
       this.threads.push(thread)
+      current = thread
     } else if (previous && previous.revision < thread.revision) {
       this.threads[index] = thread
+      current = thread
+    } else if (noticed && previous) {
+      current = previous
     } else {
       return
+    }
+
+    // A follow-up took this thread's latest-turn slot: an older completion
+    // must not keep an actionable notice over the newer running work.
+    if (previous && previous.turns.at(-1)?.id !== current.turns.at(-1)?.id) {
+      this.#dropNotices(current.id)
+    }
+
+    const last = current.turns.at(-1)
+
+    if (noticed && last && (last.state === 'answered' || last.state === 'error') &&
+        this.#noticedTurns.get(current.id) !== last.id) {
+      this.#publish(current, last.id, last.state === 'error')
     }
 
     this.#matchCompletions()
@@ -194,7 +219,7 @@ export class BtwThreads {
       return
     }
 
-    this.update(parsed.data.payload.thread)
+    this.update(parsed.data.payload.thread, true)
   }
 
   async show(question = '', selectedThread?: string) {
@@ -355,16 +380,53 @@ export class BtwThreads {
         continue
       }
 
-      this.#notices.set(taskId, {
-        id: 'btw:' + taskId,
-        taskId,
-        threadId: thread.id,
-        sid: this.#sid,
-        owner: this.#owner,
-        nonce: ++this.#noticeNonce,
-        failed
-      })
+      this.#publish(thread, taskId, failed)
       this.#pendingCompletions.delete(taskId)
+    }
+  }
+
+  /** The one current completion per gateway thread, with an immutable action identity. */
+  #publish(thread: BtwThread, taskId: string, failed: boolean) {
+    const turn = thread.turns.at(-1)
+
+    // Legacy complete may race the real final snapshot. Keep it pending until
+    // a terminal turn supplies the only safe View identity.
+    if (!turn || turn.state === 'running' || !this.#sid || !this.#owner) {
+      return
+    }
+
+    this.#noticedTurns.set(thread.id, turn.id)
+
+    if (this.#dismissedTurns.get(thread.id) === turn.id) {
+      return
+    }
+
+    this.#dropNotices(thread.id)
+    this.#notices.set(taskId, {
+      id: 'btw:' + thread.id,
+      taskId,
+      threadId: thread.id,
+      turnId: turn.id,
+      sid: this.#sid,
+      owner: this.#owner,
+      nonce: ++this.#noticeNonce,
+      failed
+    })
+    this.#noticeTicket++
+  }
+
+  /** Deletes only notices owned by this thread, revoking their already-rendered handlers. */
+  #dropNotices(threadId: string) {
+    let removed = false
+
+    for (const [taskId, notice] of this.#notices) {
+      if (notice.threadId === threadId) {
+        this.#notices.delete(taskId)
+        removed = true
+      }
+    }
+
+    if (removed) {
       this.#noticeTicket++
     }
   }
@@ -377,7 +439,8 @@ export class BtwThreads {
       notice.ticket === this.#noticeTicket && notice.sid === this.#sid &&
       notice.sid === this.host.session.ref.live && notice.owner === this.#owner &&
       notice.owner === this.host.session.ref &&
-      this.threads.some(thread => thread.id === notice.threadId))
+      this.threads.some(thread => thread.id === notice.threadId &&
+        thread.turns.at(-1)?.id === notice.turnId && thread.turns.at(-1)?.state !== 'running'))
   }
 
   /** Opens only the captured completed thread, refusing modal precedence and stale SDK actions. */
@@ -396,6 +459,7 @@ export class BtwThreads {
     }
 
     this.#notices.delete(notice.taskId)
+    this.#dismissedTurns.set(notice.threadId, notice.turnId)
     this.#noticeTicket++
     this.host.changed()
   }
