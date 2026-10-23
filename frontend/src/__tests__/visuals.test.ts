@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ChatPorts } from '../app/ports.js'
 import { readPreparedVisual, readVisualFile, summarizeVisual, type VisualBundle, visualScope } from '../visuals.js'
+import { openUiContract } from '../wire/openui.js'
 
 import { stub } from './fakes.js'
 
@@ -104,11 +105,17 @@ describe('OpenUI prepared visual front end', () => {
     await expect(readVisualFile(invalid, 32)).rejects.toThrow('bounded regular file')
   })
 
-  it('aborts before I/O and refuses to claim validation without the real donor', async () => {
+  it('aborts before I/O and resolves the shipped contract without a Hermes fork', async () => {
     const controller = new AbortController()
     controller.abort()
     await expect(readVisualFile('/missing.hvisual.json', 32, controller.signal)).rejects.toThrow()
     vi.stubEnv('HERMES_PYTHON_SRC_ROOT', '')
-    await expect(readPreparedVisual('/tmp/missing.hvisual.json', '["stored","main"]')).rejects.toThrow('HERMES_PYTHON_SRC_ROOT')
+    const contract = await openUiContract()
+    const build = await contract.fingerprints()
+    expect(build).toEqual({
+      rendererHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      bridgeHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+    })
+    await expect(readPreparedVisual('/tmp/missing.hvisual.json', '["stored","main"]')).rejects.toThrow()
   })
 })
