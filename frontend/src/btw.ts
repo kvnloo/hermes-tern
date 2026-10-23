@@ -139,7 +139,7 @@ export class BtwThreads {
 
     return {
       draft,
-      current: () => Boolean(owner && sid && this.owns(sheet) &&
+      current: () => Boolean(owner && this.owns(sheet) &&
         this.#owner === owner && this.host.session.ref === owner &&
         this.#sid === sid && this.selected === selected &&
         this.#noticeTicket === ticket && this.draft === draft)

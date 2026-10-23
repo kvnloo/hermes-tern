@@ -113,10 +113,11 @@ a GUI mouse or compositor test. OMP must repeat the actual isolated Sway
 Tern 0.9.5 click at unchanged caret, raw paste of ` paste 🦉 café 漢字`,
 Enter, Tab and Esc/reopen, checking that main draft stays untouched.
 
-This is **PTY-to-App adapter integration**, not real Tern SDK parser, terminal
-framing or native window acceptance. OMP owns separate native Tern proof with
-the installed SDK and an isolated Hermes profile. No backend support or native
-Tern acceptance is inferred from mock gateway replies.
+The existing `btwPty.test.ts` is **PTY-to-App adapter integration**,
+not a native Tern SDK parser or window test. Neither the PTY adapter nor
+the new in-process SDK regression proves native compositor acceptance.
+OMP owns separate real Tern proof with the installed SDK and an isolated
+Hermes profile. No backend support is inferred from mock gateway replies.
 
 OMP validation (not run by this connector-only implementation worker):
 
