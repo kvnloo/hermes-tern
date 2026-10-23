@@ -102,6 +102,7 @@ describe('explicit busy input over the existing queue', () => {
     expect(f.app.stores.composer.text).toBe('new session draft')
     expect(f.app.transcript.entries.some(e => e.kind === 'turn')).toBe(false)
   })
+
   it('records an accepted correction for a resumed busy session without a live transcript turn', async () => {
     const f = setup({ ...requestHandlers, 'session.steer': () => ({ status: 'queued' }) })
     given.busy(f.app.stores, { ...busy })
@@ -241,5 +242,4 @@ describe('explicit busy input over the existing queue', () => {
     expect(f.app.stores.composer.cursor).toBe(3)
     f.app.close(modal)
   })
-
 })

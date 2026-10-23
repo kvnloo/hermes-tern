@@ -84,6 +84,7 @@ describe('the visible live UX in App', () => {
       tern.end()
     }
   })
+
   it('blocks native Send behind a modal without leaking hidden prompt text or changing caret', async () => {
     const gw = new FakeGateway({ replies: { 'session.resume': () => ({ execution_generation: 7 }), 'session.steer': () => ({ status: 'queued' }) } })
     const tern = fakeTern({ draws: true, features: ['blobs'] })
@@ -200,5 +201,4 @@ describe('the visible live UX in App', () => {
       tern.end()
     }
   })
-
 })

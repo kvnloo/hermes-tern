@@ -19,7 +19,6 @@ export interface Expanded {
   text: string
 }
 
-/** What an expansion reaches of the app. */
 /** Optional gates for a draft still held by its composer instead of taken for routing. */
 export interface ExpandOptions {
   /** A busy correction keeps its draft in place on shell failure. */
@@ -28,6 +27,7 @@ export interface ExpandOptions {
   current?: () => boolean
 }
 
+/** What an expansion reaches of the app. */
 export interface ExpandHost {
   readonly gw: Requester
   readonly transcript: { notice(text: string, tone?: NoticeEntry['tone']): void }

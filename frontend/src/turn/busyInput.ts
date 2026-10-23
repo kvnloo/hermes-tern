@@ -2,11 +2,11 @@
 // Adapted from Hermes ui-tsp/src/busy-input.ts; never creates a parallel queue.
 
 import type { Composer } from '../draft/composer.js'
-import type { Activity } from './activity.js'
-import type { PromptRouter } from './router.js'
 import type { SessionState } from '../session/state.js'
 import type { Transcript } from '../transcript/store.js'
+import type { Activity } from './activity.js'
 import { steerTurn } from './control.js'
+import type { PromptRouter } from './router.js'
 import type { BusyMode } from './serverQueue.js'
 import type { Requester } from '../wire/rpc.js'
 
