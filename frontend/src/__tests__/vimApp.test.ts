@@ -53,14 +53,14 @@ describe('Vim composer plugged into the actual app and native Tern dock', () => 
       expect(editor().props['cursor']).toBe(2)
 
       const before = app.stores.composer.text
-      const edit = editor().props['onEdit']
-      const send = editor().props['onSend']
-      const undo = editor().props['onUndo']
+      const edit = editor().handlers?.onEdit
+      const send = editor().handlers?.onSend
+      const undo = editor().handlers?.onUndo
       expect(edit).toBeTypeOf('function')
       expect(send).toBeTypeOf('function')
       expect(undo).toBeTypeOf('function')
-      if (typeof edit === 'function') edit({ from: 0, to: 3, text: 'bad', cursor: 3, len: 3 })
-      if (typeof send === 'function') send({ text: 'competing submit' })
+      if (typeof edit === 'function') edit({ ev: 'edit', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, from: 0, to: 3, text: 'bad', cursor: 3, len: 3 })
+      if (typeof send === 'function') send({ ev: 'send', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, text: 'competing submit' })
       if (typeof undo === 'function') undo()
       expect(app.stores.composer.text).toBe(before)
       expect(gw.sent('prompt.submit')).toHaveLength(0)
@@ -69,7 +69,7 @@ describe('Vim composer plugged into the actual app and native Tern dock', () => 
       app.changed()
       await new Promise<void>(resolve => setImmediate(resolve))
       expect(editor().props['mode']).toBeUndefined()
-      if (typeof edit === 'function') edit({ from: 3, to: 3, text: '文', cursor: 4, len: 3 })
+      if (typeof edit === 'function') edit({ ev: 'edit', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, from: 3, to: 3, text: '文', cursor: 4, len: 3 })
       expect(app.stores.composer.text).toBe('abc文')
     } finally {
       app.quit()
