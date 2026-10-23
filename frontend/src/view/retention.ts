@@ -244,14 +244,15 @@ export class Retention {
       return undefined
     }
 
-    const key = event.id.slice('main.'.length).split('.')[0]
+    const target = event.id
+    const key = target.slice('main.'.length).split('.')[0]
     const row = key ? this.#byId.get(key) : undefined
 
     if (!row || !row.present || row.evicted) {
       return undefined
     }
 
-    if (this.#absentTarget(row, event.id)) {
+    if (this.#absentTarget(row, target)) {
       return undefined
     }
 
