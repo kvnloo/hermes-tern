@@ -375,7 +375,10 @@ class SettingsSheet implements Overlay {
         sections={sections}
         {...(this.#selected !== undefined ? { focus: this.#selected } : {})}
         cursor={this.#search.cursor}
-        {...(this.#editing ? { editing: { cursor: this.#editor.cursor, draft: this.#editor.text, option: this.#choice, row: this.#editing } } : {})}
+        {...(this.#editing ? { editing: {
+          cursor: this.#editor.cursor, draft: this.#editor.text, row: this.#editing,
+          ...(this.#choice !== undefined ? { option: this.#choice } : {})
+        } } : {})}
         {...(this.#searching ? { query: this.#search.text } : {})}
         onAction={{
           close: () => { if (this.#interactive()) { this.#host.close(this) } },
