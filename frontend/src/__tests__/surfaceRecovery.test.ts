@@ -312,7 +312,13 @@ describe('whole Tern document recovery with real SDK frames', () => {
       h.app.transcript.push({ at: 1, id: entryId('old'), kind: 'user', text: 'Never copy me' })
       h.app.changed()
       await painted()
+      const pending = h.peer.frames.at(-1)
+      if (h.surface().blocked && pending?.sf === h.surface().id) {
+        // Credit only the peer's actual outstanding frame before capturing its new row.
+        await h.ack(pending.sf, pending.s)
+      }
       const old = h.surface()
+      expect(h.peer.documents.get(old.id)?.has('main.old.tools.copy')).toBe(true)
       const action = old.dispatch({ ev: 'action', sf: old.id, id: 'main.old.tools.copy', act: 'click', raw: {} })
       expect(action).toBeTypeOf('function')
       await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })

@@ -1,7 +1,7 @@
 // Presentation lifetime only: Hermes session state and gateway intents stay in App.
 // Adapted from kvnloo/hermes-agent ui-tsp/src/surface-protocol.ts (Hermes contributors).
 // Public @stencil-hq/tern SDK by Can Bölük / Stencil (MIT); no private protocol hooks.
-import { Node, Surface, Tree, type Op, type Renderable, type Session, type TspEvent, View } from '@stencil-hq/tern'
+import { Node, Surface, Tree, type Renderable, type Session, type TspEvent, View } from '@stencil-hq/tern'
 
 export const ACK_STALL_MS = 5000
 export const MAX_SURFACE_RECOVERIES = 3
