@@ -102,7 +102,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     gw,
     session: () => session.ref.live,
     cwd: () => session.info?.cwd,
-    backend: () => session.info?.terminal_backend,
+    backend: () => session.info?.terminal_backend ?? undefined,
     changed
   })
   /** The session's subagents, followed while they run (Task cards, the pill, the hub). */
