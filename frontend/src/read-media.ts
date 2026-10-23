@@ -210,7 +210,10 @@ export function projectToolMedia(call: ToolCall, cx: MediaContext): ToolMedia | 
     return projected ? { kind: 'node', node: projected } : undefined
   }
 
-  if (family !== 'image' || cx.remoteHost === 'compute' || cx.remoteHost === 'tern') {
+  // The SDK blob path supports raster magic bytes only; do not suggest an SVG/AVIF upload.
+  const remoteRaster = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extname(path).slice(1).toLowerCase())
+
+  if (family !== 'image' || !remoteRaster || cx.remoteHost === 'compute' || cx.remoteHost === 'tern') {
     return { family, kind: 'unsupported' }
   }
 
