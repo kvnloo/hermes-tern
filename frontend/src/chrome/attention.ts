@@ -45,7 +45,9 @@ export class Dispatches {
 
       while (this.#held.size > MAX_DISPATCHES) {
         const oldest = this.#held.keys().next().value
-        if (oldest === undefined) break
+        if (oldest === undefined) {
+          break
+        }
         this.#held.delete(oldest)
       }
 
@@ -72,7 +74,9 @@ export class Dispatches {
 
     while (this.#items.size > MAX_DISPATCHES) {
       const oldest = this.#items.keys().next().value
-      if (oldest === undefined) break
+      if (oldest === undefined) {
+        break
+      }
       this.#items.delete(oldest)
     }
   }
