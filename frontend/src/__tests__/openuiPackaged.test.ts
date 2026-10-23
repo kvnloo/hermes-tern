@@ -8,13 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { Node } from '@stencil-hq/tern'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import * as z from 'zod/mini'
 
 import { liveSessionId, storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { openVisual, type VisualHost } from '../overlays/visual.js'
 import { readPreparedVisual, readVisualFile } from '../visuals.js'
-import { record } from '../wire/json.js'
+import { decodeJson, record } from '../wire/json.js'
 import { openUiContract } from '../wire/openui.js'
 
 import { must, stub } from './fakes.js'
@@ -22,6 +23,13 @@ import { must, stub } from './fakes.js'
 const execute = promisify(execFile)
 const openui = fileURLToPath(new URL('../../openui/', import.meta.url))
 const scope = '["stored","main"]'
+const candidateNotice = z.object({
+  kind: z.literal('hermes.visual.candidate'),
+  version: z.literal(1),
+  id: z.string(),
+  path: z.string(),
+  scope: z.literal(scope)
+})
 const hash = /^[a-f0-9]{64}$/
 const hashedAssets = [
   'openui-preview/src/bundle.mjs',
@@ -39,7 +47,7 @@ const hashedAssets = [
 ] as const
 
 let scratch = ''
-let candidate: { kind: string; version: number; id: string; path: string; scope: string }
+let candidate: z.infer<typeof candidateNotice>
 let bundle: unknown
 
 beforeAll(async () => {
@@ -62,15 +70,12 @@ beforeAll(async () => {
     '--json'
   ], { env, timeout: 30_000, maxBuffer: 128 * 1024 })
   expect(stderr).toBe('')
-  const value: unknown = JSON.parse(stdout)
-  const notice = record(value)
-  if (notice?.['kind'] !== 'hermes.visual.candidate' || notice['version'] !== 1 ||
-    typeof notice['id'] !== 'string' || typeof notice['path'] !== 'string' ||
-    notice['scope'] !== scope) {
+  const notice = candidateNotice.safeParse(decodeJson(stdout))
+  if (!notice.success) {
     throw new Error('Real prepare CLI did not return one complete candidate notice.')
   }
-  candidate = { kind: notice['kind'], version: notice['version'], id: notice['id'], path: notice['path'], scope }
-  bundle = JSON.parse(await readFile(candidate.path, 'utf8'))
+  candidate = notice.data
+  bundle = decodeJson(await readFile(candidate.path, 'utf8'))
 })
 
 afterAll(async () => {
@@ -98,8 +103,7 @@ async function mirroredBuild(): Promise<unknown> {
     url
   ], { timeout: 10_000, maxBuffer: 16 * 1024 })
   expect(stderr).toBe('')
-  const current: unknown = JSON.parse(stdout)
-  return current
+  return decodeJson(stdout)
 }
 
 function nativeHost() {
@@ -108,7 +112,8 @@ function nativeHost() {
     ref: { live: liveSessionId('runtime'), stored: storedSessionId('stored') },
     info: { branch: 'main' }
   }
-  const transcript = { entries: [] as Entry[] }
+  const entries: Entry[] = []
+  const transcript = { entries }
   const changed = vi.fn()
   const close = (overlay: Overlay) => {
     const at = overlays.indexOf(overlay)
