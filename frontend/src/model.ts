@@ -178,6 +178,8 @@ export interface UserAttachment {
   kind: 'file' | 'image'
   name: string
   source?: ImageSource
+  /** Durable Hermes @image:/@file: disk identity; never a terminal blob ID. */
+  refPath?: string
 }
 
 /** A user prompt. */
