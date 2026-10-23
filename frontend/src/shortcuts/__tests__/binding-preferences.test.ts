@@ -43,7 +43,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
       { key: 'profile', session_id: 's1' }
     ])
     expect(f.prefs.profile).toBe('Work')
-    expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(true)
+    expect(f.prefs.matches('app.help', key('h', { alt: true }))).toBe(true)
     expect(f.prefs.matches('app.help', key('f1'))).toBe(false)
 
     f.stored = full({ 'app.help': null }, false)
@@ -72,7 +72,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
     ]) {
       f.stored = full(bindings)
       await f.prefs.refresh()
-      expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(true)
+      expect(f.prefs.matches('app.help', key('h', { alt: true }))).toBe(true)
       expect(f.prefs.matches('app.help', key('f1'))).toBe(false)
     }
 
@@ -97,7 +97,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
     first.resolve(full({ 'app.help': [] }, true))
     await pending
     expect(f.prefs.profile).toBe('Personal')
-    expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(true)
+    expect(f.prefs.matches('app.help', key('h', { alt: true }))).toBe(true)
 
     const later = Promise.withResolvers<ConfigGetResult>()
     f.gw.handlers.set('config.get', p => p['key'] === 'full' ? later.promise : profile('Personal'))
@@ -105,7 +105,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
     f.prefs.accept(full({ 'app.help': [] }), 's2')
     later.resolve(full({ 'app.help': 'alt+h' }))
     await reading
-    expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(false)
+    expect(f.prefs.matches('app.help', key('h', { alt: true }))).toBe(false)
   })
 
   it('does not apply an old profile lookup to the replacement session', async () => {
@@ -129,7 +129,7 @@ describe('owning-session binding preferences on pinned config.get', () => {
       return full({ 'app.help': 'alt+h' }, true)
     })
     await f.prefs.refresh()
-    expect(f.prefs.matches('app.help', key('k', { alt: true }))).toBe(true)
+    expect(f.prefs.matches('app.help', key('h', { alt: true }))).toBe(true)
     expect(f.prefs.profile).toBe('')
     expect(f.notice).toHaveBeenCalledWith(expect.stringContaining('Profile lookup unavailable'))
   })

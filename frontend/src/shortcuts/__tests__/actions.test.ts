@@ -39,11 +39,11 @@ describe('Tern app action registry', () => {
 
   it('applies disable, reset, and rebinding atomically', () => {
     const changed = effectiveShortcuts({ 'app.help': ['alt+h'] })
-    expect(shortcutMatches(action('app.help', { 'app.help': ['alt+h'] }), key('k', { alt: true }))).toBe(true)
+    expect(shortcutMatches(action('app.help', { 'app.help': ['alt+h'] }), key('h', { alt: true }))).toBe(true)
     expect(changed.find(item => item.id === 'app.help')?.keys).toEqual(['alt+h'])
     expect(action('app.help', { 'app.help': [] }).keys).toEqual([])
     expect(action('app.help', { 'app.help': null }).keys).toEqual(['f1', 'alt+/'])
-    expect(() => effectiveShortcuts({ 'app.help': ['alt+h', 'option+k'] })).toThrow(/Duplicate/)
+    expect(() => effectiveShortcuts({ 'app.help': ['alt+h', 'option+h'] })).toThrow(/Duplicate/)
     expect(() => effectiveShortcuts({ 'app.help': ['alt+a'] })).toThrow(/Overlapping/)
     expect(() => effectiveShortcuts({ 'app.help': ['ctrl+shift+tab'] })).toThrow(/Overlapping/)
     expect(() => effectiveShortcuts({ 'app.help': 'alt+h', 'unknown.action': 'alt+y' })).toThrow(/Unknown/)
