@@ -26,9 +26,12 @@ describe('verified Hermes written artifacts', () => {
 
     const treeJson = tree(toolNode(c, 0, local))
     expect(treeJson.p).toMatchObject({ href: 'file:///repo/chart.svg', name: 'write', target: '/repo/chart.svg' })
-    expect(JSON.stringify(treeJson)).toContain('omp.tool.write.figure')
-    expect(JSON.stringify(treeJson)).toContain('svg')
-    expect(JSON.stringify(treeJson)).toContain(svg)
+    expect(treeJson.c).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        k: 'md',
+        p: expect.objectContaining({ role: 'omp.tool.write.figure', text: '```svg\n' + svg + '\n```' })
+      })
+    ]))
 
     expect(confirmedWriteArtifact(written('flow.mmd', 'graph TD\n A-->B'), '/repo', true))
       .toMatchObject({ kind: 'source', language: 'mermaid' })
