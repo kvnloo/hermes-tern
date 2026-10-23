@@ -11,10 +11,9 @@ function flattened(items: Node[]): Node[] {
   return items.flatMap(n => [n, ...flattened(n.children.filter((child): child is Node => child instanceof Node))])
 }
 
-
 /** Use the real editor's registered SDK handler: native Send is not a keyboard event. */
 function nativeSend(tern: ReturnType<typeof fakeTern>, text: string) {
-  const editor = flattened(topNodes(tern.region('dock'))).find(n => typeof n.props['onSend'] === 'function')
+  const editor = flattened(topNodes(tern.region('dock'))).find(n => typeof n.handlers?.onSend === 'function')
   const send = editor?.handlers?.onSend
 
   if (typeof send !== 'function') {
