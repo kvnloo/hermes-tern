@@ -37,6 +37,7 @@ export type CommandHost = Pick<
   | 'newSession'
   | 'open'
   | 'openHelp'
+  | 'openPalette'
   | 'quit'
   | 'resume'
   | 'setEffort'
@@ -90,6 +91,11 @@ const COMMANDS: readonly LocalCommand[] = [
 
       return host.newSession(arg.trim() || undefined)
     }
+  },
+  {
+    name: 'palette',
+    help: 'Search and run commands, or insert one into the composer',
+    run: host => host.openPalette()
   },
   {
     name: 'model',

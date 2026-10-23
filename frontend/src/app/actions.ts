@@ -40,6 +40,9 @@ import { parsePrompt } from '../prompts/parse.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
+import { BindingPreferences } from '../shortcuts/binding-preferences.js'
+import { cycleModel } from '../shortcuts/model-cycle.js'
+import { openCommandPalette } from '../shortcuts/palette.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
@@ -100,6 +103,7 @@ export class AppActions {
   readonly dock: DockActions
   /** What the key rules (draft/keys.ts) reach. */
   readonly keys: KeyCx
+  readonly bindings: BindingPreferences
   /** What the Tern actions (surface/actions.ts) reach. */
   readonly events: ActionCx
   /** What a slash command reaches (commands/slash.ts). */
@@ -111,6 +115,12 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    this.bindings = new BindingPreferences({
+      gw,
+      session: cx.state,
+      changed,
+      notice: text => chat.notice(text, 'warning')
+    })
 
     this.dock = {
       onAgents: () => openAgents(chat),
@@ -160,6 +170,11 @@ export class AppActions {
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
       openPrs: () => openPrMenu(chat),
+      openModel: () => openModelPicker(chat),
+      openPalette: () => this.openPalette(),
+      openHelp: () => void chat.openHelp(),
+      cycleModel: direction => void cycleModel(chat, direction),
+      shortcut: (id, key) => this.bindings.matches(id, key),
       presses: cx.presses,
       queue,
       quit: () => chat.quit(),
@@ -201,6 +216,21 @@ export class AppActions {
       submit: text => this.submit(text, true, 'queue'),
       transcript
     }
+  }
+
+  /** The native command palette dispatches through the existing command route. */
+  openPalette() {
+    const { chat, composer } = this.#cx
+    openCommandPalette({
+      changed: () => chat.changed(),
+      close: overlay => chat.close(overlay),
+      composer,
+      gw: chat.gw,
+      open: overlay => chat.open(overlay),
+      run: command => this.submit(command, false),
+      session: chat.session,
+      transcript: chat.transcript
+    })
   }
 
   /** The entry whose Copy button reads Copied. */

@@ -10,6 +10,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { HIDDEN_COMMANDS, localCommands } from '../commands/local.js'
 import { errorText } from '../core/errors.js'
 import { KEYS } from '../draft/keys.js'
+import { APP_SHORTCUTS, shortcutGroups, type Shortcut } from '../shortcuts/actions.js'
 import { actionsRow } from '../view/ui/button.js'
 import { rpc } from '../wire/rpc.js'
 
@@ -20,7 +21,7 @@ export type HelpHost = Pick<ChatPorts, 'close' | 'gw' | 'open' | 'session' | 'tr
 
 const KEY = 'help'
 
-/** The shortcuts this frontend handles, by group: the composer's (draft/composer.ts), then the app's (KEYS). */
+/** Immutable editing and safety controls only; profile-owned actions are projected separately. */
 export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] = [
   {
     group: 'Editing',
@@ -47,13 +48,6 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
     rows: [
       [['escape'], 'Close the completion'],
       [[KEYS.clearOrStop.label], 'Clear the draft into the history (Up brings it back) / stop the agent'],
-      [[KEYS.effort.label], 'Cycle the reasoning effort (/effort picks one; Ctrl+G there saves it as the default)'],
-      [[KEYS.dequeue.label], 'Edit the oldest queued prompt'],
-      [[KEYS.steer.label], 'Steer the running turn with the oldest queued prompt (empty prompt)'],
-      [[KEYS.agents.label], 'Agents'],
-      [[KEYS.background.label], 'Background processes and cron jobs (/ps)'],
-      [[KEYS.prs.label], 'Pull requests Hermes linked (/prs)'],
-      [[KEYS.sidebar.label], 'Session sidebar: branch, PRs, changes (/sidebar)'],
       [[KEYS.clipboardImage.label], 'Attach the clipboard image (also ⌘V of an image, a dropped image file, /paste)'],
       [['down'], 'Focus the agents / shells / PR pills (empty prompt); ← → switch, Enter opens, Esc returns'],
       [[KEYS.cancel.label], 'Answer no to the open sheet / clear the draft and images / interrupt / exit (twice)'],
@@ -63,7 +57,7 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
 ]
 
 /** Opens the help sheet; the command list comes from the gateway's catalog. */
-export async function openHelp(host: HelpHost) {
+export async function openHelp(host: HelpHost, actions: readonly Shortcut[] = APP_SHORTCUTS) {
   let catalog: CommandsCatalogResult = {}
   const sid = host.session.ref.live
 
@@ -90,13 +84,45 @@ export async function openHelp(host: HelpHost) {
       .filter(c => c.pairs.length)
   ]
 
+  // Merge semantic headings: the SDK rejects duplicate sibling keys
+  // (keys-Control). Static rows never copy configurable profile actions.
+  const sections = new Map<string, [string[], string][]>()
+
+  for (const section of [...HOTKEYS, ...shortcutGroups(actions)]) {
+    const rows = sections.get(section.group) ?? []
+
+    for (const [keys, title] of section.rows) {
+      if (!rows.some(([prior, label]) => label === title && prior.join(' ') === keys.join(' '))) {
+        rows.push([[...keys], title])
+      }
+    }
+
+    sections.set(section.group, rows)
+  }
+
+  // Catalog categories may repeat or reuse the Tern heading; coalesce by
+  // semantic heading and command name in first-seen order before rendering.
+  const commandGroups = new Map<string, string[][]>()
+
+  for (const category of categories) {
+    const rows = commandGroups.get(category.name) ?? []
+
+    for (const pair of category.pairs) {
+      if (!rows.some(([command]) => command === pair[0])) {
+        rows.push([...pair])
+      }
+    }
+
+    commandGroups.set(category.name, rows)
+  }
+
   const overlay: Overlay = {
     key: KEY,
     modal: true,
     node: () => (
       <overlay anchor="center" head="Commands and shortcuts" key={KEY} modal role="omp.overlay.hotkeys" size="lg">
         <col gap="lg" key="body">
-          {HOTKEYS.map(({ group, rows }) => (
+          {[...sections].map(([group, rows]) => (
             <section head={group} key={`keys-${group}`} role="omp.hotkeys.group">
               <table
                 cols={[
@@ -115,8 +141,8 @@ export async function openHelp(host: HelpHost) {
               />
             </section>
           ))}
-          {categories.map(c => (
-            <section head={c.name} key={`cmd-${c.name}`} role="omp.hotkeys.group">
+          {[...commandGroups].map(([name, pairs]) => (
+            <section head={name} key={`cmd-${name}`} role="omp.hotkeys.group">
               <table
                 cols={[
                   { head: 'Command', id: 'command' },
@@ -124,7 +150,7 @@ export async function openHelp(host: HelpHost) {
                 ]}
                 key="table"
                 role="omp.hotkeys.table"
-                rows={(c.pairs ?? []).map(([command = '', text = ''], i) => ({
+                rows={pairs.map(([command = '', text = ''], i) => ({
                   // The `(usage: …)` tail is `/help <command>`'s business; the table keeps the summary.
                   cells: {
                     action: [{ t: text.replace(/\s*\(usage: .+\)\s*$/, '') }],
