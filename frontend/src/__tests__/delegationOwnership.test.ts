@@ -320,6 +320,47 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
     h.agents.dispose()
   })
 
+  it('anchors a new nested batch under a uniquely attached resumed root', () => {
+    const h = rig()
+    h.transcript.load([
+      { role: 'user', text: 'resume' },
+      { args: { tasks: [{ goal: 'root task' }] }, name: 'delegate_task', role: 'tool', tool_call_id: 'resumed' }
+    ])
+    const call = must(h.transcript.delegations()[0])
+    attachRow(ownersOf(h.transcript.delegations()), call, 0, {
+      delegation_id: 'resumed-root', depth: 0, goal: 'root task', subagent_id: 'sa-0-resumed'
+    }, undefined)
+
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c', 'group-c'), parent_id: 'sa-0-resumed', depth: 1
+    }, 20)
+    h.agents.apply('subagent.complete', { ...payload('nested-c', 'group-c'), status: 'completed' }, 21)
+
+    expect(call.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'sa-0-resumed', status: 'done'
+    })
+    h.agents.dispose()
+  })
+
+  it('rejects a repeated parent identity inside a single delegate call', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 10)
+    attachRow(ownersOf(h.transcript.delegations()), a, 0, {
+      delegation_id: 'group-a', depth: 0, goal: 'duplicate root', subagent_id: 'root-a'
+    }, undefined)
+    const before = JSON.stringify(a.subagents)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1, tool_name: 'terminal'
+    }, 11)
+
+    expect(JSON.stringify(a.subagents)).toBe(before)
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+    h.agents.dispose()
+  })
+
   it('rejects a foreign explicit id without mutating either call or triggering attention', () => {
     const h = rig()
     const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
