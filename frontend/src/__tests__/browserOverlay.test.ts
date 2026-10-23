@@ -37,7 +37,7 @@ function harness(blocks = [user, owned]) {
     const listings = gateway.methods('browser.blocks').length
     openBrowserBlocks(host)
     await vi.waitFor(() => expect(gateway.methods('browser.blocks')).toHaveLength(listings + 1))
-    await vi.waitFor(() => expect(JSON.stringify(tree(must(overlays.at(-1)).node('layer.browser-blocks')))).toContain('User page'))
+    await vi.waitFor(() => expect(JSON.stringify(tree(must(overlays.at(-1)).node('layer.browser-blocks')))).toContain(must(blocks[0]).title))
 
     return must(overlays.at(-1))
   }
@@ -250,7 +250,7 @@ describe('browser-block SDK callback ownership', () => {
       h.gateway.handlers.set('browser.blocks', () => ({ available: true, blocks: [{ ...first }, owned] }))
       sheet.onKey(key('r', { shift: true }))
       await vi.waitFor(() => expect(h.gateway.methods('browser.blocks')).toHaveLength(2))
-      await vi.waitFor(() => expect(h.updates()).toBeGreaterThan(3))
+      await vi.waitFor(() => expect(h.updates()).toBeGreaterThan(4))
       sdk.render('layer', sheet.node('layer.browser-blocks'))
       await oldSeven()
       expect(h.gateway.methods('browser.release')).toHaveLength(0)

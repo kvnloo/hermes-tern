@@ -6,6 +6,7 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../core/assert.js'
+import type { SessionIds } from '../core/ids.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
@@ -26,6 +27,8 @@ export interface TranscriptContext {
   now: number
   /** SDK actions bound to the session instance that rendered this entry. */
   focusBrowser?: BrowserFocus | undefined
+  /** The exact instance whose SDK handlers are cached with this entry. */
+  browserSource?: Pick<SessionIds, 'live'> | undefined
   welcome: WelcomeContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
@@ -37,7 +40,7 @@ const kNode = Symbol('tsp.node')
 
 /** An entry carrying its last built node and the revision it was built at. */
 interface Built {
-  [kNode]?: { rev: string; node: JSX.Element }
+  [kNode]?: { rev: string; browserSource?: Pick<SessionIds, 'live'> | undefined; node: JSX.Element }
 }
 
 /**
@@ -56,12 +59,12 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}`
   const cached = built[kNode]
 
-  if (cached?.rev === rev) {
+  if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
     return cached.node
   }
 
   const node = buildEntry(e, id, cx)
-  built[kNode] = { node, rev }
+  built[kNode] = { browserSource: cx.browserSource, node, rev }
 
   return node
 }

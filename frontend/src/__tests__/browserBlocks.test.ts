@@ -111,7 +111,6 @@ describe('browser tool card', () => {
 })
 
 describe('browser Focus in the actual SDK tool renderer', () => {
-  const owned = { ...block, owned: true, owner: 123 }
   const focusHost = (gateway: FakeGateway, c: ToolCall) => {
     const ref = { live: liveSessionId('s1'), stored: null }
     const entries = [{
@@ -144,7 +143,6 @@ describe('browser Focus in the actual SDK tool renderer', () => {
       expect(gateway.methods('browser.blocks')).toEqual([])
       expect(gateway.methods('browser.adopt')).toEqual([])
       expect(JSON.stringify(toolDetail(c, 0, focus))).toContain('Focus Tern block 7')
-      expect(owned.owned).toBe(true)
     } finally {
       await sdk.close()
     }

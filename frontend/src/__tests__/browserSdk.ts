@@ -16,7 +16,7 @@ export async function nativeBrowserSurface() {
   const connecting = tern.handshake()
   input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\x1b\\`)
 
-  if (!await connecting) {
+  if (!(await connecting)) {
     throw new Error('Native Tern SDK handshake failed')
   }
 

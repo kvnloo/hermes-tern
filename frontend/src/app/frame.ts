@@ -77,6 +77,7 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     focusBrowser,
+    browserSource: cx.session.ref,
     now,
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
