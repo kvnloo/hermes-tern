@@ -39,7 +39,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /** Validate even canonical replies: older plugin-compatible gateways may lack the plan contract. */
 export function planStatusOf(value: unknown): PlanStatus | undefined {
-  if (!isRecord(value) || typeof value['enabled'] !== 'boolean' || typeof value['generating'] !== 'boolean') {
+  if (!isRecord(value) || value['supported'] === false || typeof value['enabled'] !== 'boolean' || typeof value['generating'] !== 'boolean') {
     return undefined
   }
 

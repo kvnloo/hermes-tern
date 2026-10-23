@@ -12,7 +12,10 @@ heading-structured assistant answer. Markdown from user messages, tool
 results, fenced code and incomplete turns cannot establish a plan. A
 backend plan without headings is still reviewable.
 
-The frontend asks the live session for plan.status. A completed
+The frontend first checks session-attached `gateway.capabilities.plugin_methods` for every
+`hermes-tern.plan.*` method, then calls `hermes-tern.plan.status`. Neither
+an older unnamespaced `plan.status` nor an absent method confers authority.
+Older gateways explicitly show “Needs Hermes plugin gateway methods for plan review.” A completed
 heading-structured assistant candidate offers **Continue (ordinary prompt)**
 and **Refine** when the RPC is missing/incompatible, or when an authoritative
 status has no plan and plan mode is disabled. Continue sends the exact
@@ -30,9 +33,9 @@ once; a closed/replaced/session-stale sheet or an obscuring modal invalidates
 its native actions. A later status revision invalidates callbacks captured
 from earlier renders.
 
-With an authoritative enabled plan, only the gateway can enable planning
-mode, edit/annotate a revision, refine or approve it, via plan.mode,
-plan.edit, plan.annotate and plan.decide. Approval never submits a prompt.
+With an **eventually compatible** authoritative backend, only the gateway may
+enable planning mode, edit/annotate, refine or approve a revision. The current
+backend declines all such operations; no plan is ever reported as approvable. Approval never submits a prompt.
 
 Authoritative requests carry the live session ID and exact plan_id/revision.
 Busy turns, unavailable sessions, hidden/replaced sheets, duplicate clicks,
@@ -54,11 +57,56 @@ explicit failure-recovery policy in the shared prompt ports
 OMP. This slice does not work around that by calling `prompt.submit`
 directly, mutating the composer or bypassing PromptRouter.
 
-The real plan backend/policy prerequisite is separately held as
-`TRN2-HERMES-PLAN-BACKEND`. This frontend correction does not implement
-the gateway's planning-only tool policy. It relies on the *actual* Hermes
-gateway to enforce it; plan review must not be advertised as authoritative
-on a Hermes checkout lacking those RPCs.
+The plan backend/policy remains blocked on a public Hermes lifecycle and
+execution-policy contract. This plugin intentionally offers no authoritative
+planning mode while that prerequisite is absent.
+
+## Current backend safety gate
+
+The Python plugin registers five **owned, strict-schema** RPCs on Hermes cores
+supporting `PluginContext.register_gateway_method`:
+`hermes-tern.plan.status/mode/edit/annotate/decide`. Their
+`gateway.capabilities.plugin_methods` inventory is session-attached, not
+sessionless. This release returns **supported=false** on status; every mutation
+is refused with code 4094. This is deliberate, not a completed plan backend.
+Older cores do not register these methods, so the renderer stays inspection
+only. The ordinary Continue/Refine buttons are normal user prompts and not
+revision approval or execution authorization.
+
+**Why no plan mode yet (pinned core `0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5`):**
+`hermes_cli/plugin_gateway_methods.py:GatewayRequestContext` exposes the live
+RPC session ID, profile, `assert_attached` and `capture_scope`, but not a public
+trusted association to the executing agent's session/task, its busy/accepted
+turn identity, or its successful terminal outcome. Its scoped lease has
+`assert_current` and `assert_caller(current_request)`; these attest the
+original RPC caller, not agent turn completion. In the **legacy** handler,
+`tui_gateway/methods_session.py:_create_session` independently generates
+`session_id` and `stored_session_id`. The accepted turn/owner IDs and
+completion are managed privately by `tui_gateway/prompt_turn.py:_run_prompt_submit`.
+The canonical backend follows another session authority path and cannot be
+projected by borrowing legacy private state.
+
+`hermes_cli/middleware.py:run_tool_execution_middleware` invokes plugin
+middleware before the pre-tool hook, guardrails and approvals
+(`agent/tool_executor.py:_hermes_pipeline`). Middleware exceptions before
+`next_call` continue to the real tool; no public plan-guard attestation binds
+both sequential and concurrent execution, including provider-owned and isolated
+compute calls, to a protected current turn. The public hook catalog also lacks
+a trusted accepted-turn terminal event carrying exact plan body and status.
+Until the core adds those public contracts, a plugin must not enable a
+planning-only policy, synthesize successful completion, record approval or
+inject approved bytes into the next user turn.
+
+The tested design donor in
+`kvnloo/hermes-agent@724b2aaec5981eb264f65923f72858faff27bb5b`
+contains `tui_gateway/plan_review.py`, `methods_plan.py` and
+`agent/plan_mode.py` *inside core*, not a supported standalone plugin
+lifecycle. Those private session/agent mutations must not be copied or
+monkeypatched. A future independently reviewed core contract must cover
+accepted-turn start/end, immutable owner/task mapping, planning-only policy at
+both tool boundaries (including wrapper batches), strict provider/compute
+refusal, and next-user-turn exact reviewed bytes before guarded mutations can
+be activated.
 
 ## Todo HUD
 
