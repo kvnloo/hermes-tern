@@ -194,8 +194,8 @@ const completion: KeyRule = (key, cx) => cx.completion.onKey(key)
 const appShortcuts: KeyRule = (key, cx) => {
   const actions: readonly [string, (() => void) | undefined][] = [
     ['app.model.select', cx.openModel],
-    ['app.model.cycleForward', cx.cycleModel && (() => cx.cycleModel!(1))],
-    ['app.model.cycleBackward', cx.cycleModel && (() => cx.cycleModel!(-1))],
+    ['app.model.cycleForward', cx.cycleModel && (() => cx.cycleModel?.(1))],
+    ['app.model.cycleBackward', cx.cycleModel && (() => cx.cycleModel?.(-1))],
     ['app.palette', cx.openPalette],
     ['app.help', cx.openHelp]
   ]
