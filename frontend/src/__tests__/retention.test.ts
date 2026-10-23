@@ -192,6 +192,57 @@ describe('retained long-session transcript', () => {
     expect(h.since(next).some(op => op[0] === 'add' && op[1] === 'main.u0')).toBe(true)
   })
 
+  it('holds all cold settlement while a modal approval is visible', () => {
+    const entries = history(30)
+    const h = harness()
+    h.paint(entries, context(), true)
+    expect(h.ops().filter(op => op[0] === 'settle')).toHaveLength(0)
+    const before = h.ops().length
+    h.paint(entries, context(), false)
+    expect(h.since(before)).toContainEqual(['settle', 'main.t0'])
+    expect(h.since(before)).toContainEqual(['settle', 'main.u0'])
+  })
+
+  it('corrects a late settled turn once and waits for explicit reload if later evicted', () => {
+    const entries = history(25)
+    const h = harness()
+    h.paint(entries)
+    const turn = turnAt(entries, 0)
+    const initial = h.ops().length
+    const text = turn.blocks[0]
+
+    if (text?.kind === 'text') {
+      text.text += ' corrected'
+    }
+
+    turn.rev++
+    h.paint(entries)
+    expect(h.since(initial)).toContainEqual(['del', 'main.t0'])
+    expect(h.since(initial)).toContainEqual(['settle', 'main.t0'])
+    h.gone(['main.t0'])
+    h.paint(entries)
+    const evictedAt = h.ops().length
+    turn.rev++
+    h.paint(entries)
+    expect(h.since(evictedAt).some(op => op[0] === 'add' && op[1] === 'main.t0')).toBe(false)
+    h.retention.request()
+    h.paint(entries)
+    expect(h.since(evictedAt).some(op => op[0] === 'add' && op[1] === 'main.t0')).toBe(true)
+  })
+
+  it('repairs only a partial subtree eviction while a turn remains active', () => {
+    const entries = history(25)
+    const active = turnAt(entries, 24)
+    active.end = { status: 'live' }
+    const h = harness()
+    h.paint(entries)
+    const before = h.ops().length
+    h.gone(['main.t24.x24'])
+    h.paint(entries)
+    expect(h.since(before).some(op => op[0] === 'add' && op[1] === 'main.t24.x24')).toBe(true)
+    expect(h.since(before)).not.toContainEqual(['del', 'main.t24'])
+  })
+
   it('ignores foreign evictions, removes old session IDs, and refuses a stale queued Copy', async () => {
     const entries = history(25)
     const copy = vi.fn()
