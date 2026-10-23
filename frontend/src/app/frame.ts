@@ -3,6 +3,7 @@
 // dock from dockModel(), the layers, the transcript), and then the caret moves where it belongs,
 // sent only when that changed. Every step but those three only reads.
 
+import type { FileContext } from '../artifacts/links.js'
 import type { Hud } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { Completion } from '../overlays/completion.js'
@@ -32,6 +33,9 @@ export interface FrameCx extends DockSources {
   readonly welcome: WelcomeContext
   /** The Copy buttons: the entry whose button reads Copied, and what a click does. */
   readonly copies: Pick<TranscriptContext, 'copied' | 'copy'>
+  /** Local file paths are valid only if Tern and Hermes share the filesystem. */
+  readonly hostLocal: boolean
+  readonly nativeMedia: boolean
 }
 
 /** Draws one frame at `now`; nothing once the surface closed. */
@@ -72,6 +76,11 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
   return {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
+    links: {
+      cwd: info?.cwd ?? '',
+      hostLocal: cx.hostLocal && info?.terminal_backend === 'local',
+      media: cx.nativeMedia
+    } satisfies FileContext,
     now,
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }

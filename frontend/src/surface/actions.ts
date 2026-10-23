@@ -3,6 +3,7 @@
 
 import type { TspEvent } from '@stencil-hq/tern'
 
+import { pastedImageEvent, type NativeImageEvent } from '../artifacts/attachments.js'
 import type { ConnectWatcher } from '../connections/watcher.js'
 
 import { INPUT_ID } from './host.js'
@@ -15,6 +16,8 @@ export interface ActionCx {
   openProcess(id: string): void
   /** `url` in the browser. */
   openUrl(url: string): void
+  /** The exact native byte or host-path image intent; text remains the native editor's. */
+  attachNativeImage(image: NativeImageEvent): void
   readonly connect: Pick<ConnectWatcher, 'continue' | 'open'>
   /** A modal sheet is on top: the composer's input does not take the keys back. */
   modal(): boolean
@@ -49,6 +52,14 @@ const isActionName = (act: string): act is ActionName => Object.hasOwn(ACTIONS, 
 
 /** Runs a Tern event no node handler took: an action with a value, or the composer's focus. */
 export function onTernEvent(ev: TspEvent, cx: ActionCx) {
+  const pasted = pastedImageEvent(ev)
+
+  if (pasted) {
+    cx.attachNativeImage(pasted)
+
+    return
+  }
+
   if (ev.ev === 'action' && ev.value && isActionName(ev.act)) {
     return ACTIONS[ev.act](ev.value, cx)
   }

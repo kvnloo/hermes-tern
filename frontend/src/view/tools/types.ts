@@ -14,6 +14,8 @@ export interface Card {
   target?: string | undefined
   targetKind?: 'command' | 'path' | 'pattern' | 'query' | 'text' | undefined
   role?: string | undefined
+  /** Native Tern file URI only for a verified shared host. */
+  href?: string | undefined
   /** The language of a command head; Tern's ToolProps has no `lang` yet, so the shell passes it through. */
   lang?: string | undefined
   meta?: string[] | undefined

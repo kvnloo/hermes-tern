@@ -36,6 +36,7 @@ function setup({ busy = true, canDrain = false, sid = S1 }: { busy?: boolean; ca
   const log: string[] = []
   const state = { busy, canDrain, sid }
   const host: QueueHost = {
+    allowImages: () => true,
     busy: () => state.busy,
     canDrain: () => state.canDrain,
     changed: () => undefined,

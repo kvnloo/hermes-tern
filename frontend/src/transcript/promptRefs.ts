@@ -6,14 +6,13 @@
 // lib/embedded-images.ts); so does this, keeping the attachments to show beside the words.
 
 import { existsSync } from 'node:fs'
-import { basename } from 'node:path'
+import { basename, isAbsolute } from 'node:path'
 
 import type { UserAttachment } from '../model.js'
 
 /** A reference's value: bare, or quoted with backticks, double or single quotes. */
 const VALUE = '(`[^`\\n]+`|"[^"\\n]+"|\'[^\'\\n]+\'|\\S+)'
-const IMAGE_LINE = new RegExp(`^@image:${VALUE}[ \\t]*$`, 'gm')
-const SCREENSHOT_LINE = /^\[screenshot\][ \t]*(?:\n|$)/gm
+const IMAGE_SUFFIX = new RegExp('^@image:' + VALUE + '$')
 // The native-vision suffix: a blank line, the hints, then the placeholders (none, or one each).
 const HINTS = /\n\n((?:\[Image attached(?: at)?: [^\n]+\]\n?)+)((?:\[screenshot\](?:\n|$))*)$/
 const ATTACHED_CONTEXT = /(?:^|\n)--- Attached Context ---\s*\n/
@@ -50,16 +49,39 @@ export function splitPrompt(raw: string): PromptParts {
     }
   }
 
+  // Only the canonical persisted terminal absolute-path suffix is attachment metadata.
+  // Python's splitlines() accepts a single terminal LF/CRLF; preserve all earlier lines.
+  const lines = (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n')
+  const row = (i: number) => (lines[i] ?? '').replace(/\r$/, '')
+  let last = lines.length
+  while (last > 0 && row(last - 1) === '[screenshot]') last--
+  const placeholders = lines.length - last
+  let first = last
   const refs: string[] = []
-  text = text.replace(IMAGE_LINE, (_line, value: string) => {
-    refs.push(unquote(value))
+  while (first > 0) {
+    const match = IMAGE_SUFFIX.exec(row(first - 1))
+    const path = match?.[1] ? unquote(match[1]) : undefined
+    if (!path || !isAbsolute(path)) break
+    refs.unshift(path)
+    first--
+  }
 
-    return ''
-  })
+  // Do not consume terminal lines inside a fenced literal example.
+  let fence: { mark: string; count: number } | undefined
+  for (let i = 0; i < first; i++) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(row(i))
+    if (!delimiter?.[1]) continue
+    if (!fence) {
+      fence = { mark: delimiter[1][0] ?? '', count: delimiter[1].length }
+    } else if (delimiter[1][0] === fence.mark && delimiter[1].length >= fence.count && !delimiter[2]?.trim()) {
+      fence = undefined
+    }
+  }
 
-  // The placeholders stand for the refs' images; with no ref, a `[screenshot]` is the user's own.
-  if (refs.length) {
-    text = text.replace(SCREENSHOT_LINE, '')
+  if (!fence && refs.length && (!placeholders || placeholders === refs.length)) {
+    text = lines.slice(0, first).join('\n')
+  } else {
+    refs.length = 0
   }
 
   const files: PromptParts['files'] = []

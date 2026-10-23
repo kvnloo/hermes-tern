@@ -10,6 +10,7 @@ import type { ScrollTo, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import logo from '../../assets/logo.png'
+import { ternSharesFrontendHost } from '../artifacts/links.js'
 import type { Agents } from '../agents/store.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
@@ -117,6 +118,8 @@ export class App implements ChatPorts {
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      hostLocal: ternSharesFrontendHost() && !this.#gw.attached,
+      nativeMedia: this.#tern.caps.kinds?.includes('media') ?? false,
       surface: this.#surface
     }
     s.theme.apply()

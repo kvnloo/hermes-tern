@@ -158,12 +158,13 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       gw,
       launchCwd: launch.cwd,
       note: (text, tone) => transcript.notice(text, tone),
-      sid: () => session.ref.live
+      owner: () => session.ref
     },
     { startup: launch.image }
   )
   /** The prompts waiting behind the turn: held here, and the shared gateway's queue for this session. */
   const queue: PromptQueue = new PromptQueue({
+    allowImages: (sid, prompt) => router.allowImages(sid, prompt),
     busy: () => Boolean(activity.busy),
     canDrain: () => canDrain(act().gates()),
     changed,
@@ -181,6 +182,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     gates: () => act().gates(),
     gw,
     queue,
+    ownsImages: (sid, images) => attachments.ownsForSend(sid, images),
     restore: prompt => act().restore(prompt),
     session,
     ticket: () => session.ticket(),
