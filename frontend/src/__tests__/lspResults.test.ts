@@ -60,8 +60,8 @@ describe('LSP semantic result parsing', () => {
       { ...base, server: undefined, kind: 'references', locations: [] },
       { ...base, kind: 'symbols', symbols: [symbol('same', 'A'), symbol('same', 'B')] },
       { ...base, kind: 'symbols', symbols: [symbol('outer', 'A', [symbol('outer', 'recursive ID')])] },
-      { ...base, kind: 'symbols', symbols: [symbol('bad', 'A', 'not-an-array')] },
-      { ...base, kind: 'symbols', symbols: [symbol('bad', 'A').children ? { ...symbol('bad', 'A'), kind: 27 } : null] },
+      { ...base, kind: 'symbols', symbols: [{ ...symbol('bad', 'A'), children: 'not-an-array' }] },
+      { ...base, kind: 'symbols', symbols: [{ ...symbol('bad', 'A'), kind: 27 }] },
       { ...base, kind: 'hover', contents: [{ format: 'html', text: '<b>raw</b>' }], range: null },
       { ...base, kind: 'hover', contents: [], range: undefined },
       { ...base, kind: 'error', operation: 'rename', message: 'invalid' },
@@ -177,8 +177,7 @@ describe('LSP tool cards', () => {
   it('escapes terminal controls in displayed paths and messages', () => {
     const path = '/project/' + String.fromCharCode(27) + '[31mred.py'
     const root = tree(toolNode(lsp(envelope({ path, kind: 'unavailable', operation: 'hover', message: 'bad' + String.fromCharCode(0) + 'file' })), 0))
-    const shown = JSON.stringify(root)
-    expect(shown).not.toContain('\u001b')
-    expect(shown).toContain('bad\\\\u0000file')
+    expect(role(root, 'omp.tool.file')[0]?.p?.['text']).toBe('/project/red.py')
+    expect(role(root, 'omp.tool.lsp.unavailable')[0]?.p?.['text']).toBe('hover: bad\\u0000file')
   })
 })
