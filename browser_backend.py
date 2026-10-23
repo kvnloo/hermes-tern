@@ -239,6 +239,18 @@ def _error(kind: str) -> str:
 def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
     """Run the same existing URL/JS policy as Hermes; no sidecar bypass."""
     from tools import browser_tool as browser
+
+    def current_policy_error():
+        current_url = driver.identity()["url"]
+        _, secret = browser._secret_url_error_normalized(current_url)
+        return secret or browser._url_policy_error(current_url, auto_local=False)
+
+    if name != "browser_navigate":
+        # The existing Hermes URL/website/secret policy also guards effects
+        # and content on already selected pages (including eval navigations).
+        blocked = current_policy_error()
+        if blocked is not None:
+            return json.dumps(blocked)
     if name == "browser_navigate":
         url = args.get("url")
         if not isinstance(url, str):
@@ -285,6 +297,10 @@ def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
         if not isinstance(args.get("question"), str) or not args["question"].strip():
             return _error("invalid")
         image = driver.command("capture")
+        blocked = current_policy_error()
+        if blocked is not None:
+            driver.close()
+            return json.dumps(blocked)
         payload = image["data"].get("data")
         if not isinstance(payload, str):
             return _error("protocol")
@@ -326,19 +342,31 @@ def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
             return _error("invalid")
     else:
         result = driver.command(op, *params)
+    blocked = current_policy_error()
+    if blocked is not None:
+        driver.close()
+        return json.dumps(blocked)
     if name == "browser_snapshot":
         return json.dumps({
-            "success": True, "snapshot": result["data"]["snapshot"],
+            "success": True, "snapshot": browser._snapshot._redact_browser_output(result["data"]["snapshot"]),
             "tern_target": result["tern_target"],
         })
     if name == "browser_get_images":
+        raw_images = result["data"].get("result", "[]")
+        try:
+            images = json.loads(raw_images) if isinstance(raw_images, str) else raw_images
+        except (TypeError, ValueError):
+            return _error("protocol")
+        if not isinstance(images, list):
+            return _error("protocol")
         return json.dumps({
-            "success": True, "images": result["data"].get("result"),
+            "success": True, "images": browser._snapshot._redact_browser_output(images),
+            "count": len(images),
             "tern_target": result["tern_target"],
         })
     if name == "browser_console":
         return json.dumps({
-            "success": True, "result": result["data"].get("result"),
+            "success": True, "result": browser._snapshot._redact_browser_output(result["data"].get("result")),
             "tern_target": result["tern_target"],
         })
     return json.dumps({
