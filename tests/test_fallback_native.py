@@ -184,6 +184,90 @@ def _bounded_capture(
             child.stderr.close()
 
 
+
+# Pinned Hermes starts its shared local gateway with start_new_session=True
+# (gateway_runtime_start.spawn_unmanaged_gateway). It is not a child in our
+# PTY/pipe driver's PGID. Dispose of it separately, but ONLY after the real
+# Hermes status/identity guard proves that this temporary profile owns it.
+# Do not use gateway stop --all, pkill or ambient PID guesses.
+STOP_ISOLATED_GATEWAY = """
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+source, home = map(Path, sys.argv[1:3])
+sys.path.insert(0, str(source))
+from hermes_cli.gateway_runtime_replace import _verified_owner, _write_planned_stop
+from gateway.status import _pid_exists, terminate_pid
+
+home = home.resolve(strict=True)
+record_file = home / 'gateway.pid'
+if not record_file.exists():
+    sys.exit(0)
+record = json.loads(record_file.read_text(encoding='utf-8'))
+pid = record.get('pid')
+if type(pid) is not int or pid <= 1:
+    raise RuntimeError('Isolated gateway record lacks a valid PID')
+if not _pid_exists(pid):
+    sys.exit(0)
+verdict = _verified_owner(home, record)
+if isinstance(verdict, str):
+    raise RuntimeError('Refusing to stop an unverified or foreign owner: ' + verdict)
+verified_pid, started_at = verdict
+assert verified_pid == pid
+_write_planned_stop(home, verified_pid, started_at)
+try:
+    terminate_pid(verified_pid, expected_start_time=started_at)
+except ProcessLookupError:
+    sys.exit(0)
+deadline = time.monotonic() + 2
+while time.monotonic() < deadline and _pid_exists(verified_pid):
+    time.sleep(0.05)
+if _pid_exists(verified_pid):
+    try:
+        terminate_pid(verified_pid, force=True, expected_start_time=started_at)
+    except ProcessLookupError:
+        sys.exit(0)
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and _pid_exists(verified_pid):
+        time.sleep(0.05)
+if _pid_exists(verified_pid):
+    raise RuntimeError('Verified isolated gateway did not terminate')
+"""
+
+
+def _stop_isolated_gateway(source: Path, env: dict[str, str]) -> None:
+    home = Path(env["HERMES_HOME"]).resolve(strict=True)
+    # Distinct, disposable $HOME; never target any installed profile/service.
+    assert home == Path(env["HOME"]).resolve(strict=True) / ".hermes"
+    code, stdout, stderr = _bounded_capture(
+        [sys.executable, "-I", "-c", STOP_ISOLATED_GATEWAY, str(source), str(home)],
+        cwd=source, env=env, timeout=12,
+    )
+    assert code == 0, (
+        "The pinned gateway shutdown/owner check failed; inspect this isolated "
+        "profile and do not call native fallback accepted",
+        code, stdout[-1500:], stderr[-1500:],
+    )
+
+
+def _capture_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes, bytes]:
+    try:
+        return _bounded_capture(_hermes_driver(source), cwd=ROOT, env=env, timeout=65)
+    finally:
+        _stop_isolated_gateway(source, env)
+
+
+def _pty_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes]:
+    try:
+        return _pty_process(_hermes_driver(source), cwd=ROOT, env=env,
+                            timeout=65, close_ink=True)
+    finally:
+        _stop_isolated_gateway(source, env)
+
+
 def _git_read(cwd: Path, *args: str) -> str:
     code, stdout, stderr = _bounded_capture(
         ["git", "-C", str(cwd), *args], cwd=cwd, env=dict(os.environ),
@@ -460,9 +544,7 @@ def test_actual_launcher_retries_ink_once_without_tty(native_source, tmp_path):
     env = _environment(tmp_path, source, node)
     resume_id = _owned_resume_fixture(tmp_path, env)
     _node_shim(tmp_path, node, env)
-    code, stdout, stderr = _bounded_capture(
-        _hermes_driver(source), cwd=ROOT, env=env, timeout=65,
-    )
+    code, stdout, stderr = _capture_driver(source, env)
     calls = _calls(tmp_path / "calls.jsonl")
     _assert_real_entries(calls, source, env, retry=True, resume=resume_id)
     assert stderr.count(BANNER) == 1, (code, stderr[-1500:])
@@ -474,9 +556,7 @@ def test_actual_launcher_ink_paints_and_quits_cleanly_in_real_pty(native_source,
     source, node = native_source
     env = _environment(tmp_path, source, node)
     _node_shim(tmp_path, node, env)
-    code, output = _pty_process(
-        _hermes_driver(source), cwd=ROOT, env=env, timeout=65, close_ink=True,
-    )
+    code, output = _pty_driver(source, env)
     _assert_real_entries(_calls(tmp_path / "calls.jsonl"), source, env, retry=True)
     assert output.count(BANNER) == 1, (code, output[-1500:])
     after_ink = output.split(BANNER, 1)[1]
@@ -497,9 +577,7 @@ def test_explicit_ordinary_tui_uses_real_ink_without_a_tern_attempt(native_sourc
     env = _environment(tmp_path, source, node)
     env["HERMES_TERN"] = "0"
     _node_shim(tmp_path, node, env)
-    code, stdout, stderr = _bounded_capture(
-        _hermes_driver(source), cwd=ROOT, env=env, timeout=65,
-    )
+    code, stdout, stderr = _capture_driver(source, env)
     calls = _calls(tmp_path / "calls.jsonl")
     _assert_real_entries(calls, source, env, retry=False)
     assert BANNER not in stderr, stderr[-1500:]
