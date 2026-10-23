@@ -492,8 +492,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
       <row align="start" gap="sm" key="line" role="omp.composer.line">
         <editor
           key="input"
-          {...optional('anchor', draft.anchor)}
-          cursor={draft.cursor}
+          {...optional('anchor', draft.vim.enabled ? draft.vim.selection.anchor : draft.anchor)}
+          cursor={draft.vim.enabled ? draft.vim.selection.cursor : draft.cursor}
+          {...optional('mode', draft.vim.nativeMode)}
           decor={draft.decor}
           {...optional('ghost', cx.composer.ghost || undefined)}
           maxLines={18}
@@ -523,6 +524,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
           </row>
         ) : null}
         {route.reasons !== false ? effortChip(route, on) : null}
+        {draft.vim.enabled ? (
+          <text key="vim" role="omp.composer.vim" spans={[{ s: 'muted', t: `${draft.vim.mode.toUpperCase()}${draft.vim.pending ? ` ${draft.vim.pending}` : ''}` }]} />
+        ) : null}
         {/* Tern puts its folder chip right before the composer's status node: an empty one keeps
             the chip there and the send key at the end. */}
         <status grow={1} key="extras" role="omp.composer.extras" transparent />

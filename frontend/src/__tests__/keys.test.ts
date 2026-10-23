@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { sessionHost, type SessionHostCx } from '../commands/host.js'
 import { commandEnvelope } from '../commands/slash.js'
 import { liveSessionId, storedSessionId } from '../core/ids.js'
-import { DOUBLE_ESC_MS, EXIT_ARM_MS, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
+import { DOUBLE_ESC_MS, EXIT_ARM_MS, EXTERNAL_EDITOR_KEY, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
 import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
@@ -80,6 +80,7 @@ function pane(over: Partial<Pane> = {}) {
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
+    openExternalEditor: did('editor'),
     openPrs: did('prs'),
     presses: { esc: 0, exit: 0 },
     queue: {
@@ -124,6 +125,8 @@ describe('the key rules', () => {
       'modal',
       'hud',
       'completion',
+      'externalEditor',
+      'vim',
       'doubleEsc',
       'effort',
       'sheets',
@@ -210,6 +213,25 @@ describe('the key rules', () => {
     onKey(key('tab'), p.cx, undefined)
     expect(p.log).toEqual([])
     expect(p.cx.presses.esc).toBe(0)
+  })
+
+  it('Ctrl+G opens the existing draft after overlays, HUD and completion, without clearing it', () => {
+    const p = pane({ text: 'unsent' })
+    onKey(ctrl('g'), p.cx, sheet({ takes: true }))
+    onKey(ctrl('g'), p.cx, sheet({ modal: true }))
+    p.state.hud = true
+    onKey(ctrl('g'), p.cx, undefined)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual([])
+    p.state.completion = false
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual(['editor'])
+    expect(p.state.text).toBe('unsent')
+    onKey(key('g', { ctrl: true, shift: true }), p.cx, undefined)
+    expect(p.log).toEqual(['editor', 'composer'])
+    expect(matches(ctrl('g'), EXTERNAL_EDITOR_KEY)).toBe(true)
   })
 
   it('6. Esc Esc clears a draft into the history, else stops the turn; one Esc does nothing', () => {
