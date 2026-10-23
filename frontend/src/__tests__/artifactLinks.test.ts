@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { displayMarkdown, fileHref, rewriteLocalMarkdownLinks } from '../artifacts/links.js'
+import { displayMarkdown, fileHref, rewriteLocalMarkdownLinks, ternSharesFrontendHost } from '../artifacts/links.js'
 import { entryId } from '../core/ids.js'
 import type { TurnEntry } from '../model.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -81,5 +81,15 @@ describe('artifact links survive cached transcript revisions', () => {
     })))
     expect(remote).toContain('[spec](spec.md)')
     expect(remote).not.toContain('file:///')
+  })
+})
+
+
+describe('Tern and the frontend host boundary', () => {
+  it('treats SSH streams as remote even with a local Hermes gateway', () => {
+    expect(ternSharesFrontendHost({})).toBe(true)
+    for (const name of ['SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY']) {
+      expect(ternSharesFrontendHost({ [name]: 'ssh' })).toBe(false)
+    }
   })
 })

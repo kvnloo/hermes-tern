@@ -230,3 +230,8 @@ export interface FileContext {
 }
 
 export const NO_FILE_CONTEXT: FileContext = { cwd: '', hostLocal: false, media: false }
+
+/** SSH makes the host Tern renders on different from the frontend process. */
+export function ternSharesFrontendHost(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !env['SSH_CONNECTION'] && !env['SSH_CLIENT'] && !env['SSH_TTY']
+}
