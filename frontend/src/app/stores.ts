@@ -48,6 +48,7 @@ import { Activity } from '../turn/activity.js'
 import { PromptQueue } from '../turn/queue.js'
 import { canDrain, canSwitch, PromptRouter } from '../turn/router.js'
 import { randomTip, type WelcomeContext } from '../view/welcome.js'
+import { LiveVoice } from '../voice/live.js'
 
 import type { AppActions } from './actions.js'
 import type { ChatPorts } from './ports.js'
@@ -242,16 +243,24 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       writeActiveSession: writeActiveSessionFile
     })
   )
+  /** Per-connection live voice; audio stays with the gateway. */
+  const liveVoice = new LiveVoice({
+    changed,
+    gw,
+    sid: () => session.ref.live,
+    switching: () => life.switching
+  })
   /** Whose colors the surface wears, and the gateway's skin. */
   const theme = new Theme({ palette: palette => surface().palette(palette), settings }, saved.theme ?? 'tern')
   const completion = new Completion(chat, gw, () => session.ref.live)
   const welcome: WelcomeContext = { tip: randomTip(launch.pythonSrcRoot), version: version && version !== 'unknown' ? `v${version}` : '' }
 
-  return { ...shared, attachments, completion, cron, life, router, stack, theme, warned, welcome }
+  return { ...shared, attachments, completion, cron, life, liveVoice, router, stack, theme, warned, welcome }
 }
 
 /** Stops what the stores run on their own: every timer, the polls and the sidebar's reads. */
 export function disposeStores(s: ChatStores) {
+  s.liveVoice.dispose()
   s.timers.dispose()
   s.connect.dispose()
   s.notices.dispose()

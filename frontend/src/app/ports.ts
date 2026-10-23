@@ -20,6 +20,7 @@ import type { Automation } from '../session/automation.js'
 import type { ThemeMode } from '../settings.js'
 import type { Transcript } from '../transcript/store.js'
 import type { Busy } from '../turn/activity.js'
+import type { LiveVoice } from '../voice/live.js'
 
 /** The session as the ports read it, live: each read sees the current ids and info. */
 export interface SessionView {
@@ -39,6 +40,7 @@ export interface ChatPorts extends OverlayHost {
   /** The running turn, null when idle. */
   readonly busy: Busy | null
   readonly transcript: Transcript
+  readonly liveVoice: LiveVoice
   readonly agents: Agents
   readonly processes: Processes
   readonly cron: Cron
