@@ -425,6 +425,10 @@ export function openPlanReview(host: PlanReviewHost): void {
       }
 
       if (editing) {
+        if (busy || (key.alt && (key.name === 'a' || key.name === 'r'))) {
+          return true
+        }
+
         if (note.key(key) === 'submit') {
           write(target(), version)
         }
@@ -471,7 +475,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     .catch(() => {
       if (alive()) {
         loading = false
-        error = 'This Hermes gateway does not expose plan review RPCs; inspection only.'
+        error = 'This Hermes gateway does not expose plan review RPCs; ordinary prompts remain available.'
         host.changed()
       }
     })
