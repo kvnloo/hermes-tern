@@ -1,90 +1,160 @@
 # OpenUI prepared visual previews in hermes-tern
 
-This downstream slice ports the Hermes `ui-tsp` /visual preview and result
-discovery into the plugin's real session, transcript and Tern overlay stack.
-It reuses the exact bundle validator and source fingerprints from the **Hermes
-donor checkout**, rather than weakening its security contract. This plugin
-does not include a generator, static OpenUI catalog, Luau renderer, approval
-engine, browser harness or publishing pipeline.
+This downstream feature preserves the reviewed Hermes OpenUI experiment *as source*
+inside the installed plugin, with its original validator, static OpenUI parser
+adapter, fingerprint inputs, fixed Luau/CSS route and tests. It does not change
+Hermes' gateway or Tern session/approval authority. It renders **read-only
+summaries**, not generated executable code, model output or publication receipts.
 
-## Local prerequisites
+## Packaged layout and runtime boundary
 
-- Run `hermes tern` with `HERMES_PYTHON_SRC_ROOT` set by the source-checkout
-  launcher to a checkout containing
-  `ui-tsp/experiments/openui-preview/src/bundle.mjs` and its original
-  `openui-generation/` and `tern/` files. Without them preview reads fail
-  closed and the /visual help still works.
-- Prepare an approved repository document and complete `.openui` program using
-  that experiment's existing CLI. Disable OpenUI telemetry on every execution:
-  `OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1`.
-- Use a path on the **frontend host's own filesystem**; remote or container-only
-  tool paths are not transferred.
-- For the actual native treemap, separately enable the experiment's
-  `hermes-openui` Tern file route. A file link otherwise follows Tern's normal
-  file handling. This command does not install or enable anything.
+- `frontend/openui/openui-preview/src/bundle.mjs`: original strict JSON
+  validator, bundle/scope assertions, byte caps and current-source fingerprints.
+- `frontend/openui/openui-generation/src/`: original bounded
+  `@openuidev/lang-core@0.3.1` compiler adapter, catalog and static-program
+  guard. The exact package lock and `.npmrc` ship alongside these files.
+- `frontend/openui/openui-preview/tern/`: the reviewed `host.luau`,
+  `window.luau`, `visual.css` and `plugin.toml`. Their actual bytes are
+  fingerprint inputs. **Files are shipped, not installed into Tern.**
+- `frontend/openui/prepare.mjs`: explicit **prepare-only**, `--json`
+  entrypoint. It sets `OPENUI_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1`
+  before importing the original `openui-preview/cli.mjs`. It neither
+  installs dependencies nor runs a renderer, network request or model.
 
-## Session-local flow
+The validator in `frontend/src/wire/openui.ts` resolves the tracked
+`frontend/openui/` directory relative to its own source module in tests
+(`src/wire/`) or compiled ESM bundle (`dist/entry.js`). The normal
+`frontend/dist/entry.js` output and the packaged source tree **must remain
+siblings under the same installed `frontend/` directory**. The package is
+not replaced by generated `dist/` code. `HERMES_PYTHON_SRC_ROOT`, the
+current working directory and a donor checkout are not consulted.
 
-1. `/visual` shows the exact JSON session/branch scope. Keep that value
-   byte-for-byte for the CLI's scope positional argument.
-2. Via the agent's terminal tool in the donor checkout, run:
+Every opened candidate is re-read with a bounded regular-file/strict-UTF-8
+read, then the **original** validator checks its exact identity, catalog
+hash, generation contract, artifact/document and current fingerprints.
+`fingerprints()` hashes the four fixed renderer files, three preview modules,
+four generation modules and the generation lockfile. Missing or drifted files
+fail closed. The separate `HERMES_SRC` used to build the main frontend's
+gateway client remains pinned to the locked upstream Hermes runtime
+`22063fc099ec9ad8357d7f8f6e6248a0400680d3`; it is **not** an OpenUI
+source prerequisite, and that upstream runtime does not contain this preview.
 
-   ```sh
-   OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node ui-tsp/experiments/openui-preview/cli.mjs prepare \
-     program.openui host-document.json '<scope-json>' /absolute/output --json
-   ```
-   A successful `--json` invocation must emit only the full JSON notice;
-   path-only output is still supported for explicit `/visual /absolute/file.hvisual.json`.
-3. Reopen `/visual` to list up to 12 recent completed terminal results.
-   Up/Down + Enter or click selects; Escape cancels. Selection runs the
-   donor's entire bundle validator, actual source fingerprints, current scope
-   check and the reported ID equality check.
-4. The native sheet shows host-projected Files/Text lines/File touches,
-   initial mode, bundle ID and a file link. It never executes generated
-   JavaScript or Lua. It never creates a model call or publishes an artifact.
+## Prepare a candidate explicitly
 
-Discovery reads at most 128 transcript entries, 512 blocks, 64 Ki of serialized
-JSON text and 12 deduplicated candidates. A candidate notice is an untrusted
-locator, not verification. A file read requires an absolute local path, a
-bounded regular file, strict UTF-8 and JSON, then the real donor contract.
-Observed session, branch or transcript replacement expires a sheet. Delayed
-work never reopens a closed sheet or steals an approval's overlay.
-
-The link opens the **current** file, not a captured immutable same-revision
-handle. No real-window pixel approval or human publication receipt is claimed.
-Resumed history may omit tool results. Host-authenticated native window E2E,
-renderer packaging, first-paint timing and verified inline replies are separate
-work.
-
-## OMP gates
-
-From `frontend/` after the usual pinned Hermes source setup:
+Run the isolated real parser install **once per plugin checkout**, from
+`frontend/`. It uses the copied upstream-verified lockfile; no frontend
+dependency or Hermes runtime pin is changed.
 
 ```sh
-bun run typecheck
-bun run test src/__tests__/visuals.test.ts src/__tests__/visual-discovery.test.ts src/__tests__/visualOverlay.test.ts
+cd frontend
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm ci --prefix openui/openui-generation --ignore-scripts --no-audit --no-fund --workspaces=false
+```
+
+The real parser dependency is needed only to *prepare* a new candidate, not to
+discover, validate or summarize one. No network, inference or dependency
+installation occurs when opening `/visual`. A missing parser makes preparation
+fail rather than silently using a lookalike. The checked-in `package-lock.json`
+pins the parser, its peer and their package integrity hashes. Do not replace
+this with an unpinned global install.
+
+1. In a running `hermes tern` session, type `/visual`. Copy its exact JSON
+   session/branch scope (for example `["stored-id","main"]`).
+2. Provide a complete `.openui` program and a host-approved version-1
+   repository document on the **frontend host filesystem**. For an inert
+   sample, the shipped `openui-generation/fixtures/explorer.openui` and
+   `openui-preview/fixtures/repository.json` contain synthetic data.
+3. Run the explicit local CLI through the terminal tool, substituting the
+   session scope and an external absolute output directory:
+
+   ```sh
+   cd /absolute/path/to/hermes-tern/frontend
+   node openui/prepare.mjs prepare \
+     openui/openui-generation/fixtures/explorer.openui \
+     openui/openui-preview/fixtures/repository.json \
+     '["stored-id","main"]' /absolute/output-directory --json
+   ```
+4. The successful invocation prints exactly one full
+   `{"kind":"hermes.visual.candidate","version":1,"id":"…","path":"…","scope":"…"}`
+   notice. Reopen `/visual` and select it with arrows/Enter or click, or
+   explicitly type `/visual /absolute/path/to/file.hvisual.json`. Escape
+   cancels.
+
+The CLI has **no hidden install or generator call**. It parses the supplied
+complete source with the real pinned OpenUI parser and independent static
+guards, binds the approved repository document to the scope and immutable
+source fingerprints, then writes a content-addressed read-only
+`.hvisual.json` outside the plugin/source directory.
+
+Discovery accepts only successful completed terminal results, within
+128 transcript entries, 512 blocks, 64 KiB aggregate JSON parse work and
+12 newest unique candidates. Notices are untrusted pointers; a reported
+candidate ID must match the validated file. Session/branch/transcript changes
+expire displayed sheets. File links reopen current bytes; they are **not**
+atomic, approved revisions.
+
+## Optional native route, kept separate
+
+The fixed Tern `hermes-openui` file route is present at
+`frontend/openui/openui-preview/tern/` but **is not linked or enabled** by
+the frontend. On a disposable Tern host, an operator may independently
+review the files and explicitly run
+`tern plugin link /absolute/path/to/hermes-tern/frontend/openui/openui-preview/tern`.
+The narrow route handles `*.hvisual.json`; no chat overlay, discovery or
+frontend build auto-installs it. Its working native pixels and control
+protocol must still be established in a live authenticated Tern window.
+A file link without that enabled route is not evidence of a rendered preview.
+
+No publication, automatic renderer install, model request while rendering,
+generated Lua/JS execution, capture approval or transcript insertion is added.
+
+## OMP exact-head verification
+
+Use the real locked NousResearch checkout only as `HERMES_SRC` for the
+regular frontend's existing gateway/client build. No donor checkout or
+`HERMES_PYTHON_SRC_ROOT` variable is used for OpenUI.
+
+```sh
+cd frontend
+HERMES_SRC=/absolute/path/to/locked-upstream-hermes node scripts/hermes-src.mjs
+bun install --frozen-lockfile
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm ci --prefix openui/openui-generation --ignore-scripts --no-audit --no-fund --workspaces=false
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-generation
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-preview
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node --test openui/openui-preview/test/integration.mjs
+bunx vitest run src/__tests__/openuiPackaged.test.ts src/__tests__/visuals.test.ts src/__tests__/visual-discovery.test.ts src/__tests__/visualOverlay.test.ts
 bun run check
 bun run bundle
 ```
 
-The commands above are **not run by this connector-only port**. Exercise
-`/visual`, successful `prepare --json`, discovery, swapped-file rejection,
-session switches and Tern file-route behavior in an isolated Tern host before
-promotion. Tern-serve and synthetic JSX do not establish ordinary native-window
-or pixel parity.
+The new real-path suite exercises the shipped CLI with both telemetry
+variables absent in its subprocess environment, strict validation, Tern SDK
+native JSX, changed renderer/parser fingerprints, wrong scope, swapped notice
+ID, malformed data/UTF-8, actual file byte bounds and cancellation. The
+donor's retained Node tests additionally cover static-program rejection,
+catalog bounds, capture and lifecycle contracts. No tests or live Tern window
+ran through the GitHub connector; OMP must record exact-head command output.
+After the MBP gate, run isolated authenticated native Tern smoke separately
+(including `/visual` discovery, branch/session expiry and the explicitly
+linked optional route). Mock Tern and Lua checks are not pixel verification.
 
-## Source and provenance
+## Provenance and licenses
 
-Behavior is adapted from `kvnloo/hermes-agent`'s
-`ui-tsp/src/visuals.ts`, `ui-tsp/src/visual-discovery.ts`,
-`ui-tsp/src/overlays/visual.tsx`, `ui-tsp/src/overlays/visual-picker.tsx` and tests.
-See source PRs [#456](https://github.com/kvnloo/hermes-agent/pull/456),
+Preserved without modification from
+`kvnloo/hermes-agent@724b2aaec5981eb264f65923f72858faff27bb5b`,
+`ui-tsp/experiments/openui-preview/` and
+`ui-tsp/experiments/openui-generation/`, including the fixtures, tests,
+original README files and MIT `frontend/openui/LICENSE` (Nous Research).
+The parser is the pinned `@openuidev/lang-core@0.3.1` by Thesys/OpenUI
+contributors (MIT; installed with its locked dependencies), not a copied
+replacement. Native protocol credit remains with Can Bölük, Stencil Labs,
+Tern/OMP and Hermes contributors; the preview/verify/publish reference is
+from bmdavis419 and T3 Code contributors. This is downstream integration,
+not a claim of endorsement or native-pixel acceptance.
+
+See the donor's source PRs
+[#456](https://github.com/kvnloo/hermes-agent/pull/456),
 [#457](https://github.com/kvnloo/hermes-agent/pull/457),
 [#460](https://github.com/kvnloo/hermes-agent/pull/460),
 [#461](https://github.com/kvnloo/hermes-agent/pull/461),
 [#464](https://github.com/kvnloo/hermes-agent/pull/464) and
-[#466](https://github.com/kvnloo/hermes-agent/pull/466), plus
-`ui-tsp/OPENUI-V2.md`. Preserve the original credit: Thesys/OpenUI for
-generation, Can Bölük/Stencil Labs and Tern/OMP contributors for the protocol
-and native view primitives, Hermes contributors for gateway/session ownership,
-and bmdavis419/T3 Code for the preview/verify/publish lifecycle reference.
+[#466](https://github.com/kvnloo/hermes-agent/pull/466).
