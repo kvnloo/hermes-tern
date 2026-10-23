@@ -103,7 +103,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
                     <col gap="xs" key={turn.id} role="omp.btw.turn">
                       <md key="question" role="omp.btw.question" text={turn.question} />
                       <text key="state" role="omp.btw.meta" text={turn.state} />
-                      <md key="answer" role="omp.btw.answer" text={turn.answer || (turn.state === 'running' ? 'Waiting for answer…' : 'No answer text.')} />
+                      <md key="answer" role="omp.btw.answer" stream={turn.state === 'running'} text={turn.answer || (turn.state === 'running' ? 'Waiting for answer…' : 'No answer text.')} />
                       {turn.error ? <text key="error" role="omp.btw.error" text={turn.error} wrap="word" /> : null}
                     </col>
                   ))

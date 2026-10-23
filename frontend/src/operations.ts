@@ -67,9 +67,10 @@ export class OperationalSheets {
               ? 'Use /ssh list to inspect the configured target for this profile.'
               : 'Use /mcp list, /mcp status, /mcp tools or /mcp catalog for read-only inventory.')
         }
-    const epoch = ++this.#epoch
     const sheet = openOperationalOverlay(this, report)
     this.#sheet = sheet
+    // Opening a replacement closes the prior same-key overlay; fence its onClose first.
+    const epoch = ++this.#epoch
 
     if (!view) {
       return
