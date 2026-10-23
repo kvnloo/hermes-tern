@@ -119,7 +119,8 @@ function attachmentsRow(list: readonly UserAttachment[], cx: TranscriptContext):
   return (
     <row align="start" gap="sm" key="images" role="omp.user.images" wrap>
       {list.map((a, i) => {
-        const path = a.refPath ?? (a.source && 'path' in a.source ? a.source.path : undefined)
+        const path = a.source && 'blob' in a.source ? undefined
+          : a.refPath ?? (a.source && 'path' in a.source ? a.source.path : undefined)
         const remote = a.kind === 'image' && path && cx.media && !cx.media.context().local
           ? attachmentImagePath(path, cx.media)
           : undefined
@@ -133,7 +134,9 @@ function attachmentsRow(list: readonly UserAttachment[], cx: TranscriptContext):
             gap="xs"
             key={`a${i}`}
             role="hermes.user.attachment"
-            title={a.kind === 'image' ? `${a.name} (the file is gone)` : a.name}
+            title={a.kind === 'image'
+              ? `${a.name} (${cx.media && !cx.media.context().local ? 'remote preview unavailable' : 'the file is gone'})`
+              : a.name}
           >
             <icon key="i" name={a.kind === 'image' ? 'image' : 'file'} />
             <text key="t" text={a.name} truncate="middle" wrap="none" />
