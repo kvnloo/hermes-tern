@@ -12,10 +12,10 @@ function flattened(items: Node[]): Node[] {
 }
 
 
-/** Use the real editor's SDK callback: native Send is not a keyboard event. */
+/** Use the real editor's registered SDK handler: native Send is not a keyboard event. */
 function nativeSend(tern: ReturnType<typeof fakeTern>, text: string) {
   const editor = flattened(topNodes(tern.region('dock'))).find(n => typeof n.props['onSend'] === 'function')
-  const send = editor?.props['onSend']
+  const send = editor?.handlers?.onSend
 
   if (typeof send !== 'function') {
     throw new Error('native editor Send handler is missing')

@@ -131,6 +131,10 @@ export class OrbActivity {
 
         break
       }
+
+      default:
+        // This is a partial event projector: unrelated gateway events never change the orb.
+        return
     }
   }
 }

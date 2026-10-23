@@ -382,7 +382,7 @@ export class WatchApp {
           },
           now,
           pills: {},
-          queue: { canSteer: false, rows: [] },
+          queue: { canSteer: false, hint: '', rows: [] },
           route: { effort: '', model: a.model ?? '' },
           status: { branch: '' }
         },

@@ -84,7 +84,7 @@ describe('agent orb lifecycle', () => {
 describe('orb animation boundaries', () => {
   it('does not enqueue animation while blocked, hidden, reduced-motion, paused or closed', () => {
     vi.useFakeTimers()
-    const send = vi.fn()
+    const send = vi.fn<Surface['send']>()
     const blob = vi.fn((bytes: Uint8Array) => Buffer.from(bytes).toString('base64'))
     const surface = { send, blocked: false, closed: false }
 
@@ -97,7 +97,9 @@ describe('orb animation boundaries', () => {
       orb.update('thinking')
       const first = orb.props().blob
       vi.advanceTimersByTime(200)
-      expect(send.mock.calls.at(-1)?.[0][0][2].blob).not.toBe(first)
+      const next = orb.props().blob
+      expect(next).not.toBe(first)
+      expect(send).toHaveBeenLastCalledWith([['set', 'dock.composer.line.orb', { blob: next }]])
       send.mockClear()
       surface.blocked = true
       vi.advanceTimersByTime(1000)
@@ -132,7 +134,7 @@ describe('orb animation boundaries', () => {
 
   it('reuses a bounded image cycle rather than growing the blob cache indefinitely', () => {
     vi.useFakeTimers()
-    const send = vi.fn()
+    const send = vi.fn<Surface['send']>()
     const blob = vi.fn((_bytes: Uint8Array) => `frame-${blob.mock.calls.length}`)
 
     const orb = new ThinkingOrb(

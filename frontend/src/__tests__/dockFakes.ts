@@ -3,6 +3,7 @@
 import { vi } from 'vitest'
 
 import { Composer } from '../draft/composer.js'
+import { busyHint } from '../turn/busyInput.js'
 import type { DockActions, DockContext } from '../view/dock.js'
 import type { DockSources } from '../view/dockModel.js'
 
@@ -36,7 +37,7 @@ export function dockContext(over: Partial<DockContext> = {}): DockContext {
     composer: { attachments: [], draft: new Composer(), placeholder: '', ready: true },
     now: 0,
     pills: {},
-    queue: { canSteer: false, rows: [] },
+    queue: { canSteer: false, hint: busyHint('queue'), rows: [] },
     route: { effort: '', model: 'm' },
     status: { branch: '' },
     ...over
@@ -59,7 +60,7 @@ export function dockSources(over: Partial<DockSources> = {}): DockSources {
     prs: { entries: () => [] },
     queue: { rows: () => [] },
     reconnect: { redial: undefined },
-    session: { info: null, ref: { live: null }, usage: null },
+    session: { busyMode: 'queue', info: null, ref: { live: null }, usage: null },
     title: { text: '' },
     transcript: { currentTodos: () => undefined },
     ...over
