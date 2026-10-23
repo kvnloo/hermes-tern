@@ -6,6 +6,7 @@ import { stripVTControlCharacters } from 'node:util'
 
 import type { JSX, TreeItem } from '@stencil-hq/tern'
 
+import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { LspDetail, LspLocation, LspRange, LspResult, LspSymbol } from '../../../tools/lsp-result.js'
@@ -19,7 +20,7 @@ import { fallbackView } from './generic.js'
 const LOCAL_LINK_NOTICE = 'File targets are not confirmed host-local; links disabled.'
 
 /** Keep wrapping whitespace, but render terminal controls and bidi overrides as visible escapes. */
-function visible(text: string): string {
+export function visible(text: string): string {
   // eslint-disable-next-line no-control-regex -- these are control characters intentionally made visible
   return stripVTControlCharacters(text).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,
     char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'))
@@ -48,7 +49,7 @@ function symbolLocations(symbols: LspSymbol[], context?: LspLinkContext): JSX.El
   return symbols.flatMap(symbol => [
     <text
       key={'s' + symbol.id}
-      href={lspFileHref(symbol.location.path, context, symbol.selection)}
+      {...optional('href', lspFileHref(symbol.location.path, context, symbol.selection))}
       role="omp.tool.symbol.location"
       text={visible(symbol.name + ' · ' + symbol.location.path + ' · ' + rangeText(symbol.location.range) +
         ' · selection ' + rangeText(symbol.selection))}
@@ -77,9 +78,9 @@ function references(locations: LspLocation[], context?: LspLinkContext): JSX.Ele
     />,
     ...[...groups].map(([path, items], i) => (
       <col key={'f' + i} role="omp.tool.references.file">
-        <text key="path" href={lspFileHref(path, context)} role="omp.tool.file" text={visible(path + ' · ' + items.length)} wrap="word" />
+        <text key="path" {...optional('href', lspFileHref(path, context))} role="omp.tool.file" text={visible(path + ' · ' + items.length)} wrap="word" />
         {items.map((item, j) => (
-          <text key={'r' + j} href={lspFileHref(path, context, item.range)} role="omp.tool.reference" text={rangeText(item.range)} wrap="word" />
+          <text key={'r' + j} {...optional('href', lspFileHref(path, context, item.range))} role="omp.tool.reference" text={rangeText(item.range)} wrap="word" />
         ))}
       </col>
     ))
@@ -88,7 +89,7 @@ function references(locations: LspLocation[], context?: LspLinkContext): JSX.Ele
 
 function resultBody(result: LspResult, context?: LspLinkContext): JSX.Element[] {
   const body: JSX.Element[] = [
-    <text key="path" href={lspFileHref(result.path, context)} role="omp.tool.file" text={visible(result.path)} wrap="word" />,
+    <text key="path" {...optional('href', lspFileHref(result.path, context))} role="omp.tool.file" text={visible(result.path)} wrap="word" />,
     <text
       key="server"
       role="omp.tool.context"
@@ -118,7 +119,7 @@ function resultBody(result: LspResult, context?: LspLinkContext): JSX.Element[] 
     case 'hover':
       if (result.range) {
         body.push(
-          <text key="range" href={lspFileHref(result.path, context, result.range)} role="omp.tool.hover.range" text={rangeText(result.range)} wrap="word" />
+          <text key="range" {...optional('href', lspFileHref(result.path, context, result.range))} role="omp.tool.hover.range" text={rangeText(result.range)} wrap="word" />
         )
       }
 

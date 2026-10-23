@@ -70,6 +70,42 @@ even when the tool's revision is unchanged. Legacy/malformed payloads retain
 the generic card. Source and provenance: Hermes `ui-tsp/LSP.md` and
 `ui-tsp/src/view/lsp-diagnostics.tsx`, using the Tern/Stencil MIT SDK.
 
+## Edit/write LSP companion diagnostics
+
+Hermes `patch` and `write_file` may return `lsp_diagnostics_data` beside their
+normal diff/content and legacy `lsp_diagnostics` prose. The existing
+`tools/files.ts` detail parser validates the entire companion before rendering.
+Native collapsible severity groups retain each returned file, one-based
+UTF-16 start line/column, message and omitted count. They also retain source
+and complete end line/column **when actually provided**; the pinned Hermes
+producer currently returns start positions only, so the UI never invents
+end positions. The companion is diagnostic enrichment, not a failed tool status.
+
+The same verified host-local session evidence as the LSP result card gates
+each diagnostic file/range hyperlink; remote, attached, SSH and unsafe targets
+remain visible text without a clickable target. Malformed or older companion
+data uses legacy `lsp_diagnostics` text when present, while an explicit
+`unavailable` status shows a non-error note. New-file code, patch diffs and
+diff-less results retain diagnostics. No second workspace/host authority,
+Hermes runtime/tool registration or gateway request is introduced.
+
+Adapted from Hermes `ui-tsp/src/view/tools.tsx`,
+`ui-tsp/src/view/lsp-diagnostics.tsx` and
+`agent/lsp/reporter.py` at donor `724b2aae`. Tern/Stencil's MIT SDK
+owns native section, tree and hyperlink rendering. This plugin does not
+change the signed-off Hermes source pin.
+
+OMP validation (from `frontend/` at the exact branch head):
+
+```sh
+bun install --frozen-lockfile
+bun run typecheck
+bun run check:strict
+bunx vitest run src/__tests__/lspResults.test.ts src/__tests__/files.test.ts src/__tests__/toolRegistry.test.ts
+bun run check
+bun run bundle
+```
+
 ## Developing
 
 ```sh

@@ -416,3 +416,138 @@ describe('LSP app render authority and cache transitions', () => {
     }, true)
   })
 })
+
+/** Exercise the real parser -> typed registry -> Tern tree (not source-string matching). */
+const companion = {
+  diff: '@@ -1 +1 @@\n-old\n+new',
+  lsp_diagnostics: 'Legacy errors must not shadow the structured companion',
+  lsp_diagnostics_data: [
+    {
+      path: 'src/a.py',
+      status: 'ok',
+      diagnostics: [
+        { col: 3, end_col: 5, end_line: 4, line: 2, message: 'Undefined name', severity: 'error', source: 'pyright' },
+        { col: 8, line: 7, message: 'Unused value', severity: 'warn' },
+        { col: 2, line: 10, message: 'Informational', severity: 'info' },
+        { col: 1, line: 12, message: 'Try this', severity: 'hint' }
+      ],
+      omitted: 2
+    },
+    { path: 'src/b.py', status: 'ok', diagnostics: [{ col: 1, line: 8, message: 'Mismatch', severity: 'error' }] }
+  ]
+}
+
+describe('patch and write_file LSP companion diagnostics', () => {
+  it.each(['patch', 'write_file'] as const)('retains severity, source and full available range in %s live/stored cards', name => {
+    for (const result of [companion, JSON.stringify(companion)]) {
+      const c = call(name, { content: 'new', path: 'src/a.py' }, { result })
+      expect(detailOf(c)).toMatchObject({
+        diagnostics: { files: [{ path: 'src/a.py', diagnostics: [
+          { col: 3, line: 2, end: { line: 4, col: 5 }, severity: 'error', source: 'pyright' }
+        ], omitted: 2 }] }
+      })
+      const root = tree(toolNode(c, 12, local))
+      expect(role(root, 'omp.tool.diagnostics')).toHaveLength(1)
+      expect(role(root, 'omp.tool.diagnostics')[0]?.p?.['head'])
+        .toEqual([{ s: 'chip', t: '2 errors · 1 warning · 1 info · 1 hint' }])
+      expect(role(root, 'omp.tool.diagnostics.file')).toHaveLength(2)
+      expect(role(root, 'omp.tool.diagnostic').map(n => n.p?.['href'])).toEqual([
+        'file:///project/src/a.py#L2-L4',
+        'file:///project/src/a.py#L7C8',
+        'file:///project/src/a.py#L10C2',
+        'file:///project/src/a.py#L12C1',
+        'file:///project/src/b.py#L8C1'
+      ])
+      expect(role(root, 'omp.tool.diagnostic.error')).toHaveLength(2)
+      expect(role(root, 'omp.tool.diagnostic.warn')[0]?.p?.['spans']).toEqual([{ s: 'warning', t: '▲' }])
+      expect(role(root, 'omp.tool.diagnostic.info')).toHaveLength(1)
+      expect(role(root, 'omp.tool.diagnostic.hint')).toHaveLength(1)
+      expect(role(root, 'omp.tool.diagnostic')[0]?.p?.['role']).toBe('omp.tool.diagnostic')
+      expect(nodes(root).find(n => n.p?.['text'] === '2:3–4:5')).toBeDefined()
+      expect(nodes(root).find(n => n.p?.['text'] === 'Undefined name (pyright)')).toBeDefined()
+      expect(nodes(root).some(n => n.p?.['text'] === 'Legacy errors must not shadow the structured companion')).toBe(false)
+      expect(role(root, 'omp.tool.notice').some(n => JSON.stringify(n.p?.['spans']).includes('2 additional diagnostics omitted'))).toBe(true)
+      expect(toolDetail(c, 12, local).map(tree).flatMap(nodes)
+        .filter(n => n.p?.['role'] === 'omp.tool.diagnostic')).toHaveLength(5)
+    }
+  })
+
+  it.each(['patch', 'write_file'] as const)('%s refuses local links on remote or unsafe paths', name => {
+    for (const result of [
+      companion,
+      { ...companion, lsp_diagnostics_data: [
+        { path: 'https://untrusted/a.py', status: 'ok', diagnostics: [{ severity: 'error', line: 2, col: 3, message: 'untrusted' }] }
+      ] }
+    ]) {
+      const remote = tree(toolNode(call(name, { path: 'src/a.py' }, { result }), 12, { cwd: '/project', hostLocal: false }))
+      expect(role(remote, 'omp.tool.diagnostic')).not.toHaveLength(0)
+      expect(role(remote, 'omp.tool.diagnostic').every(n => n.p?.['href'] === undefined)).toBe(true)
+      expect(nodes(remote).filter(n => n.p?.['role'] === 'omp.tool.file').every(n => n.p?.['href'] === undefined)).toBe(true)
+    }
+
+    const bad = tree(toolNode(call(name, { path: 'src/a.py' }, { result: {
+      lsp_diagnostics_data: [{
+        path: 'https://untrusted/a.py', status: 'ok',
+        diagnostics: [{ severity: 'error', line: 2, col: 3, message: 'unsafe' }]
+      }]
+    } }), 12, local))
+    expect(role(bad, 'omp.tool.diagnostic')[0]?.p?.['href']).toBeUndefined()
+  })
+
+  it('keeps diagnostic rows for new writes and patch results without diff text', () => {
+    const data = { lsp_diagnostics_data: [
+      { path: 'src/new.py', status: 'ok', diagnostics: [{ severity: 'error', line: 2, col: 4, message: 'New file issue' }] }
+    ] }
+    const write = tree(toolNode(call('write_file', { path: 'src/new.py', content: 'line one\nline two\n' }, {
+      result: { ...data, diff: '@@ -0,0 +1,2 @@\n+line one\n+line two' }
+    }), 2, local))
+    expect(nodes(write).some(n => n.k === 'code' && n.p?.['numbers'] === true)).toBe(true)
+    expect(role(write, 'omp.tool.diagnostic')).toHaveLength(1)
+    const patch = tree(toolNode(call('patch', { path: 'src/new.py' }, { result: data }), 2, local))
+    expect(role(patch, 'omp.tool.diagnostic')).toHaveLength(1)
+  })
+
+  it.each(['patch', 'write_file'] as const)('%s retains malformed and legacy text without claiming structured results', name => {
+    for (const result of [
+      { lsp_diagnostics: 'Old LSP report' },
+      { lsp_diagnostics: 'Old LSP report', lsp_diagnostics_data: [
+        { path: 'src/a.py', status: 'ok', diagnostics: [{ severity: 'error', line: -1, col: 1, message: 'bad' }] }
+      ] },
+      { lsp_diagnostics: 'Old LSP report', lsp_diagnostics_data: [
+        { path: 'src/a.py', status: 'ok', diagnostics: [
+          { severity: 'error', line: 2, col: 1, end_line: 1, end_col: 4, message: 'reversed' }
+        ] }
+      ] }
+    ]) {
+      const root = tree(toolNode(call(name, { path: 'src/a.py' }, { result }), 2, local))
+      expect(role(root, 'omp.tool.diagnostics')).toHaveLength(0)
+      expect(role(root, 'omp.tool.notice').map(n => n.p?.['spans']))
+        .toContainEqual([{ s: 'muted', t: 'Old LSP report' }])
+    }
+  })
+
+  it('keeps unavailable status as a note and never fabricates a checked error', () => {
+    const root = tree(toolNode(call('write_file', { path: 'src/a.py' }, { result: {
+      lsp_diagnostics_data: [{ path: 'src/a.py', status: 'unavailable', message: 'language server timed out' }]
+    } }), 2, local))
+    expect(root.p?.['status']).toBe('done')
+    expect(role(root, 'omp.tool.diagnostics')).toHaveLength(0)
+    expect(role(root, 'omp.tool.diagnostics.unavailable')[0]?.p?.['spans'])
+      .toEqual([{ s: 'muted', t: 'src/a.py: language server timed out' }])
+  })
+
+  it('folds large structured diagnostics at the proven donor threshold', () => {
+    const root = tree(toolNode(call('patch', { path: 'src/a.py' }, { result: {
+      lsp_diagnostics_data: [{
+        path: 'src/a.py', status: 'ok',
+        diagnostics: Array.from({ length: 9 }, (_, i) => ({
+          col: 1, line: i + 1, message: 'Issue ' + i, severity: 'error'
+        }))
+      }]
+    } }), 2, local))
+    expect(role(root, 'omp.tool.diagnostics')[0]?.p).toMatchObject({
+      collapsed: true, collapsible: true, head: [{ s: 'chip', t: '9 errors' }]
+    })
+    expect(role(root, 'omp.tool.diagnostic')).toHaveLength(9)
+  })
+})
