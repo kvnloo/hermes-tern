@@ -80,8 +80,9 @@ function trustedParentChain(calls: readonly ToolCall[], owner: ToolCall, parent:
 
 /**
  * A known explicit delegation id must have exactly one result/attached-row owner.
- * A previously unseen id may establish a NESTED batch only for a fresh child with
- * an exact, trustworthy parent chain. The first accepted row then records that id
+ * A previously unseen id may establish a NESTED batch for a fresh child (or one
+ * id-less child already anchored to that exact parent) with a trustworthy chain.
+ * The first accepted explicit batch event records that id
  * for independent routing of every subsequent event, even with no parent hint.
  * Truly id-less legacy events keep their prior unique-identity/sole-call fallback.
  */
@@ -129,6 +130,7 @@ export function eventOwner(calls: readonly ToolCall[], event: SubagentEventPaylo
         )
 
         if (parents.size > 1 || (event.parent_id && parents.size > 0 && !parents.has(event.parent_id)) ||
+          (child[0]?.agent.parentId && parents.size > 0 && !parents.has(child[0].agent.parentId)) ||
           (child[0]?.agent.parentId && event.parent_id && child[0].agent.parentId !== event.parent_id)) {
           return undefined
         }
@@ -137,16 +139,22 @@ export function eventOwner(calls: readonly ToolCall[], event: SubagentEventPaylo
       return owner
     }
 
-    // Duplicate known batch ids are ambiguous. A new id needs a fresh child
-    // and a unique existing parent, never a sole-call/newest-call fallback.
+    // A genuinely new child can bind here. So can an id-less event's existing
+    // nested row, but only if it has NO delegation yet and the SAME exact parent.
+    // An already bound child can never be stolen by an unknown group id.
     const parentRow = parent[0]
     const childId = event.subagent_id
+    const existing = child[0]?.agent
+    const expectedDepth = (parentRow?.agent.depth ?? 0) + 1
 
-    if (matching.length !== 0 || !parentRow || !childId || child.length ||
+    if (matching.length !== 0 || !parentRow || !childId ||
+      (existing && (existing.delegationId !== undefined ||
+        existing.parentId !== event.parent_id ||
+        (existing.depth !== undefined && existing.depth !== expectedDepth))) ||
       childId === event.parent_id ||
       !Number.isSafeInteger(event.task_index) || event.task_index < 0 ||
       !Number.isSafeInteger(event.task_count) || event.task_count <= event.task_index ||
-      (event.depth !== undefined && event.depth !== (parentRow.agent.depth ?? 0) + 1) ||
+      (event.depth !== undefined && event.depth !== expectedDepth) ||
       !trustedParentChain(calls, parentRow.call, parentRow.agent)) {
       return undefined
     }
@@ -188,7 +196,11 @@ export function foldOwnedEvent(call: ToolCall, type: SubagentEventType, event: S
     return
   }
 
-  const delegation = event.delegation_id || agent.delegationId || resultId(call)
+  // Before a nested child's own batch id is known, do not label it with its
+  // parent's dispatch id: the subsequent explicit nested batch must be bindable.
+  const delegation = event.delegation_id || agent.delegationId || (
+    !event.parent_id && !agent.parentId ? resultId(call) : undefined
+  )
 
   if (delegation) {
     agent.delegationId = delegation
