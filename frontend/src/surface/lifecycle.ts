@@ -131,8 +131,8 @@ export class SurfaceLifecycle {
       return false
     }
 
-    if (event.ev === 'unknown' && ['ack', 'error', 'gone'].includes(String(event.raw.ev))) {
-      this.failure('Tern sent a malformed ' + String(event.raw.ev) + ' protocol event.')
+    if (event.ev === 'unknown' && ['ack', 'error', 'gone'].includes(String(event.raw['ev']))) {
+      this.failure('Tern sent a malformed ' + String(event.raw['ev']) + ' protocol event.')
       return false
     }
 
