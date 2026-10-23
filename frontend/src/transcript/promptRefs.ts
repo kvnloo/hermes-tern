@@ -97,8 +97,9 @@ export function promptAttachments(parts: PromptParts, exists: (path: string) => 
     ...parts.files.map(({ path, ref }): UserAttachment => {
       const name = basename(unquote(ref.replace(/^@\w+:/, '')))
 
-      return path && IMAGE_FILE.test(path)
-        ? { kind: 'image', name, refPath: path, ...(local(path) ? { source: { path } } : {}) }
+      // Only @image: histories are authorized by media.image without a tool ID.
+      return path && IMAGE_FILE.test(path) && local(path)
+        ? { kind: 'image', name, source: { path } }
         : { kind: 'file', name }
     })
   ]
