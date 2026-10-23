@@ -13,6 +13,7 @@ import { answerText, turnEndedAt } from '../transcript/turns.js'
 import { duration } from './format.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
+import type { BrowserFocus } from './tools/cards/browser.js'
 import { toolNode } from './tools/shell.js'
 import { foldSection, headedCard } from './ui/fold.js'
 import { shimmerText } from './ui/live.js'
@@ -23,6 +24,8 @@ import { parts, pieces } from './workLogModel.js'
 /** What entry views need from the app. */
 export interface TranscriptContext {
   now: number
+  /** SDK actions bound to the session instance that rendered this entry. */
+  focusBrowser?: BrowserFocus | undefined
   welcome: WelcomeContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
@@ -230,7 +233,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.focusBrowser)
     }
 
     const b = p.block
@@ -244,7 +247,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now)
+        return toolNode(b.call, cx.now, cx.focusBrowser)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))
