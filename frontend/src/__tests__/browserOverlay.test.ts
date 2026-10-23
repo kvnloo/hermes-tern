@@ -124,12 +124,17 @@ describe('Tern browser-block sheet', () => {
       close: (o: Overlay) => { const i = h.overlays.indexOf(o); if (i >= 0) h.overlays.splice(i, 1) }
     }))
     const sheet = must(h.overlays.at(-1))
+    // Capability preflight is asynchronous: do not dismiss until the real
+    // namespaced listing was dispatched and is waiting on this deferred reply.
+    await vi.waitFor(() => expect(h.gateway.methods('hermes-tern.browser.blocks')).toHaveLength(1))
     sheet.onKey(key('escape'))
     h.session.ref.live = liveSessionId('s2')
     pending.resolve({ available: true, blocks: [user] })
     await Promise.resolve()
     await Promise.resolve()
     expect(h.overlays).toHaveLength(0)
+    expect(h.gateway.methods('hermes-tern.browser.adopt')).toHaveLength(0)
+    expect(h.gateway.methods('hermes-tern.browser.focus')).toHaveLength(0)
     expect(h.gateway.calls.filter(c => c.method.startsWith('hermes-tern.browser.')).map(c => c.method)).toEqual(['hermes-tern.browser.blocks'])
   })
 
@@ -171,7 +176,26 @@ describe('Tern browser-block sheet', () => {
       close: () => undefined
     }))
     await vi.waitFor(() => expect(JSON.stringify(tree(must(h.overlays.at(-1)).node('layer.browser-blocks')))).toContain('requires Hermes plugin gateway methods'))
-    expect(h.gateway.calls.filter(c => c.method.startsWith('hermes-tern.browser.')).map(c => c.method)).toEqual(['hermes-tern.browser.blocks'])
+    expect(h.gateway.calls.filter(c => c.method.startsWith('hermes-tern.browser.'))).toEqual([])
+    expect(h.gateway.methods('hermes-tern.browser.adopt')).toHaveLength(0)
+  })
+
+  it('reports a namespaced listing refusal when capability preflight succeeds', async () => {
+    const h = harness()
+    h.gateway.handlers.set('hermes-tern.browser.blocks', () => { throw new Error('Listing denied') })
+    openBrowserBlocks(stub<BrowserHost>({
+      gw: h.gateway.client,
+      session: h.session,
+      busy: null,
+      get overlays() { return h.overlays },
+      changed: () => undefined,
+      open: (o: Overlay) => { h.overlays.push(o) },
+      close: () => undefined
+    }))
+    await vi.waitFor(() => expect(h.gateway.methods('hermes-tern.browser.blocks')).toHaveLength(1))
+    await vi.waitFor(() => expect(JSON.stringify(tree(must(h.overlays.at(-1)).node('layer.browser-blocks')))).toContain('Listing denied'))
+    expect(h.gateway.methods('hermes-tern.browser.adopt')).toHaveLength(0)
+    expect(h.overlays).toHaveLength(1)
   })
 })
 

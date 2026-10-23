@@ -36,7 +36,7 @@ as authority.
 
 The generic seam is green on the Hermes downstream
 `kvnloo/hermes-agent#650` head
-`ba42d324b3300639b826fd7cdb20173935561389`.
+`0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5`.
 This plugin registers its own five `hermes-tern.browser.*` methods
 through `PluginContext.register_gateway_method`. No core Python methods,
 runtime pin or JSON-RPC router are altered. `gateway.capabilities`
@@ -56,10 +56,16 @@ profile identity refuses rather than guessing `default` or falling back
 to a session-id-only pin.
 
 The gateway validates the live original peer, transport, session generation,
-and owning profile. Its `GatewayRequestContext.capture_scope()` is an
-opaque caller-bound lease: a Tern viewer marker from the MODULE helper
-`tern_env.pane_env(session_id)` supplies live pane variables, not authority.
-The plugin freezes the first viewer, window and original task; replacing a
+and owning profile. Its `GatewayRequestContext.capture_scope()` produces an
+opaque original-caller lease; every later RPC must pass the public
+`lease.assert_caller(current_request)` check while the RPC is live. The lease is
+**not control-admitted until the originating RPC returns successfully**.
+Initial block discovery is read-only: it may record the lease, but cannot
+invoke control during its provisional start RPC. A second same-session peer
+never receives the original viewer's grant. On older runtimes without the
+public `assert_caller` API, native control is explicitly unsupported.
+`tern_env.pane_env(session_id)` supplies live pane coordinates, not authority.
+The plugin freezes the original viewer, window and task; replacing the
 viewer cannot redirect old claimed pages.
 
 Drive requires **explicit operator consent** via the per-profile
@@ -70,9 +76,12 @@ With it, browser tools are overridden only through the public
 `ctx.register_tool(...,override=True)` so Hermes scope, pre-tool hook and
 guardrail checks precede native effects. A `tool_execution` middleware
 runs before those checks and is forbidden for native browser dispatch.
-Revoking consent disables effects. Explicit CDP wins initially; once
-native ownership is claimed, a failed effect never switches to CDP or
-another page/backend.
+Revoking consent disables effects. Granting it **after** the plugin loaded
+without override handlers requires a plugin reload before native drive becomes
+available; discovery remains read-only until the actual native tool handlers
+are registered. No native claim is created with the original browser handlers
+still selected. Explicit CDP wins initially; once native ownership is claimed,
+a failed effect never switches to CDP or another page/backend.
 
 **Known canonical prerequisite:** the green registered-method request
 context exposes profile, session and captured lease, but does not expose
@@ -101,13 +110,13 @@ cd frontend
 HERMES_SRC=/path/to/pinned-hermes-agent bun run setup
 bun run test -- src/__tests__/browserBlocks.test.ts src/__tests__/browserOverlay.test.ts src/__tests__/keys.test.ts
 bun run check
-bun run build
+bun run bundle
 ```
 
 Test the Python plugin against the separate green Hermes source checkout:
 
 ```sh
-PYTHONPATH=/path/to/green-hermes-agent python -m pytest -q tests/test_browser_native.py tests/test_browser_backend.py tests/test_browser_gateway_dispatch.py tests/test_plugin_registration.py
+PYTHONPATH=/path/to/core-0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5 python -m pytest -q -ra tests
 ```
 
 These are validation commands, not a claim they have been run here.
