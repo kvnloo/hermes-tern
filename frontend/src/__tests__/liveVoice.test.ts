@@ -118,8 +118,12 @@ describe('live voice and consent lifecycle', () => {
     app.liveVoice.start()
     await settle()
     const liveId = sent('voice.live.start')[0]?.['live_id']
+    emit('event', { type: 'voice.live', session_id: 's1', payload: { live_id: liveId, phase: 'speaking', assistant_text: 'private previous reply' } })
+    await settle()
+    expect(app.liveVoice.assistant).toBe('private previous reply')
     given.session(app.stores, 's2')
     await settle()
+    expect(app.liveVoice.assistant).toBe('')
     expect(sent('voice.live.control').at(-1)).toMatchObject({
       session_id: 's1', live_id: liveId, action: 'stop'
     })

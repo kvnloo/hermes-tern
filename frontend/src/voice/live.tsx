@@ -91,7 +91,7 @@ export class LiveVoice {
       id, sid, started, pending: Promise.resolve(), stopping: false, requestedMuted: false
     }
     this.#lease = lease
-    this.#consentSid = null
+    // Retain the owner through errors so a later session switch clears its UI.
     this.phase = 'starting'
     this.muted = false
     this.assistant = ''
@@ -146,11 +146,16 @@ export class LiveVoice {
 
   /** Called as the frontend changes sessions; old audio may not follow a new session. */
   syncOwner(): void {
-    if (this.phase === 'consent' &&
-        (this.#host.sid() !== this.#consentSid || this.#host.switching())) this.#reset()
+    const sid = this.#host.sid()
+    if (!this.#lease && this.#consentSid &&
+        (sid !== this.#consentSid || this.#host.switching())) this.#reset()
     const lease = this.#lease
-    if (lease && !lease.stopping &&
-        (this.#host.sid() !== lease.sid || this.#host.switching())) void this.control('stop')
+    if (lease && (sid !== lease.sid || this.#host.switching())) {
+      // A prior session's spoken reply must never appear in the next session.
+      this.assistant = ''
+      this.error = ''
+      if (!lease.stopping) void this.control('stop')
+    }
   }
 
   /** Gateway process exit tears down the devices. Consent never survives reconnect. */
@@ -170,6 +175,8 @@ export class LiveVoice {
       this.#lease = undefined
       this.phase = this.error ? 'error' : 'idle'
       this.muted = false
+      this.assistant = ''
+      if (!this.error) this.#consentSid = null
     } else if (!lease.stopping && this.#host.sid() === lease.sid) {
       this.phase = p['phase']
       if (typeof p['muted'] === 'boolean') {
