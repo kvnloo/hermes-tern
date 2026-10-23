@@ -299,7 +299,10 @@ export function openPlanReview(host: PlanReviewHost): void {
 
     if (editing) {
       actions.push({ key: 'review', label: 'Back to plan', onClick: () => {
-        if (!current(stamp, revision)) return
+        if (!current(stamp, revision)) {
+          return
+        }
+
         editing = undefined
         version++
         host.changed()
