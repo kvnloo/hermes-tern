@@ -7,6 +7,7 @@
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { type LiveSessionId, newInputId } from '../core/ids.js'
+import type { Image } from '../draft/attachments.js'
 import type { SessionState, SessionTicket } from '../session/state.js'
 import type { Transcript } from '../transcript/store.js'
 import { rpc } from '../wire/rpc.js'
@@ -107,6 +108,8 @@ export interface RouterHost {
   readonly activity: Activity
   readonly queue: PromptQueue
   readonly session: Pick<SessionState, 'ref'>
+  /** Exact ref/live/stored/gateway ownership, checked again at the send boundary. */
+  ownsImages(sid: LiveSessionId, images: readonly Image[]): boolean
   readonly transcript: Pick<Transcript, 'notice' | 'steer' | 'user'>
   /** The session's state, for the gates. */
   gates(): GateState
@@ -130,6 +133,19 @@ export class PromptRouter {
 
   constructor(host: RouterHost) {
     this.#host = host
+  }
+
+  /** Refuse the whole prompt, not a silent text-only downgrade, if even one image is stale. */
+  #allowImages(sid: LiveSessionId, prompt: Prompt): boolean {
+    if (!prompt.images.length || this.#host.ownsImages(sid, prompt.images)) return true
+
+    this.#host.transcript.notice(
+      'Not sent: an image belongs to another session. Your text and any still-owned images are back in the composer.',
+      'warning'
+    )
+    this.#host.restore(prompt)
+    this.#host.changed()
+    return false
   }
 
   /**
@@ -220,8 +236,12 @@ export class PromptRouter {
   }
 
   /** `prompt` with its `{!cmd}`s run (a typed prompt's); undefined when one failed (the prompt is back in the composer). */
-  expanded(sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
-    return expand(this.#host, sid, prompt)
+  async expanded(sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
+    // In the shared gateway's queue this is the last awaited step before its RPC serialization.
+    if (!this.#allowImages(sid, prompt)) return undefined
+    const ready = await expand(this.#host, sid, prompt)
+    if (ready && !this.#allowImages(sid, prompt)) return undefined
+    return ready
   }
 
   /**
@@ -242,6 +262,12 @@ export class PromptRouter {
     }
 
     const { sid } = gate
+
+    // Includes prompts taken from A while a switch was pending and drained into B.
+    if (!this.#allowImages(sid, prompt)) {
+      host.queue.drain()
+      return
+    }
 
     if (prompt.kind === 'typed' && hasCommands(prompt)) {
       // The expansion counts as busy: the working line says so, and nothing else is sent meanwhile.

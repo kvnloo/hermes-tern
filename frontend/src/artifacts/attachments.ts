@@ -14,6 +14,7 @@ import { record } from '../wire/json.js'
 export const MAX_PASTED_IMAGE_BYTES = 20 * 1024 * 1024
 export const MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024
 export const MAX_IMAGES = 8
+const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_PASTED_IMAGE_BYTES / 3)
 
 /** Size from a canonical data URL before creating a Buffer. */
 export function encodedImageBytes(data: string): number {
@@ -36,6 +37,7 @@ export function nativePathIsLocal(gw: Pick<GatewayClient, 'attached'>, env: Node
 export type NativeImageEvent =
   | { kind: 'data'; data: string; name: string }
   | { kind: 'path'; path: string; name: string }
+  | { kind: 'rejected'; reason: string }
 
 
 export interface PastedImage {
@@ -75,7 +77,9 @@ export function decodePastedImage(data: string): PastedImage {
 
 /** A native image intent. Host paths remain raw authority, names are display-only. */
 export function pastedImageEvent(value: unknown): NativeImageEvent | undefined {
-  const event = record(value)
+  const outer = record(value)
+  // Tern 0.1.0 decodeEvent's default wraps unrecognized native paste/drop wire frames.
+  const event = outer?.['ev'] === 'unknown' ? record(outer['raw']) : outer
   if (event?.['ev'] !== 'paste' && event?.['ev'] !== 'drop') return undefined
 
   const raw = record(event['raw']) ?? event
@@ -85,7 +89,7 @@ export function pastedImageEvent(value: unknown): NativeImageEvent | undefined {
     ? candidate : 'Pasted image'
 
   // A structured raw.path is an explicit native intent. Never parse editor text as a path.
-  const path = record(event['raw'])?.['path']
+  const path = raw['path']
   if (typeof path === 'string' && path.length <= 4096 &&
     !Array.from(path).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
     let file = path
@@ -98,6 +102,12 @@ export function pastedImageEvent(value: unknown): NativeImageEvent | undefined {
 
   const data = raw['data']
   const mime = raw['mime']
+  // Admission for bare base64 must precede constructing another large string.
+  if (typeof data === 'string' && !data.startsWith('data:image/') &&
+    typeof mime === 'string' && /^image\/(?:png|jpeg|gif|webp)$/i.test(mime) &&
+    data.length > MAX_IMAGE_BASE64_LENGTH) {
+    return { kind: 'rejected', reason: 'Could not attach native image: the image is larger than 20 MiB.' }
+  }
   const encoded = typeof data === 'string' && data.startsWith('data:image/')
     ? data
     : typeof data === 'string' && typeof mime === 'string' && /^image\/(?:png|jpeg|gif|webp)$/i.test(mime)

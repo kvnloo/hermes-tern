@@ -181,7 +181,10 @@ export class AppActions {
     }
     this.events = {
       attachNativeImage: image => {
-        if (image.kind === 'path') {
+        if (image.kind === 'rejected') {
+          transcript.notice(image.reason, 'warning')
+          changed()
+        } else if (image.kind === 'path') {
           void attachments.fromNativePath(image.path, nativePathIsLocal(gw))
         } else {
           void attachments.fromDataUrl(image.data, image.name)

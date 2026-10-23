@@ -343,6 +343,15 @@ export class Attachments {
     }
   }
 
+  /** Revalidate taken/queued images when a prompt is about to enter the gateway. */
+  ownsForSend(sid: string, images: readonly Image[]): boolean {
+    const ref = this.#host.owner()
+    return ref.live === sid && images.every(image => {
+      const owner = this.#identity.get(image)?.owner
+      return owner !== undefined && owner.sid === sid && this.#current(owner)
+    })
+  }
+
   /** Synchronous submission: never give a B prompt an A ref, even with a reused runtime id. */
   take(): Image[] {
     this.#prune()

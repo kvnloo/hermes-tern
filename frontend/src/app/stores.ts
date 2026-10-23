@@ -181,6 +181,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     gates: () => act().gates(),
     gw,
     queue,
+    ownsImages: (sid, images) => attachments.ownsForSend(sid, images),
     restore: prompt => act().restore(prompt),
     session,
     ticket: () => session.ticket(),

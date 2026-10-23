@@ -50,14 +50,16 @@ export function splitPrompt(raw: string): PromptParts {
   }
 
   // Only the canonical persisted terminal absolute-path suffix is attachment metadata.
-  const lines = text.split('\n')
+  // Python's splitlines() accepts a single terminal LF/CRLF; preserve all earlier lines.
+  const lines = (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n')
+  const row = (i: number) => (lines[i] ?? '').replace(/\r$/, '')
   let last = lines.length
-  while (last > 0 && lines[last - 1] === '[screenshot]') last--
+  while (last > 0 && row(last - 1) === '[screenshot]') last--
   const placeholders = lines.length - last
   let first = last
   const refs: string[] = []
   while (first > 0) {
-    const match = IMAGE_SUFFIX.exec(lines[first - 1] ?? '')
+    const match = IMAGE_SUFFIX.exec(row(first - 1))
     const path = match?.[1] ? unquote(match[1]) : undefined
     if (!path || !isAbsolute(path)) break
     refs.unshift(path)
@@ -67,7 +69,7 @@ export function splitPrompt(raw: string): PromptParts {
   // Do not consume terminal lines inside a fenced literal example.
   let fence: { mark: string; count: number } | undefined
   for (let i = 0; i < first; i++) {
-    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i] ?? '')
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(row(i))
     if (!delimiter?.[1]) continue
     if (!fence) {
       fence = { mark: delimiter[1][0] ?? '', count: delimiter[1].length }

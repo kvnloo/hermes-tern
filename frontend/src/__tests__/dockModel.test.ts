@@ -140,7 +140,7 @@ describe('dockModel: removing an attached image', () => {
       gw: gw.client,
       launchCwd: dir,
       note: () => undefined,
-      sid: () => 's1'
+      owner: () => ({ live: liveSessionId('s1'), stored: null })
     })
     await a.fromPath(shot)
     await a.fromPath(shot)

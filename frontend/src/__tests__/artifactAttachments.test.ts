@@ -8,6 +8,7 @@ import { decodePastedImage, encodedImageBytes, nativePathIsLocal, pastedImageEve
 import { liveSessionId, storedSessionId } from '../core/ids.js'
 import { Attachments, type AttachmentsHost, type Image } from '../draft/attachments.js'
 import { SessionState } from '../session/state.js'
+import { onTernEvent, type ActionCx } from '../surface/actions.js'
 
 import { setup } from './appSetup.js'
 import { FakeGateway, key } from './fakes.js'
@@ -56,6 +57,36 @@ describe('Tern image-paste payloads', () => {
     expect(pastedImageEvent({ ev: 'drop', raw: { path: 'file://remote/other.png' } })).toBeUndefined()
     expect(pastedImageEvent({ ev: 'action', data: url })).toBeUndefined()
     expect(pastedImageEvent({ ev: 'drop', raw: { data: url, name: 'bad\nname' } })?.name).toBe('Pasted image')
+  })
+
+  it('routes pinned SDK 0.1 unknown-wrapped native image frames, not native text', () => {
+    // The pinned decodeEvent default returns { ev: 'unknown', raw: originalFrame, sf? }.
+    const received = vi.fn()
+    const cx: ActionCx = {
+      attachNativeImage: received,
+      connect: { continue: () => undefined, open: () => undefined },
+      focusComposer: () => undefined,
+      modal: () => false,
+      openAgent: () => undefined,
+      openProcess: () => undefined,
+      openUrl: () => undefined
+    }
+    onTernEvent({ ev: 'unknown', raw: { ev: 'drop', raw: { path: file, name: 'chart.png' } }, sf: 'hermes' }, cx)
+    onTernEvent({ ev: 'unknown', raw: { ev: 'paste', raw: { data: png.toString('base64'), mime: 'image/png' } }, sf: 'hermes' }, cx)
+    onTernEvent({ ev: 'unknown', raw: { ev: 'paste', raw: { data: 'ordinary native text' } }, sf: 'hermes' }, cx)
+    onTernEvent({ ev: 'unknown', raw: { ev: 'paste', raw: { text: 'ordinary native text' } }, sf: 'hermes' }, cx)
+    expect(received.mock.calls.map(([image]) => image)).toEqual([
+      { kind: 'path', path: file, name: 'chart.png' },
+      { kind: 'data', data: url, name: 'Pasted image' }
+    ])
+  })
+
+  it('refuses oversized bare native base64 before data URL conversion', () => {
+    const huge = 'A'.repeat(4 * Math.ceil(20 * 1024 * 1024 / 3) + 4)
+    expect(pastedImageEvent({ ev: 'unknown', raw: { ev: 'paste', raw: { data: huge, mime: 'image/png' } } }))
+      .toEqual({ kind: 'rejected', reason: 'Could not attach native image: the image is larger than 20 MiB.' })
+    expect(pastedImageEvent({ ev: 'unknown', raw: { ev: 'paste', raw: { data: png.toString('base64'), mime: 'image/png' } } }))
+      .toEqual({ kind: 'data', data: url, name: 'Pasted image' })
   })
 
   it('refuses native paths when gateway attached or Tern reached over SSH', () => {
@@ -108,7 +139,9 @@ describe('the session-owned image controller', () => {
       content_base64: png.toString('base64'), filename: 'image.png', session_id: 'session-a'
     }])
     expect(s.a.chips()).toMatchObject([{ label: 'shot.png', image: { blob: 'blob-1' } }])
-    expect(s.a.take()).toEqual([{ mime: 'image/png', name: 'shot.png', path: '/gateway/shot.png', caption: '1×1 · 1 KB', preview: { blob: 'blob-1' } }])
+    const taken = s.a.take()
+    expect(s.a.ownsForSend(liveSessionId('session-a'), taken)).toBe(true)
+    expect(taken).toEqual([{ mime: 'image/png', name: 'shot.png', path: '/gateway/shot.png', caption: '1×1 · 1 KB', preview: { blob: 'blob-1' } }])
   })
 
   it('drops an A upload that finishes in B without emitting late UI/error, even for reused sid and A-B-A', async () => {
@@ -158,6 +191,7 @@ describe('the session-owned image controller', () => {
     s.a.restore(aTake)
     expect(s.a.items).toHaveLength(1)
     s.changeSession('session-b')
+    expect(s.a.ownsForSend(liveSessionId('session-b'), aTake)).toBe(false)
     expect(s.a.items).toEqual([])
     expect(s.a.take()).toEqual([])
     s.a.restore(aTake)

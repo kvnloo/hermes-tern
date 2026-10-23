@@ -390,7 +390,9 @@ describe('the Tern actions', () => {
   function actions(modal = false) {
     const log: string[] = []
     const cx: ActionCx = {
-      attachNativeImage: image => void log.push('attach ' + image.name + ' ' + (image.kind === 'data' ? image.data : image.path)),
+      attachNativeImage: image => void log.push(image.kind === 'rejected'
+        ? 'reject ' + image.reason
+        : 'attach ' + image.name + ' ' + (image.kind === 'data' ? image.data : image.path)),
       connect: {
         continue: ref => void log.push(`continue ${ref}`),
         open: (ref, name) => void log.push(`open ${ref} ${name}`)
@@ -417,14 +419,6 @@ describe('the Tern actions', () => {
     onTernEvent(action('connect-open', 'call:1:github'), cx)
     expect(log).toEqual(['agent a1', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
     expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-process', 'open-url'])
-  })
-
-  it('routes native image path and byte intents without rewriting paths into fake image data', () => {
-    const { cx, log } = actions()
-    onTernEvent({ ev: 'drop', id: 'n', sf: 'hermes', raw: { path: '/tmp/real image.png', name: 'image.png' } }, cx)
-    onTernEvent({ ev: 'paste', id: 'n', sf: 'hermes', raw: { data: 'data:image/png;base64,AAAA' } }, cx)
-    onTernEvent({ ev: 'paste', id: 'n', sf: 'hermes', raw: { data: 'text note' } }, cx)
-    expect(log).toEqual(['attach image.png /tmp/real image.png', 'attach Pasted image data:image/png;base64,AAAA'])
   })
 
   it('do nothing without a value, or for an act with no handler', () => {

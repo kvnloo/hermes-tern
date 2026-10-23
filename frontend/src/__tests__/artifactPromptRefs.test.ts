@@ -12,6 +12,19 @@ describe('persisted prompt image provenance', () => {
       .toEqual({ files: [], images: ['/tmp/one image.png'], text: 'words' })
   })
 
+  it('accepts the canonical persisted terminal LF or CRLF, but no extra blank tail', () => {
+    for (const ending of ['\n', '\r\n']) {
+      const input = ['words', '@image:/tmp/a.png'].join(ending) + ending
+      expect(splitPrompt(input)).toEqual({ files: [], images: ['/tmp/a.png'], text: 'words' })
+      const multiple = ['words', '@image:/tmp/a.png', '@image:/tmp/b.png', '[screenshot]', '[screenshot]'].join(ending) + ending
+      expect(splitPrompt(multiple)).toEqual({ files: [], images: ['/tmp/a.png', '/tmp/b.png'], text: 'words' })
+      const literal = 'Example' + ending + '@image:/tmp/example.png' + ending + 'not a suffix' + ending
+      expect(splitPrompt(literal)).toEqual({ files: [], images: [], text: literal.trim() })
+      const blankTail = ['words', '@image:/tmp/a.png', ''].join(ending) + ending
+      expect(splitPrompt(blankTail)).toEqual({ files: [], images: [], text: blankTail.trim() })
+    }
+  })
+
   it('preserves earlier absolute-looking examples and literal prose', () => {
     const text = 'Document this literal:\n@image:/tmp/example.png\nIt is only an example.'
     expect(splitPrompt(text)).toEqual({ files: [], images: [], text })
