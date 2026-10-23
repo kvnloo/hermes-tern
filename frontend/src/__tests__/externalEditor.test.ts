@@ -2,8 +2,11 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 
 import { describe, expect, it, vi } from 'vitest'
 
+import { localCommand, type CommandHost } from '../commands/local.js'
 import { Composer } from '../draft/composer.js'
 import { editorArgv, editExternal, editTextExternal, type ExternalDraftHost } from '../draft/external-editor.js'
+
+import { stub } from './fakes.js'
 
 function host(text = 'draft') {
   const composer = new Composer()
@@ -96,5 +99,20 @@ describe('external draft editor', () => {
     await editExternal(x.h, opener)
     expect(opener).not.toHaveBeenCalled()
     expect(x.notice).toHaveBeenCalledWith('No active session to edit.', 'warning')
+  })
+})
+
+describe('/editor command registration', () => {
+  it('routes to the local external editor and never forwards an argument to the gateway', async () => {
+    const open = vi.fn(async () => undefined)
+    const notice = vi.fn()
+    const host = stub<CommandHost>({ editExternal: open, transcript: { notice } })
+    const command = localCommand('editor')
+    expect(command?.name).toBe('editor')
+    await command?.run(host, '')
+    expect(open).toHaveBeenCalledOnce()
+    await command?.run(host, 'unexpected')
+    expect(open).toHaveBeenCalledOnce()
+    expect(notice).toHaveBeenCalledWith('Usage: /editor', 'warning')
   })
 })
