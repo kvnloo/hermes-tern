@@ -37,6 +37,8 @@ The JSON above is the value of `display.tern_keybindings` in the owning Hermes p
 
 `/palette` and Ctrl+Shift+K open a modal Tern `picker`. It searches the existing local command registry and the gateway's `commands.catalog`, excluding hidden/refused commands and duplicates. **Enter** explicitly runs the selected slash command through the existing dispatcher; **Tab** inserts it into the draft without submitting; **Esc** closes without changing the draft. A stale gateway catalog cannot change the new session's palette.
 
+Implemented local commands, including `/palette`, remain searchable. A matching gateway entry appears only once.
+
 ## Model navigation
 
 Model cycling reads authorized inventory through the pinned `model.options` with `{ session_id }` (excluding explicitly unauthenticated and unavailable rows). The owning `session.info.model` and `session.info.provider` already project a pending pick while a turn streams; `model.options` has no pending fields or `safe_inventory` flag. Recent accepted selections are local navigation memory (per pane and session, maximum 32); they never change the configured default. If no usable recent shortlist exists, cycling uses the authorized inventory. Every switch uses the existing `switchModel` path and its expensive-model confirmation; no direct model mutation bypasses that guard. The picker flags recent models and the switch path fences late responses from prior sessions.

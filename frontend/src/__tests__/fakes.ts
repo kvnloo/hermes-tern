@@ -28,7 +28,7 @@ export function key(name: string, mods: Partial<Key> = {}): Key {
   return { alt: false, ctrl: false, meta: false, name, shift: false, ...mods }
 }
 
-/** A shared-gateway stand-in: `request` answers from `handlers` (else `{}`), `event` feeds the app. */
+/** Gateway stand-in: explicit handlers win; absent full-config reads return a valid empty profile. */
 export class FakeGateway extends EventEmitter {
   isCanonical: boolean
   attached = true
@@ -52,6 +52,10 @@ export class FakeGateway extends EventEmitter {
     const handler = this.handlers.get(method)
 
     try {
+      if (!handler && method === 'config.get' && params['key'] === 'full') {
+        return Promise.resolve({ config: { display: {} } })
+      }
+
       return Promise.resolve(handler ? handler(params) : {})
     } catch (error) {
       return Promise.reject(error)
