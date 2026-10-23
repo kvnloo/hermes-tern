@@ -44,6 +44,8 @@ export class BtwThreads {
   #owner: object | undefined
   #noticeTicket = 0
   #noticeNonce = 0
+  // Monotonic within this App: never reuse a native ID after selection or sheet revocation.
+  #presentation = 0n
 
   constructor(host: Host) {
     this.host = host
@@ -58,7 +60,7 @@ export class BtwThreads {
 
     const switched = this.#sid !== sid
     this.#owner = owner
-    this.#noticeTicket++
+    this.#revokeSelection()
     this.#pendingCompletions.clear()
     this.#seenCompletions.clear()
     this.#notices.clear()
@@ -93,6 +95,17 @@ export class BtwThreads {
     this.#noticeTicket++
   }
 
+  /** Revoke native selection IDs as well as already-bound SDK callbacks. */
+  #revokeSelection() {
+    this.#noticeTicket++
+    this.#presentation++
+  }
+
+  /** Native editor and selection-owned actions share this stable presentation lifetime. */
+  get editorKey(): string {
+    return `followup-${this.#presentation}`
+  }
+
   /** A fresh render ticket prevents a queued SDK action from following later selection or ownership. */
   get notices(): BtwNotice[] {
     return [...this.#notices.values()].map(notice => ({ ...notice, ticket: this.#noticeTicket }))
@@ -117,7 +130,7 @@ export class BtwThreads {
   select(id: string | null) {
     if (id === null || this.threads.some(item => item.id === id)) {
       if (this.selected !== id) {
-        this.#noticeTicket++
+        this.#revokeSelection()
       }
 
       this.selected = id
@@ -130,8 +143,9 @@ export class BtwThreads {
    * selection generation. The existing notice ticket revokes held actions
    * on selection ABA, same-ID adoption and sheet replacement.
    */
-  captureEditor(sheet: Overlay): { readonly draft: Composer; current(): boolean } {
+  captureEditor(sheet: Overlay): { readonly draft: Composer; readonly key: string; current(): boolean } {
     const draft = this.draft
+    const key = this.editorKey
     const selected = this.selected
     const owner = this.#owner
     const sid = this.#sid
@@ -139,10 +153,11 @@ export class BtwThreads {
 
     return {
       draft,
+      key,
       current: () => Boolean(owner && this.owns(sheet) &&
         this.#owner === owner && this.host.session.ref === owner &&
         this.#sid === sid && this.selected === selected &&
-        this.#noticeTicket === ticket && this.draft === draft)
+        this.#noticeTicket === ticket && this.editorKey === key && this.draft === draft)
     }
   }
 
@@ -158,7 +173,7 @@ export class BtwThreads {
     if (this.#sheet === sheet) {
       this.#sheet = undefined
       this.#epoch++
-      this.#noticeTicket++
+      this.#revokeSelection()
       this.state = 'idle'
     }
   }
@@ -196,6 +211,8 @@ export class BtwThreads {
     // must not keep an actionable notice over the newer running work.
     if (previous && previous.turns.at(-1)?.id !== current.turns.at(-1)?.id) {
       this.#dropNotices(current.id)
+      // Stop/Copy from an earlier selected turn cannot act on a successor.
+      if (current.id === this.selected) this.#revokeSelection()
     }
 
     const last = current.turns.at(-1)
@@ -250,6 +267,7 @@ export class BtwThreads {
 
     if (!sid) {
       this.adopt(null)
+      this.#revokeSelection()
       const sheet = openBtwOverlay(this)
       this.#sheet = sheet
       this.error = 'No active Hermes session.'
@@ -285,7 +303,7 @@ export class BtwThreads {
       }
     }
 
-    this.#noticeTicket++
+    this.#revokeSelection()
     const sheet = openBtwOverlay(this)
     this.#sheet = sheet
     // Re-selecting a different thread and back while history loads revokes auto-send.
@@ -306,7 +324,14 @@ export class BtwThreads {
         this.update(thread)
       }
 
-      this.selected ??= explicitQuestion ? null : this.threads.at(-1)?.id ?? null
+      if (this.selected === null && !explicitQuestion) {
+        const latest = this.threads.at(-1)?.id
+
+        if (latest) {
+          this.selected = latest
+          this.#revokeSelection()
+        }
+      }
       this.state = 'idle'
 
       // A list can settle after the user edits or changes selection. Never
@@ -357,7 +382,7 @@ export class BtwThreads {
 
       if (this.selected === previous) {
         if (this.selected !== answer.thread.id) {
-          this.invalidateActions()
+          this.#revokeSelection()
         }
 
         this.selected = answer.thread.id

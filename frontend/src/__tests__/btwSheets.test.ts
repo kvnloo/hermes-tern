@@ -334,7 +334,7 @@ describe('native BTW thread history and reader', () => {
       expect(f.app.overlays.map(o => o.key)).toEqual(['btw'])
       await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       f.tern.press('tab') // reader -> conversation-owned side composer
-      await vi.waitFor(() => expect(f.tern.focused.at(-1)).toBe('layer.btw.body.followup'))
+      await vi.waitFor(() => expect(f.tern.focused.at(-1)).toBe('layer.btw.body.' + f.app.btw.editorKey))
       await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       // Fake keys need Tern's printable text as well as the key name.
       f.tern.press(key('x', { text: 'x' }))

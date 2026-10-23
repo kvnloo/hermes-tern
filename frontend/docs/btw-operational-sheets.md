@@ -14,9 +14,13 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
   Tern click action even at unchanged caret, without a synthetic edit.
   Reader/history navigation still starts in the reader; Tab remains unchanged.
   Real typing, Unicode, bracketed paste and Enter use the existing Composer key path.
-- Native editor click/edit/send/undo callbacks capture the exact rendered sheet,
-  session ref, live ID, selection, draft and existing action ticket. Old actions
-  fail closed after same-ID adoption, selection ABA, close or replacement.
+- Native editor click/edit/send/undo and selection-owned Send/Stop/Copy buttons
+  share a monotonic presentation ID for the exact selected draft, session and
+  sheet lifetime. Tern focus uses that same editor key. IDs remain stable across
+  ordinary typing and same-owner renders, but rotate on selection ABA, selected
+  turn replacement, same-ID re-adoption, sheet close/reopen or replacement and
+  session switch. Captured callbacks retain the old session/selection/draft/ticket
+  guard; after a new render an old native ID cannot retarget a newer handler.
 - The main draft and main transcript are untouched. Each thread, including the
   new-thread slot, keeps its unsent text and cursor while the same live session
   is shown; adopting another session drops every side draft and closes its sheet.
@@ -108,7 +112,11 @@ draft, main draft, gateway submit payloads and transcript isolation.
 The `btwNativeInput.test.ts` regression constructs the pinned real Tern
 Session/Surface with a TSP handshake; it uses native SDK editor action
 dispatch at unchanged caret, raw typed Unicode, bracketed paste/Enter,
-serialized focus and stale-action rejection. This in-process SDK test is not
+serialized focus and stale-action rejection. It also decodes emitted TSP frame
+JSON, captures the real native editor and Send IDs, and injects old IDs over
+Session's incoming APC event path **after** the new selection is rendered;
+A→B, A→B→A, same-ID adoption/replacement and fresh B controls are checked.
+This in-process SDK test is not
 a GUI mouse or compositor test. OMP must repeat the actual isolated Sway
 Tern 0.9.5 click at unchanged caret, raw paste of ` paste 🦉 café 漢字`,
 Enter, Tab and Esc/reopen, checking that main draft stays untouched.

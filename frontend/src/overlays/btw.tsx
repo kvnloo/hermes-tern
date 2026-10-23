@@ -78,7 +78,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
   const sheet: Overlay = {
     key: 'btw',
     modal: true,
-    focus: id => pane === 'composer' ? id + '.body.followup' : null,
+    focus: id => pane === 'composer' ? id + '.body.' + model.editorKey : null,
     cancel: () => model.close(),
     onClose: () => model.closed(sheet),
     node: (): JSX.Element => {
@@ -120,7 +120,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
           {model.error ? <text key="error" role="omp.btw.error" text={model.error} wrap="word" /> : null}
           <editor
             cursor={editor.draft.cursor}
-            key="followup"
+            key={editor.key}
             maxLines={8}
             onClick={() => {
               // Native click at an unchanged caret emits no edit. Acquire focus
@@ -154,10 +154,10 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
           />
           {message ? <text key="notice" role="omp.report.notice" text={message} wrap="word" /> : null}
           {actionsRow([
-            { key: 'send', label: 'Send side question', onClick: () => send() },
+            { key: 'send-' + editor.key, label: 'Send side question', onClick: () => { if (editor.current()) send() } },
             ...(model.thread?.turns.at(-1)?.state === 'running'
-              ? [{ key: 'cancel', label: 'Stop side turn', onClick: cancel }] : []),
-            ...(model.thread ? [{ key: 'copy', label: 'Copy', onClick: copy }] : []),
+              ? [{ key: 'cancel-' + editor.key, label: 'Stop side turn', onClick: () => { if (editor.current()) cancel() } }] : []),
+            ...(model.thread ? [{ key: 'copy-' + editor.key, label: 'Copy', onClick: () => { if (editor.current()) copy() } }] : []),
             { key: 'close', label: 'Return to main draft', hint: 'escape', onClick: () => model.close() }
           ])}
         </col>
