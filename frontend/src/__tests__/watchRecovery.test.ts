@@ -224,6 +224,7 @@ describe('WatchApp public SDK document and gesture recovery', () => {
       expect(h.gw.sent('subagent.steer')).toHaveLength(0)
       expect(diagnostic).toHaveBeenCalledTimes(1)
       expect(diagnostic).toHaveBeenCalledWith(expect.stringContaining('malformed ack'))
+      expect(await h.running).toBe(1)
     })
     expect(diagnostic).toHaveBeenCalledTimes(1)
   })

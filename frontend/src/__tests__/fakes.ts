@@ -11,6 +11,8 @@ import type { SessionInfo } from '@tui/types.js'
 
 import type { SessionView } from '../app/ports.js'
 import { SurfaceView } from '../surface/lifecycle.js'
+
+const pinnedPaint = SurfaceView.prototype.paint
 import { liveSessionId } from '../core/ids.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { SessionState } from '../session/state.js'
@@ -106,12 +108,11 @@ export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOp
   // at the fixture boundary: production never forks on an incomplete mock.
   const surfaces = new Set<Surface>()
   if (draws) {
-    const paint = SurfaceView.prototype.paint
     vi.spyOn(SurfaceView.prototype, 'paint').mockImplementation(function (this: SurfaceView, surface, tree) {
       if (surfaces.has(surface)) {
         frame = tree
       }
-      return paint.call(this, surface, tree)
+      return pinnedPaint.call(this, surface, tree)
     })
   }
 

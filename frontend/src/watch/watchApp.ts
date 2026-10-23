@@ -123,6 +123,11 @@ export class WatchApp {
         process.stderr.write('hermes tern watch: ' + message + '\n')
         this.transcript.notice(message, 'error')
         this.changed()
+        // Only terminal protocol/frame failures end the watcher; a stalled ACK
+        // is diagnostic and must not create a timer-driven reopen or exit.
+        if (this.#surface.state === 'failed') {
+          this.#done.resolve(1)
+        }
       }
     })
     this.#surface.guardHandlers(false)
