@@ -239,7 +239,11 @@ export class App implements ChatPorts {
   }
 
   openHelp(): Promise<void> {
-    return openHelp(this)
+    return openHelp(this, this.#act.bindings.actions)
+  }
+
+  openPalette(): void {
+    this.#act.openPalette()
   }
 
   /** The user quits (Ctrl+C twice, Ctrl+D, /quit): a later `hermes tern` in this pane starts a new session. */
