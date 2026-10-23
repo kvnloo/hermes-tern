@@ -349,6 +349,25 @@ describe('retained long-session transcript', () => {
     h.paint(transcript.entries, cx)
   })
 
+  it('never executes a queued native action for evicted root or subtree IDs', async () => {
+    const entries = history(25)
+    const copy = vi.fn()
+    const h = harness()
+    h.paint(entries, context(copy))
+
+    const oldRoot = h.click('main.u0.tools.copy')
+    h.gone(['main.u0'])
+    await oldRoot?.()
+    expect(copy).not.toHaveBeenCalled()
+
+    const oldChild = h.click('main.u1.tools.copy')
+    h.gone(['main.u1.tools.copy'])
+    await oldChild?.()
+    expect(copy).not.toHaveBeenCalled()
+    expect(h.click('main.u0.tools.copy')).toBeUndefined()
+    expect(h.click('main.u1.tools.copy')).toBeUndefined()
+  })
+
   it('signals a late edit to an old settled turn through the actual Transcript store', () => {
     const transcript = new Transcript()
     for (const entry of history(25)) {
