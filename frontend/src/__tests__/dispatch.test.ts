@@ -141,7 +141,7 @@ const EVENTS: [Record<string, unknown>, Outcome][] = [
   [{ payload: { key: 'k', text: 'credits low' }, session_id: 's1', type: 'notification.show' }, 'render'],
   [{ payload: { key: 'k' }, session_id: 's1', type: 'notification.clear' }, 'render'],
   [{ payload: { task_id: 't1', text: 'done' }, session_id: 's1', type: 'background.complete' }, 'render'],
-  [{ payload: { question: 'q', text: 'a' }, session_id: 's1', type: 'btw.complete' }, 'render'],
+  [{ payload: { task_id: 'btw-task', question: 'q', text: 'a' }, session_id: 's1', type: 'btw.complete' }, 'render'],
   [{ payload: { stderr_tail: '' }, type: 'gateway.start_timeout' }, 'render'],
   [{ payload: { attempt: 2, delay_ms: 10 }, type: 'gateway.reconnecting' }, 'render'],
   [{ payload: { title: 'T' }, session_id: 's1', type: 'session.title' }, 'render'],
