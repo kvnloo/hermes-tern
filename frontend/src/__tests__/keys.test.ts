@@ -11,6 +11,7 @@ import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
 import { INPUT_ID } from '../surface/host.js'
+import { effectiveShortcuts, shortcutMatches } from '../shortcuts/actions.js'
 import type { Busy } from '../turn/activity.js'
 
 import { FakeGateway, key } from './fakes.js'
@@ -124,6 +125,7 @@ describe('the key rules', () => {
       'modal',
       'hud',
       'completion',
+      'appShortcuts',
       'doubleEsc',
       'effort',
       'sheets',
@@ -134,6 +136,37 @@ describe('the key rules', () => {
       'clipboardImage',
       'composer'
     ])
+  })
+
+  it('routes rebindable keys only after modal, HUD, and completion ownership', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({ 'app.model.select': 'alt+k' })
+    p.cx.shortcut = (id, pressed) => {
+      const action = actions.find(item => item.id === id)
+
+      return action ? shortcutMatches(action, pressed) : false
+    }
+    p.cx.openModel = () => p.log.push('models')
+    p.cx.openPalette = () => p.log.push('palette')
+    p.cx.openHelp = () => p.log.push('help')
+    p.cx.cycleModel = dir => p.log.push(`cycle ${dir}`)
+
+    onKey(alt('m'), p.cx, undefined)
+    onKey(alt('k'), p.cx, undefined)
+    onKey(key('p', { ctrl: true }), p.cx, undefined)
+    onKey(key('p', { ctrl: true, shift: true }), p.cx, undefined)
+    onKey(key('k', { ctrl: true, shift: true }), p.cx, undefined)
+    expect(p.log).toEqual(['composer', 'models', 'cycle 1', 'cycle -1', 'palette'])
+
+    onKey(alt('k'), p.cx, sheet({ modal: true }))
+    expect(p.log).toHaveLength(5)
+    p.state.hud = true
+    onKey(alt('k'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(alt('k'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
   })
 
   it('1. Ctrl+C: the top sheet cancels, else closes; with none it clears the draft, interrupts or arms the exit', () => {
