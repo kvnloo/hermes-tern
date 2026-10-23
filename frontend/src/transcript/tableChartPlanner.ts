@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 
+import { decodeJson } from '../wire/json.js'
 import type { ChartKind, ChartPlanner } from './tableCharts.js'
 
 export const TABLE_CHART_DEADLINE_MS = 5000
@@ -13,7 +14,7 @@ const MAX_REPLY_BYTES = 4096
 export function readTableChartReply(stdout: string): ChartKind {
   // Match widget_author.py's transport: Python dependency activation may
   // print diagnostics before the one final JSON line.
-  const data: unknown = JSON.parse(stdout.trim().split('\n').at(-1) ?? '')
+  const data: unknown = decodeJson(stdout.trim().split('\n').at(-1) ?? '')
 
   if (typeof data === 'object' && data !== null && !Array.isArray(data) &&
       Object.keys(data).length === 1 && 'kind' in data &&
