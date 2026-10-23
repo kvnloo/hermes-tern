@@ -44,17 +44,16 @@ let bundle: unknown
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), 'hermes-packaged-openui-'))
-  const env = {
-    ...process.env,
-    OPENUI_TELEMETRY_DISABLED: '1',
-    DO_NOT_TRACK: '1'
-  }
+  const env = { ...process.env }
   delete env['HERMES_PYTHON_SRC_ROOT']
+  delete env['OPENUI_TELEMETRY_DISABLED']
+  delete env['DO_NOT_TRACK']
 
-  // The real CLI imports @openuidev/lang-core from the copied donor lockfile's
-  // isolated npm install; a missing parser fails instead of skipping this suite.
+  // The shipped wrapper disables both telemetry flags before the unmodified
+  // donor CLI imports real @openuidev/lang-core from the isolated npm install.
+  // A missing parser fails instead of skipping this suite.
   const { stdout, stderr } = await execute(process.execPath, [
-    join(openui, 'openui-preview/cli.mjs'),
+    join(openui, 'prepare.mjs'),
     'prepare',
     join(openui, 'openui-generation/fixtures/explorer.openui'),
     join(openui, 'openui-preview/fixtures/repository.json'),
