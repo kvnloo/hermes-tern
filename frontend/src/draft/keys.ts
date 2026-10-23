@@ -100,8 +100,19 @@ export interface KeyCx {
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
+  /** Gateway-owned display.tern_keybindings, if loaded; legacy tests can use the defaults. */
+  shortcut?(id: string, key: Key): boolean
+  openModel?(): void
+  openPalette?(): void
+  openHelp?(): void
+  cycleModel?(direction: -1 | 1): void
   /** Sends the composer's draft. */
   submitDraft(): void
+}
+
+/** The default matcher is for tests and before the first owning-profile read. */
+function bound(cx: KeyCx, id: string, key: Key, fallback: KeyMatch): boolean {
+  return cx.shortcut ? cx.shortcut(id, key) : matches(key, fallback)
 }
 
 /** One step of the chain: true when it handled `key`. `top` is the top overlay when the key came. */
@@ -179,6 +190,22 @@ const completion: KeyRule = (key, cx) => cx.completion.onKey(key)
  * Esc: a single one never cancels work (Ink's resolveDoubleEscAction). A second one within
  * DOUBLE_ESC_MS clears a draft into the prompt history, else stops the running turn.
  */
+/** Fresh actions obey modal/HUD/completion ownership and exact modifiers. */
+const appShortcuts: KeyRule = (key, cx) => {
+  const actions: readonly [string, (() => void) | undefined][] = [
+    ['app.model.select', cx.openModel],
+    ['app.model.cycleForward', cx.cycleModel && (() => cx.cycleModel!(1))],
+    ['app.model.cycleBackward', cx.cycleModel && (() => cx.cycleModel!(-1))],
+    ['app.palette', cx.openPalette],
+    ['app.help', cx.openHelp]
+  ]
+  const found = actions.find(([id, run]) => Boolean(run && cx.shortcut?.(id, key)))
+
+  found?.[1]?.()
+
+  return found !== undefined
+}
+
 const doubleEsc: KeyRule = (key, cx) => {
   if (!matches(key, KEYS.clearOrStop)) {
     return false
@@ -198,7 +225,7 @@ const doubleEsc: KeyRule = (key, cx) => {
 }
 
 const effort: KeyRule = (key, cx) => {
-  if (!matches(key, KEYS.effort)) {
+  if (!bound(cx, 'app.thinking.cycle', key, KEYS.effort)) {
     return false
   }
 
@@ -216,7 +243,8 @@ const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
 ]
 
 const sheets: KeyRule = (key, cx) => {
-  const hit = SHEETS.find(([match]) => matches(key, match))
+  const ids = ['app.agents.hub', 'app.jobs', 'app.sidebar', 'app.prs']
+  const hit = SHEETS.find(([match], index) => bound(cx, ids[index]!, key, match))
 
   hit?.[1](cx)
 
@@ -225,7 +253,7 @@ const sheets: KeyRule = (key, cx) => {
 
 /** Alt+Up: the oldest queued prompt back into the composer to edit. */
 const dequeue: KeyRule = (key, cx) => {
-  if (!matches(key, KEYS.dequeue) || !cx.queue.count()) {
+  if (!bound(cx, 'app.message.dequeue', key, KEYS.dequeue) || !cx.queue.count()) {
     return false
   }
 
@@ -236,7 +264,7 @@ const dequeue: KeyRule = (key, cx) => {
 
 /** Alt+Enter on an empty prompt: the oldest queued prompt steers the running turn. */
 const steer: KeyRule = (key, cx) => {
-  if (!matches(key, KEYS.steer) || !cx.busy() || !cx.queue.count() || cx.composer.text) {
+  if (!bound(cx, 'app.message.alternate', key, KEYS.steer) || !cx.busy() || !cx.queue.count() || cx.composer.text) {
     return false
   }
 
@@ -286,6 +314,7 @@ export const KEY_RULES: readonly KeyRule[] = [
   modal,
   hud,
   completion,
+  appShortcuts,
   doubleEsc,
   effort,
   sheets,
