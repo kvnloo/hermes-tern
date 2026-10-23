@@ -1,7 +1,7 @@
 import { type Op, type Surface, type TspEvent } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
-import { entryId } from '../core/ids.js'
+import { entryId, subagentId, subagentKey, toolCallId } from '../core/ids.js'
 import type { Entry, TurnEntry } from '../model.js'
 import { RELOAD_PAGE, RETAIN_TURNS, Retention, retentionBoundary, safeToSettle } from '../view/retention.js'
 import type { TranscriptContext } from '../view/transcript.js'
@@ -78,10 +78,10 @@ describe('retained long-session transcript', () => {
     turnAt(entries, 3).warning = 'Incomplete output'
     turnAt(entries, 4).blocks.push({
       call: {
-        id: 'job', name: 'terminal', args: {}, argsText: '', context: '',
+        id: toolCallId('job'), name: 'terminal', args: {}, argsText: '', context: '',
         outcome: { kind: 'running' }, startedAt: 1, via: { kind: 'direct' }
       },
-      id: 'job',
+      id: toolCallId('job'),
       kind: 'tool'
     })
     const h = harness()
@@ -105,14 +105,14 @@ describe('retained long-session transcript', () => {
     const t = turnAt(history(1), 0)
     t.blocks.push({
       call: {
-        id: 'delegate', name: 'delegate_task', args: {}, argsText: '', context: '',
+        id: toolCallId('delegate'), name: 'delegate_task', args: {}, argsText: '', context: '',
         outcome: { kind: 'done', duration: 10 }, startedAt: 1, via: { kind: 'direct' },
         subagents: [{
-          id: 'child', key: 'child', goal: 'inspect', index: 0, name: 'Agent 1',
+          id: subagentId('child'), key: subagentKey('child'), goal: 'inspect', index: 0, name: 'Agent 1',
           status: 'failed', toolCount: 0, tokens: 0, calls: 0, startedAt: 1
         }]
       },
-      id: 'delegate',
+      id: toolCallId('delegate'),
       kind: 'tool'
     })
     expect(safeToSettle(t)).toBe(false)
