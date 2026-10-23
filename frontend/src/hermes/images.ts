@@ -94,7 +94,7 @@ export function imageSize(bytes: Buffer): { w: number; h: number } | undefined {
  * back too: the composer's thumbnail shows them (a clipboard image's file is gone right after).
  */
 export async function uploadImage(
-  gw: Pick<GatewayClient, 'request'>,
+  gw: Pick<GatewayClient, 'request'> & { readonly isCanonical?: boolean },
   sid: string,
   raw: string,
   cwd: string
@@ -112,11 +112,32 @@ export async function uploadImage(
     throw new Error(`${extname(path) || 'this file'} is not a PNG, JPEG, GIF or WebP image`)
   }
 
-  const r = await rpc(gw, 'image.attach_bytes', {
+  const params = {
     session_id: sid,
     filename: `image${format.ext}`,
     content_base64: bytes.toString('base64')
-  })
+  }
+
+  // Canonical plugin staging keeps an original caller-bound lease. If the
+  // optional method is absent, preserve core image.attach_bytes byte-for-byte.
+  let namespaced = false
+
+  if (gw.isCanonical === true) {
+    try {
+      const caps = await gw.request<{ plugin_methods?: unknown }>('gateway.capabilities', {
+        session_id: sid
+      })
+
+      namespaced = Array.isArray(caps?.plugin_methods) &&
+        caps.plugin_methods.includes('hermes-tern.media.attach_bytes')
+    } catch {
+      // An older gateway may not implement capabilities. Original staging still works.
+    }
+  }
+
+  const r = namespaced
+    ? await gw.request<{ path?: string }>('hermes-tern.media.attach_bytes', params)
+    : await rpc(gw, 'image.attach_bytes', params)
 
   if (!r?.path) {
     throw new Error('the gateway did not store the image')
