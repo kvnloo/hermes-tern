@@ -3,7 +3,9 @@ import type { Overlay } from '../overlays/overlay.js'
 import { describe, expect, it, vi } from 'vitest'
 
 import { liveSessionId } from '../core/ids.js'
+import { Composer } from '../draft/composer.js'
 import { SessionState } from '../session/state.js'
+import { Transcript } from '../transcript/store.js'
 import { FakeGateway, key } from '../__tests__/fakes.js'
 
 import { openCommandPalette, paletteRows, type PaletteHost } from './palette.js'
@@ -13,18 +15,30 @@ function fixture(catalog: CommandsCatalogResult = { categories: [{ name: 'Fixtur
   const session = new SessionState(() => {})
   session.ref = { live: liveSessionId('s1'), stored: null }
   const overlays: Overlay[] = []
-  const set = vi.fn()
+  const composer = new Composer()
+  const transcript = new Transcript()
+  const set = vi.spyOn(composer, 'set')
   const run = vi.fn()
   const changed = vi.fn()
-  const notice = vi.fn()
-  const host = {
-    gw: gw.client, session, composer: { set }, run, changed,
-    transcript: { notice },
+  const notice = vi.spyOn(transcript, 'notice')
+  const host: PaletteHost = {
+    gw: gw.client, session, composer, run, changed,
+    transcript,
     close: (overlay: Overlay) => void overlays.splice(overlays.indexOf(overlay), 1),
     open: (overlay: Overlay) => void overlays.push(overlay)
-  } as unknown as PaletteHost
+  }
 
   return { gw, session, host, overlays, set, run, changed, notice }
+}
+
+function top(overlays: readonly Overlay[]): Overlay {
+  const overlay = overlays[0]
+
+  if (!overlay) {
+    throw new Error('Expected command palette')
+  }
+
+  return overlay
 }
 
 const type = (overlay: Overlay, text: string) => {
@@ -50,7 +64,7 @@ describe('Tern native command palette', () => {
   it('filters the native picker and runs the exact slash command on explicit Enter', async () => {
     const f = fixture()
     openCommandPalette(f.host)
-    const overlay = f.overlays[0]!
+    const overlay = top(f.overlays)
     await vi.waitFor(() => expect(JSON.stringify(overlay.node('layer.command-palette'))).toContain('/zzfixture'))
     type(overlay, 'zzfixture')
     expect(JSON.stringify(overlay.node('layer.command-palette'))).toContain('"query":"zzfixture"')
@@ -64,13 +78,13 @@ describe('Tern native command palette', () => {
     const f = fixture()
     openCommandPalette(f.host)
     await vi.waitFor(() => expect(f.gw.sent('commands.catalog')).toHaveLength(1))
-    const first = f.overlays[0]!
+    const first = top(f.overlays)
     first.onKey(key('escape'))
     expect(f.set).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()
 
     openCommandPalette(f.host)
-    const second = f.overlays[0]!
+    const second = top(f.overlays)
     await vi.waitFor(() => expect(JSON.stringify(second.node('layer.command-palette'))).toContain('/zzfixture'))
     type(second, 'zzfixture')
     second.node('layer.command-palette')
@@ -84,7 +98,7 @@ describe('Tern native command palette', () => {
     const pending = Promise.withResolvers<CommandsCatalogResult>()
     f.gw.handlers.set('commands.catalog', () => pending.promise)
     openCommandPalette(f.host)
-    const old = f.overlays[0]!
+    const old = top(f.overlays)
     f.session.ref = { live: liveSessionId('s2'), stored: null }
     pending.resolve({ pairs: [['/zzfixture', 'Late command']] })
     await Promise.resolve()
