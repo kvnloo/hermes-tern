@@ -323,7 +323,7 @@ if __name__ == '__main__':
 def _stop_isolated_gateway(source: Path, env: dict[str, str]) -> None:
     home = Path(env["HERMES_HOME"]).resolve(strict=True)
     # Distinct, disposable $HOME; never target any installed profile/service.
-    assert home == Path(env["HOME"]).resolve(strict=True) / ".hermes"
+    assert home == Path(env["HOME"]).resolve(strict=True) / "fixture-hermes"
     code, stdout, stderr = _bounded_capture(
         [sys.executable, "-I", "-c", STOP_ISOLATED_GATEWAY, str(source), str(home)],
         cwd=source, env=env, timeout=12,
@@ -494,7 +494,8 @@ def _environment(tmp_path: Path, source: Path, node: str) -> dict[str, str]:
     """Only runtime basics, never inherited user config or provider credentials."""
     env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "TZ") if k in os.environ}
     home = tmp_path / "home"
-    profile = home / ".hermes"
+    # Keep the real core DB guard enabled: HOME/.hermes is its denied default root.
+    profile = home / "fixture-hermes"
     profile.mkdir(parents=True)
     env.update({
         "HOME": str(home),
