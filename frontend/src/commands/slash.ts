@@ -128,7 +128,7 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
       return
     }
 
-    await dispatched(r, cx, { arg, report, title })
+    await dispatched(r, cx, { arg, title, ...(report ? { report } : {}) })
   } catch (error) {
     if (stale()) {
       return
@@ -150,7 +150,7 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
           return
         }
 
-        await dispatched(r, cx, { arg, report, title })
+        await dispatched(r, cx, { arg, title, ...(report ? { report } : {}) })
       } catch (dispatchFailure) {
         if (stale()) {
           return
