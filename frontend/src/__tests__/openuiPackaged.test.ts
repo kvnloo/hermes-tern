@@ -1,0 +1,207 @@
+// Real packaged CLI → donor validator → Tern preview; no fake parser or LoadVisual.
+import { execFile } from 'node:child_process'
+import { cp, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { promisify } from 'node:util'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { Node } from '@stencil-hq/tern'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+
+import { liveSessionId, storedSessionId } from '../core/ids.js'
+import type { Entry } from '../model.js'
+import type { Overlay } from '../overlays/overlay.js'
+import { openVisual, type VisualHost } from '../overlays/visual.js'
+import { readPreparedVisual, readVisualFile } from '../visuals.js'
+import { record } from '../wire/json.js'
+import { openUiContract } from '../wire/openui.js'
+
+import { must, stub } from './fakes.js'
+
+const execute = promisify(execFile)
+const openui = fileURLToPath(new URL('../../openui/', import.meta.url))
+const scope = '["stored","main"]'
+const hash = /^[a-f0-9]{64}$/
+const hashedAssets = [
+  'openui-preview/src/bundle.mjs',
+  'openui-preview/src/control.mjs',
+  'openui-preview/src/lifecycle.mjs',
+  'openui-preview/tern/plugin.toml',
+  'openui-preview/tern/host.luau',
+  'openui-preview/tern/window.luau',
+  'openui-preview/tern/visual.css',
+  'openui-generation/src/adapter.mjs',
+  'openui-generation/src/catalog.mjs',
+  'openui-generation/src/host.mjs',
+  'openui-generation/src/static-program.mjs',
+  'openui-generation/package-lock.json'
+] as const
+
+let scratch = ''
+let candidate: { kind: string; version: number; id: string; path: string; scope: string }
+let bundle: unknown
+
+beforeAll(async () => {
+  scratch = await mkdtemp(join(tmpdir(), 'hermes-packaged-openui-'))
+  const env = {
+    ...process.env,
+    OPENUI_TELEMETRY_DISABLED: '1',
+    DO_NOT_TRACK: '1'
+  }
+  delete env['HERMES_PYTHON_SRC_ROOT']
+
+  // The real CLI imports @openuidev/lang-core from the copied donor lockfile's
+  // isolated npm install; a missing parser fails instead of skipping this suite.
+  const { stdout, stderr } = await execute(process.execPath, [
+    join(openui, 'openui-preview/cli.mjs'),
+    'prepare',
+    join(openui, 'openui-generation/fixtures/explorer.openui'),
+    join(openui, 'openui-preview/fixtures/repository.json'),
+    scope,
+    join(scratch, 'bundles'),
+    '--json'
+  ], { env, timeout: 30_000, maxBuffer: 128 * 1024 })
+  expect(stderr).toBe('')
+  const value: unknown = JSON.parse(stdout)
+  const notice = record(value)
+  if (notice?.['kind'] !== 'hermes.visual.candidate' || notice['version'] !== 1 ||
+    typeof notice['id'] !== 'string' || typeof notice['path'] !== 'string' ||
+    notice['scope'] !== scope) {
+    throw new Error('Real prepare CLI did not return one complete candidate notice.')
+  }
+  candidate = { kind: notice['kind'], version: notice['version'], id: notice['id'], path: notice['path'], scope }
+  bundle = JSON.parse(await readFile(candidate.path, 'utf8'))
+})
+
+afterAll(async () => {
+  if (scratch) await rm(scratch, { recursive: true, force: true })
+  vi.unstubAllEnvs()
+})
+
+async function mirroredBuild(): Promise<unknown> {
+  const src = join(scratch, 'source-copy')
+  await mkdir(src, { recursive: true })
+  for (const relative of hashedAssets) {
+    const dest = join(src, relative)
+    await mkdir(dirname(dest), { recursive: true })
+    await copyFile(join(openui, relative), dest)
+  }
+  const url = pathToFileURL(join(src, 'openui-preview/src/bundle.mjs')).href
+  const loaded: unknown = await import(/* @vite-ignore */ url)
+  const calculate = record(loaded)?.['fingerprints']
+  if (typeof calculate !== 'function') throw new Error('Missing reviewed fingerprint implementation.')
+  const current: unknown = await calculate()
+  return current
+}
+
+function nativeHost() {
+  const overlays: Overlay[] = []
+  const session = {
+    ref: { live: liveSessionId('runtime'), stored: storedSessionId('stored') },
+    info: { branch: 'main' }
+  }
+  const transcript = { entries: [] as Entry[] }
+  const changed = vi.fn()
+  const close = (overlay: Overlay) => {
+    const at = overlays.indexOf(overlay)
+    if (at >= 0) {
+      overlays.splice(at, 1)
+      overlay.onClose?.()
+    }
+  }
+  const open = (overlay: Overlay) => overlays.push(overlay)
+  return { overlays, session, transcript, changed, close, open }
+}
+
+describe('packaged OpenUI preview with real donor assets and Tern SDK', () => {
+  it('prepares real JSON and previews its strict validated identity and summary without a fork checkout', async () => {
+    vi.stubEnv('HERMES_PYTHON_SRC_ROOT', '')
+    const contract = await openUiContract()
+    const current = await contract.fingerprints()
+    expect(record(current)?.['rendererHash']).toMatch(hash)
+    expect(record(current)?.['bridgeHash']).toMatch(hash)
+    expect(candidate.id).toMatch(hash)
+    expect(candidate.path).toMatch(/\.hvisual\.json$/)
+    const validated = contract.validateBundle(bundle)
+    expect(validated.id).toBe(candidate.id)
+    contract.assertCurrent(validated, scope, current)
+
+    const summary = await readPreparedVisual(candidate.path, scope)
+    expect(summary).toMatchObject({
+      id: candidate.id, mode: 'code', path: candidate.path,
+      metrics: [
+        { key: 'files', value: 4 },
+        { key: 'code', value: 1000 },
+        { key: 'churn', value: 100 }
+      ]
+    })
+    expect(summary.href).toBe(pathToFileURL(candidate.path).href)
+  })
+
+  it('mounts the real validated summary using native @stencil-hq/tern JSX and expires on branch switch', async () => {
+    const state = nativeHost()
+    await openVisual(stub<VisualHost>(state), candidate.path)
+    const sheet = must(state.overlays[0])
+    const node = sheet.node('openui-preview')
+    expect(node).toBeInstanceOf(Node)
+    const rendered = JSON.stringify(node)
+    expect(rendered).toContain(candidate.id)
+    expect(rendered).toContain('Synthetic repository')
+    expect(rendered).toContain('not visually verified or published')
+    expect(rendered).toContain('file://')
+
+    state.session.info.branch = 'other'
+    expect(JSON.stringify(sheet.node('openui-preview'))).toContain('Session, branch or transcript changed')
+  })
+
+  it('rejects changed scope, unexpected candidate identity and tampered JSON', async () => {
+    await expect(readPreparedVisual(candidate.path, '["stored","other"]')).rejects.toThrow('scope')
+    const state = nativeHost()
+    await openVisual(stub<VisualHost>(state), candidate.path, readPreparedVisual, 'f'.repeat(64))
+    expect(JSON.stringify(must(state.overlays[0]).node('openui-preview'))).toContain('no longer matches')
+
+    const changed = record(structuredClone(bundle))
+    if (!changed) throw new Error('Expected a JSON preview object.')
+    changed['bridgeHash'] = 'e'.repeat(64)
+    const bad = join(scratch, 'tampered.hvisual.json')
+    await writeFile(bad, JSON.stringify(changed))
+    await expect(readPreparedVisual(bad, scope)).rejects.toThrow()
+  })
+
+  it('rejects modified real renderer and parser fingerprints, not just version labels', async () => {
+    const contract = await openUiContract()
+    const validated = contract.validateBundle(bundle)
+    const initial = record(await mirroredBuild())
+    const shipped = record(await contract.fingerprints())
+    expect(initial).toEqual(shipped)
+
+    const css = join(scratch, 'source-copy/openui-preview/tern/visual.css')
+    await writeFile(css, (await readFile(css, 'utf8')) + '\n/* source drift */\n')
+    const rendererDrift = record(await mirroredBuild())
+    expect(rendererDrift?.['rendererHash']).not.toBe(shipped?.['rendererHash'])
+    expect(rendererDrift?.['bridgeHash']).toBe(shipped?.['bridgeHash'])
+    expect(() => contract.assertCurrent(validated, scope, rendererDrift)).toThrow('Renderer or adapter')
+
+    const parser = join(scratch, 'source-copy/openui-generation/src/static-program.mjs')
+    await writeFile(parser, (await readFile(parser, 'utf8')) + '\n// parser drift\n')
+    const parserDrift = record(await mirroredBuild())
+    expect(parserDrift?.['bridgeHash']).not.toBe(shipped?.['bridgeHash'])
+    expect(() => contract.assertCurrent(validated, scope, parserDrift)).toThrow('Renderer or adapter')
+  })
+
+  it('fails closed on malformed UTF-8, byte limit and cancellation before or during read', async () => {
+    const bad = join(scratch, 'invalid.hvisual.json')
+    await writeFile(bad, Buffer.from([0xff]))
+    await expect(readPreparedVisual(bad, scope)).rejects.toThrow()
+
+    const size = join(scratch, 'oversized.hvisual.json')
+    await writeFile(size, Buffer.alloc(8 * 1024 * 1024 + 1))
+    await expect(readPreparedVisual(size, scope)).rejects.toThrow('bounded regular file')
+    await expect(readVisualFile(size, 8 * 1024 * 1024)).rejects.toThrow()
+
+    const stopped = new AbortController()
+    stopped.abort()
+    await expect(readPreparedVisual(candidate.path, scope, stopped.signal)).rejects.toThrow()
+  })
+})
