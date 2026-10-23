@@ -138,4 +138,17 @@ and are skipped.
 A cast that is the boundary itself says `-- boundary: <what crosses>`. eslint also reports a
 disable comment that disables nothing.
 
-**Delegation-event ownership.** Session envelopes pass the lifecycle's session routing before `Agents.apply`. A nonempty explicit `delegation_id` may mutate only one `delegate_task` call identified by its result or an already attached child (including a resumed registry row); unknown, conflicting, duplicate and empty explicit ids mutate nothing and never fall back to the newest call. Truly id-less legacy events use a unique existing child/parent id, or the sole delegation in the transcript when no identity is known; task index and latest-turn position never determine ownership. Accepted rows retain their delegation and parent ids, cyclic parent edges stay flat, and late async outcomes settle only rows of the matching delegation.
+**Delegation-event ownership.** Session envelopes pass the lifecycle's session routing before
+`Agents.apply`. An explicit nonempty `delegation_id` belongs to exactly one dispatched
+`delegate_task` result or previously attached child (including a resumed registry row).
+A previously unseen nested batch id is the sole exception: its first event must name a
+fresh `subagent_id` and a unique, existing `parent_id` whose noncyclic ancestry reaches
+one verified root dispatch or resumed row; task ordinals and any reported depth must
+agree. A repeated child or ancestor id, duplicate root batch, unknown parent, conflicting
+nested batch parent or cross-call hint rejects the event without mutating a transcript.
+The accepted nested row retains its distinct batch id; later events route by that id
+even if their parent hint is absent, and id-less follow-ups never replace it with the
+outer delegation. Truly id-less legacy events still require a unique existing child or
+parent id, or the sole delegation call when no identity is known. No task-index or
+latest-turn guess establishes ownership; cyclic parent edges are flattened, and late
+async outcomes settle only rows of their recorded batch.
