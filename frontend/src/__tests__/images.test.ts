@@ -99,10 +99,10 @@ describe('splitPrompt: what a stored prompt carried', () => {
     )
 
     expect(list).toEqual([
-      { kind: 'image', name: 'a.png', source: { path: '/h/a.png' } },
-      { kind: 'image', name: 'gone.png' },
+      { kind: 'image', name: 'a.png', refPath: '/h/a.png', source: { path: '/h/a.png' } },
+      { kind: 'image', name: 'gone.png', refPath: '/h/gone.png' },
       { kind: 'file', name: 'notes.md' },
-      { kind: 'image', name: 's.png', source: { path: '/h/d/s.png' } }
+      { kind: 'image', name: 's.png', refPath: '/h/d/s.png', source: { path: '/h/d/s.png' } }
     ])
   })
 })
@@ -117,8 +117,8 @@ describe('a resumed prompt with images', () => {
 
     expect(user.text).toBe('ion see any new host.')
     expect(user.attachments).toEqual([
-      { kind: 'image', name: 'clip_1.png', source: { path: shot } },
-      { kind: 'image', name: 'clip_2.png' }
+      { kind: 'image', name: 'clip_1.png', refPath: shot, source: { path: shot } },
+      { kind: 'image', name: 'clip_2.png', refPath: '/nowhere/clip_2.png' }
     ])
 
     const n = tree(entryNode(user, `main.${user.id}`, cx))
