@@ -99,7 +99,7 @@ export function chartSvg(table: NumericTable, kind: Exclude<ChartKind, 'none'>):
 interface CachedChart { kind: ChartKind; pending?: Promise<void> }
 export interface ChartPlanner {
   policy(session: string): Promise<ChartMode>
-  plan(session: string, table: NumericTable): Promise<ChartKind>
+  plan(session: string, table: NumericTable, signal: AbortSignal): Promise<ChartKind>
 }
 
 /** A per-App derived cache, never an authoritative transcript or settings store. */
@@ -109,7 +109,8 @@ export class TableCharts {
   #session = ''
   #generation = 0
   #budget = 8
-  #active = false
+  #active: AbortController | undefined
+  #closed = false
   #cache = new Map<string, CachedChart>()
   constructor(private readonly planner: ChartPlanner, private readonly changed: () => void) {}
 
@@ -132,13 +133,22 @@ export class TableCharts {
     const changed = this.mode !== mode || this.#cache.size > 0
     this.mode = mode
     this.#generation++
-    this.#active = false
+    this.#active?.abort()
     this.#cache.clear()
 
     if (changed) { this.revision++; this.changed() }
   }
 
-  close() { this.#generation++; this.#session = ''; this.#cache.clear() }
+  /** An abandoned/replaced gateway transport may not deliver its old chart decision. */
+  transportLost() { this.configure('off') }
+
+  close() {
+    this.#closed = true
+    this.#active?.abort()
+    this.#generation++
+    this.#session = ''
+    this.#cache.clear()
+  }
 
   markdown(source: string, settled: boolean): string {
     if (!settled || this.mode === 'off') { return source }
@@ -171,16 +181,30 @@ export class TableCharts {
   }
 
   #plan(table: NumericTable, entry: CachedChart) {
+    if (this.#active) { return }
+
+    // Count admissions even when a provider is unavailable. Do not refill this
+    // budget on policy changes; only a different runtime session gets eight.
     this.#budget--
-    this.#active = true
+    const controller = new AbortController()
+    this.#active = controller
     const generation = this.#generation
-    entry.pending = this.planner.plan(this.#session, table).then(kind => {
-      if (generation === this.#generation) { entry.kind = kind }
+    const session = this.#session
+
+    entry.pending = Promise.resolve().then(() => this.planner.plan(session, table, controller.signal)).then(kind => {
+      if (!controller.signal.aborted && generation === this.#generation &&
+          (kind === 'bar' || kind === 'line' || kind === 'none')) {
+        entry.kind = kind
+      }
     }, () => undefined).finally(() => {
-      if (generation !== this.#generation) { return }
-      this.#active = false
-      this.revision++
-      this.changed()
+      // Keep one in flight until the old helper has actually settled, even
+      // after a new session or a policy replacement aborts its subprocess.
+      if (this.#active === controller) { this.#active = undefined }
+
+      if (!this.#closed) {
+        this.revision++
+        this.changed()
+      }
     })
   }
 }

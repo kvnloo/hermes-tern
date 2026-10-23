@@ -1,25 +1,41 @@
 # Automatic charts for settled Markdown tables
 
-Ported from the Hermes × Tern `ui-tsp` implementation (original work by the Hermes/Tern contributors; Tern SDK by Can Bölük/Stencil). The plugin appends a native SVG fence below an eligible two-column table without mutating its transcript, stored messages, or Copy result. Tern resolves the CSS semantic palette tokens when drawing.
+Derived from the Hermes × Tern `ui-tsp` implementation by its original contributors; uses the Tern SDK by Can Bölük / Stencil. The plugin adds a native SVG fence after an eligible, successfully settled assistant Markdown table. The stored answer, transcript, signed sidecars, prompt cache and **Copy** bytes remain the original Markdown; this is a read-only display projection.
 
-## Enable
+## Settings and provider route
 
-Add `"tableCharts": "always"` to the profile's `~/.hermes/hermes-tern/settings.json` (or the equivalent under `HERMES_HOME`). The default is `"off"`. The setting is read when adopting the next runtime session; reopen the pane to apply a change to its current session.
+Set `"tableCharts": "always"` or `"tableCharts": "smart"` in the active Hermes profile's `hermes-tern/settings.json` (normally `~/.hermes/hermes-tern/settings.json`). Default is `off`. The setting is read on session adoption; reopen a session/pane for an external file edit to take effect.
 
-- `off`: original Markdown only; zero planning requests.
-- `always`: draw a local bar chart; zero planning requests.
-- `smart`: immediately draw a local bar, then ask the optional Hermes `table_chart.plan` RPC for `bar`, `line`, or `none`. If the gateway doesn't provide this RPC, rejects the request, or replies with invalid data, keep the local bar. Smart mode sends each admitted table to the gateway's configured auxiliary model; enable it only when that data flow is appropriate.
+- `off`: table only. No auxiliary model call.
+- `always`: append a locally generated bar SVG. No auxiliary model call.
+- `smart`: show the local bar immediately, then let Hermes' **`table_charts` auxiliary route** choose `bar`, `line` or `none`. Invalid replies, no configured provider, spawn failure and provider errors retain the local bar.
 
-Eligibility is deliberately narrow: 2–24 rows, exactly two pipe columns, nonnumeric unique category labels and finite decimal values (or consistent percentages); no fenced/indented/nested tables, mixed units, commas, exponent notation, escapes, zero-only columns, or multi-series guesses. Analysis caps each Markdown block at 64 KiB, each candidate at 8 KiB and each block at 8 charts. The session cache holds 128 distinct table sources; smart mode admits at most 8 plan requests per session and one at a time. Hermes server-side planning limits (including request deadline) remain the gateway's responsibility.
+**This is implemented in this plugin; it does not depend on `table_chart.plan` or another upstream gateway RPC.** The frontend launches `table_chart_planner.py` using the same `HERMES_PYTHON`, `HERMES_PYTHON_SRC_ROOT` and `HERMES_TUI_DIR` provided by the launcher for `widget_author.py`. The Python helper activates the Hermes dependencies and calls `agent.auxiliary_client.call_llm(task="table_charts", ...)`: `auxiliary.table_charts` in Hermes configuration selects the model, with Hermes' normal auxiliary routing behavior if no explicit override is set.
 
-These are presentation-only fences in assistant turns that have settled successfully. In-flight assistant Markdown and failed/interrupted turns stay untouched. Session switches and policy changes invalidate pending plans and derived chart caches.
+**Privacy:** In `smart`, the complete eligible table source, **not** the whole answer, goes to the local Hermes Python helper on stdin. The helper calls Hermes' `redact_sensitive_text(force=True)` before passing the table to the configured auxiliary provider. The provider may be remote. This is not an offline/no-disclosure mode; sensitive non-secret table labels/data may leave the computer after redaction. Choose `always` or `off` for tables that must stay local. No provider response, SVG or secrets are inserted into stored answers.
 
-## OMP verification
+## Eligibility and bounds
 
-From `frontend/`, after the project-specific setup described in `frontend/README.md`:
+Only top-level two-column pipe tables with 2–24 rows, unique nonnumeric category labels, and finite decimal data (or consistent percentages) qualify. Reject fenced/indented/nested tables, mixed units, commas/exponents/escapes, duplicate categories, all-zero values and multi-series guesses. One Markdown block is capped at 64 KiB; at most 8 table candidates per block and 8 KiB per candidate. The per-App derived cache holds at most 128 table sources; no polling is introduced.
 
-    bun run typecheck
-    bun run test -- src/__tests__/tableCharts.test.ts
-    bun run check
+Smart mode admits **at most 8 provider attempts per runtime session and 1 concurrent helper**. Each attempt has an absolute **5-second** subprocess deadline (including interpreter startup), and Hermes' provider request also specifies a 5-second timeout and **64 output tokens**. A failed attempt is not retried by the plugin. Mode/session replacement, transport exit and pane disposal abort the subprocess, invalidate its generation and discard stale replies. A change does not reset the 8-attempt admission budget for the same runtime session.
 
-Native Tern smoke: confirm one eligible settled answer charts in `always`, no chart during streaming, theme changes recolor it, a resumed answer charts again, `off` leaves the table alone, and `smart` without its optional backend route uses the bar fallback. This manual/native check is not replaced by vitest.
+The only accepted helper result is the enum `bar | line | none`. The SVG is always generated locally, with XML-escaped labels and semantic theme tokens that recolor with Tern's palette without new model work. Streaming, interrupted and failed turns never trigger chart planning.
+
+## OMP verification (not yet run)
+
+From `frontend/`:
+
+```sh
+bun install --frozen-lockfile
+bun run check
+bun run test -- src/__tests__/tableCharts.test.ts src/__tests__/tableChartHelper.test.ts
+```
+
+From the repo root (the plugin's Python fixture tests, no real model):
+
+```sh
+python3 -m pytest -q tests/test_table_chart_planner.py
+```
+
+The Vitest helper tests execute the actual `table_chart_planner.py` subprocess using isolated fixture `agent` modules and no credentials or live provider; they also exercise cancellation/deadline. Native Tern should still be checked separately in an isolated pane for streaming/settled/resume/theme/Copy and policy switching. Prior OMP MBP fleet-health exit 75 occurred **before** frontend execution; it is not a test result.

@@ -232,3 +232,56 @@ describe('automatic table charts: transcript rendering', () => {
     expect(settingsOf({ tableCharts: 'unsafe' }).tableCharts).toBeUndefined()
   })
 })
+
+describe('automatic table charts: strict auxiliary ownership', () => {
+  it('aborts a stale provider without admitting concurrent work on policy replacement', async () => {
+    const late = Promise.withResolvers<ChartKind>()
+    let signal: AbortSignal | undefined
+    const plan = vi.fn((_session: string, _table: NonNullable<ReturnType<typeof analyzeTable>>, active: AbortSignal) => {
+      signal = active
+
+      return late.promise
+    })
+    const charts = new TableCharts({ policy: async () => 'smart', plan }, () => undefined)
+    charts.configure('smart')
+    charts.markdown(TABLE, true)
+    await flush()
+    expect(plan).toHaveBeenCalledOnce()
+
+    charts.configure('smart')
+    expect(signal?.aborted).toBe(true)
+    charts.markdown(TABLE.replace('Revenue', 'Revenue 2'), true)
+    await flush()
+    expect(plan).toHaveBeenCalledOnce()
+
+    late.resolve('line')
+    await flush()
+    charts.markdown(TABLE.replace('Revenue', 'Revenue 2'), true)
+    await flush()
+    expect(plan).toHaveBeenCalledTimes(2)
+  })
+
+  it('retires results on transport loss and keeps the local presentation unchanged', async () => {
+    const late = Promise.withResolvers<ChartKind>()
+    let signal: AbortSignal | undefined
+    const charts = new TableCharts({
+      policy: async () => 'smart',
+      plan: (_session, _table, active) => {
+        signal = active
+
+        return late.promise
+      }
+    }, () => undefined)
+
+    charts.configure('smart')
+    expect(charts.markdown(TABLE, true)).toContain('<rect')
+    await flush()
+    charts.transportLost()
+    expect(signal?.aborted).toBe(true)
+    late.resolve('line')
+    await flush()
+    expect(charts.markdown(TABLE, true)).toBe(TABLE)
+    charts.configure('always')
+    expect(charts.markdown(TABLE, true)).toContain('<rect')
+  })
+})

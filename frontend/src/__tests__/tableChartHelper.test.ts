@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -38,7 +38,7 @@ describe('table chart Python auxiliary transport (fixture provider)', () => {
   })
 
   it('rejects forged reply envelopes', () => {
-    expect(() => readTableChartReply('{"kind":"line","svg":"<script />"}')).not.toThrow()
+    expect(() => readTableChartReply('{"kind":"line","svg":"<script />"}')).toThrow()
     expect(() => readTableChartReply('{"kind":"scatter"}')).toThrow()
     expect(() => readTableChartReply('not JSON')).toThrow()
   })

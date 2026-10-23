@@ -18,7 +18,7 @@ export interface Settings {
   thoughts?: boolean | undefined
   /** Live charts of background processes, their rules written by Hermes' auxiliary model once per process (default on). */
   jobCharts?: boolean | undefined
-  /** Automatic charts for eligible settled tables: off by default; smart asks the Hermes gateway. */
+  /** Automatic charts for settled tables: off by default; smart uses Hermes' Python auxiliary route. */
   tableCharts?: ChartMode | undefined
 }
 

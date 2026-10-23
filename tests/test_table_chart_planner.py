@@ -30,12 +30,7 @@ def helper(monkeypatch):
         assert force
         return text.replace("secret", "[redacted]")
 
-    def call_llm(**kwargs):
-        seen.append(kwargs)
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=kwargs["fixture"]))])
-
     # Use a real module boundary but inject a fake completion provider.
-    aux.call_llm = call_llm
     redact.redact_sensitive_text = redact_sensitive_text
     monkeypatch.setitem(sys.modules, "agent", agent)
     monkeypatch.setitem(sys.modules, "agent.auxiliary_client", aux)

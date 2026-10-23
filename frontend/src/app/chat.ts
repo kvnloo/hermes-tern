@@ -36,6 +36,7 @@ import { onTernEvent } from '../surface/actions.js'
 import { INPUT_ID, SurfaceHost } from '../surface/host.js'
 import { runInput } from '../surface/input.js'
 import type { Transcript } from '../transcript/store.js'
+import { hermesTableChartPlanner } from '../transcript/tableChartPlanner.js'
 import { TableCharts } from '../transcript/tableCharts.js'
 import type { Busy } from '../turn/activity.js'
 import { IMAGE_ONLY_PROMPT } from '../turn/prompt.js'
@@ -85,17 +86,7 @@ export class App implements ChatPorts {
     this.#launch = launch
     this.tableCharts = new TableCharts({
       policy: async () => settings.load().tableCharts ?? 'off',
-      plan: async (session, table) => {
-        // This RPC is optional in Hermes. An older gateway rejects it; the local bar stays.
-        const reply = await gw.request<unknown>('table_chart.plan', { session_id: session, source: table.source })
-
-        if (typeof reply === 'object' && reply !== null && 'kind' in reply &&
-            (reply.kind === 'bar' || reply.kind === 'line' || reply.kind === 'none')) {
-          return reply.kind
-        }
-
-        throw new Error('Unsupported table_chart.plan reply')
-      }
+      plan: hermesTableChartPlanner()
     }, () => this.changed())
     const s = chatStores(this, { act: () => this.#act, gw, launch, settings, surface: () => this.#surface, tern, version })
     this.stores = s
@@ -154,6 +145,8 @@ export class App implements ChatPorts {
       s.queue.hold({ images: [], kind: 'app', text: query || IMAGE_ONLY_PROMPT })
     }
 
+    // Exit retires the owning transport even before a reconnect adopts a new runtime id.
+    this.#gw.on('exit', () => this.tableCharts.transportLost())
     followGateway(this.#gw, {
       ...s,
       drain: () => s.queue.drain(),

@@ -13,7 +13,8 @@ const MAX_REPLY_BYTES = 4096
 export function readTableChartReply(stdout: string): ChartKind {
   const data: unknown = JSON.parse(stdout.trim())
 
-  if (typeof data === 'object' && data !== null && 'kind' in data &&
+  if (typeof data === 'object' && data !== null && !Array.isArray(data) &&
+      Object.keys(data).length === 1 && 'kind' in data &&
       (data.kind === 'bar' || data.kind === 'line' || data.kind === 'none')) {
     return data.kind
   }
