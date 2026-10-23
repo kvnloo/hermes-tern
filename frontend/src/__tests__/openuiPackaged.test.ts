@@ -58,7 +58,7 @@ beforeAll(async () => {
   delete env['DO_NOT_TRACK']
 
   // The shipped wrapper disables both telemetry flags before the unmodified
-  // donor CLI imports real @openuidev/lang-core from the isolated npm install.
+  // donor CLI imports real @openuidev/lang-core from the frozen Bun workspace.
   // A missing parser fails instead of skipping this suite.
   const { stdout, stderr } = await execute(process.execPath, [
     join(openui, 'prepare.mjs'),
