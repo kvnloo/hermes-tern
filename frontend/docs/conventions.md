@@ -141,10 +141,11 @@ disable comment that disables nothing.
 **Delegation-event ownership.** Session envelopes pass the lifecycle's session routing before
 `Agents.apply`. An explicit nonempty `delegation_id` belongs to exactly one dispatched
 `delegate_task` result or previously attached child (including a resumed registry row).
-A previously unseen nested batch id is the sole exception: its first event must name a
-fresh `subagent_id` and a unique, existing `parent_id` whose noncyclic ancestry reaches
-one verified root dispatch or resumed row; task ordinals and any reported depth must
-agree. A repeated child or ancestor id, duplicate root batch, unknown parent, conflicting
+A previously unseen nested batch id is the sole exception: its first explicit event
+must name a fresh `subagent_id` (or an id-less child already tied to that exact parent)
+and a unique, existing `parent_id` whose noncyclic ancestry reaches one verified root
+dispatch or resumed row; task ordinals and any reported depth must agree. Before
+that explicit event, an id-less nested spawn does not inherit the outer batch id. A repeated child or ancestor id, duplicate root batch, unknown parent, conflicting
 nested batch parent or cross-call hint rejects the event without mutating a transcript.
 The accepted nested row retains its distinct batch id; later events route by that id
 even if their parent hint is absent, and id-less follow-ups never replace it with the
