@@ -1,4 +1,5 @@
 import { node, Surface, View, ViewError } from '@stencil-hq/tern'
+import type { SessionInfo } from '@tui/types.js'
 import { describe, expect, it, vi } from 'vitest'
 
 import { liveSessionId } from '../../core/ids.js'
@@ -6,7 +7,7 @@ import { openHelp, type HelpHost } from '../../overlays/help.js'
 import type { Overlay } from '../../overlays/overlay.js'
 import { SessionState } from '../../session/state.js'
 import { Transcript } from '../../transcript/store.js'
-import { FakeGateway } from '../../__tests__/fakes.js'
+import { FakeGateway, stub } from '../../__tests__/fakes.js'
 
 import { BindingPreferences } from '../binding-preferences.js'
 
@@ -14,6 +15,7 @@ function fixture() {
   const gw = new FakeGateway()
   const session = new SessionState(() => {})
   session.ref = { live: liveSessionId('s1'), stored: null }
+  session.info = stub<SessionInfo>({ profile_name: 'a' })
   const overlays: Overlay[] = []
   const close = vi.fn()
   const host: HelpHost = {
@@ -25,11 +27,12 @@ function fixture() {
   }
   const preferences = new BindingPreferences({
     gw: gw.client,
-    sid: () => session.ref.live,
+    session,
     changed: vi.fn(),
     notice: vi.fn()
   })
-  return { gw, host, overlays, close, preferences }
+  const owner = () => ({ ref: session.ref, sid: session.ref.live ?? '', profile: session.info?.profile_name ?? '' })
+  return { gw, host, overlays, close, preferences, session, owner }
 }
 
 /** Exercise actual SDK Surface.render -> View.from -> Tree validation. */
@@ -86,7 +89,7 @@ describe('native Help tree validation', () => {
         'app.model.cycleBackward': 'alt+z',
         'app.palette': 'ctrl+alt+k'
       }, tern_profile_identity: true } }
-    }, 's1', { display: 'Work' })
+    }, f.owner(), { display: 'Work' })
     expect(accepted).toBe(true)
     expect(f.preferences.profile).toBe('Work')
     await openHelp(f.host, f.preferences.actions)
@@ -130,6 +133,21 @@ describe('native Help tree validation', () => {
     expect(commands).toContain('/bar')
     expect(commands.split('/foo').length - 1).toBe(1)
     expect(rows(view, 'cmd-Tern')).toContain('/extra')
+  })
+
+  it('renders built-in SDK Help for a replaced owner even when sid is reused', async () => {
+    const f = fixture()
+    expect(f.preferences.accept({
+      config: { display: { tern_keybindings: { 'app.help': 'alt+h' }, tern_profile_identity: true } }
+    }, f.owner(), { display: 'Old pretty name' })).toBe(true)
+    f.session.ref = { live: liveSessionId('s1'), stored: null }
+    f.session.info = stub<SessionInfo>({ profile_name: 'b' })
+    expect(f.preferences.profile).toBe('')
+    await openHelp(f.host, f.preferences.actions)
+    const navigation = rows(rendered(top(f.overlays)), 'keys-Navigation')
+    expect(navigation).toContain('f1')
+    expect(navigation).toContain('alt+k')
+    expect(navigation).not.toContain('alt+h')
   })
 
   it('proves the SDK validation would reject the original duplicate key', () => {
