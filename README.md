@@ -174,6 +174,13 @@ hermes config set GITHUB_TOKEN "$(gh auth token)"
 
 The plugin never reads another tool's login.
 
+## Native Settings and Model Hub (stacked preview)
+
+- `/settings` or `/prefs` opens native Tern preferences. `/models` opens Hermes' provider inventory; `/model` still opens the existing live-session model picker. Profile defaults and session model/effort pins are different scopes.
+- The preview reads supported, individually normalized Hermes profile keys **only when opened**: busy input mode, approval policy, details (including the supported `hidden` mode), thought display, TUI theme/density/focus and skin. Every pinned Hermes `config.get` / `config.set` / readback carries **both** the captured canonical `session.info.profile_name` and session ID; opening without that canonical identity fails closed, and reaped session IDs never retarget a different connection profile. Writes are serialized per frontend gateway, compare the latest owner-read value against the value the sheet opened with, and verify canonical readback. A security-policy change has a separate confirmation. Native Settings and Model Hub roots are unique per opening even though their logical overlay keys stay stable, so the SDK cannot dispatch stale A-sheet event IDs into a B-sheet successor. Stale/replaced/closed session sheets cannot issue new writes or render late replies.
+- This is **not** a full schema-backed Settings API. Pinned Hermes at `22063fc` exposes no `settings.get/set`, `model.hub.get/set`, field schemas, profile revision/CAS, credential-safe redacted readback or native auxiliary-role/fallback mutation contract. Cross-client atomic conflict prevention is not possible: concurrent writes between the optimistic read and set may race; the precheck is **not atomic CAS**. The UI does not invent those methods or claim success without readback. Unsupported fields and provider authentication remain read-only and use Hermes' supported setup flow. Neither `config.get full` nor provider secrets are fetched, and this plugin does not save independent model/profile defaults. Pre-existing `/skin` commands outside these native transactions keep their baseline scoping behavior and are not changed here.
+- Settings and Model Hub read nothing at startup, and do not intercept composer input. The existing raw-byte Tern/SDK/App draft path, Unicode, paste provenance, Enter routing and undo are unchanged.
+
 ## Security and privacy
 
 This section lists what the plugin does beyond drawing the chat, so you can decide before you install it.
@@ -184,6 +191,7 @@ This section lists what the plugin does beyond drawing the chat, so you can deci
 | **Commands** | A `tool_request` middleware adds `export TERN_PANE=…` (the chat's Tern pane) before the agent's shell commands, in sessions that a Tern pane shows. Approvals and guards see the command as it runs. `!cmd` and `{!cmd}` in the composer run through Hermes' own `shell.exec`, so its dangerous-command refusal applies. They run only when you type them: a pasted `{!cmd}` never runs. The composer's `/` commands are Hermes' own. |
 | **Processes** | `hermes tern` runs `hermes chat --tui` in the same process. The chart helper (`widget_author.py`) runs in Hermes' interpreter for one model request, then exits. Opening the sidebar, or a file beside the chat, runs Tern's own `tern` CLI. |
 | **Reads outside its data** | Hermes' session database, read-only: a conversation's compression lineage and its subagents' parents. The output of the session's background processes, and the log files that their commands write to (for charts). The files you open from the chat. |
+| **Settings RPCs** | Opening /settings or /models asks the active Hermes gateway for individual normalized preferences or public provider names/counts. Supported profile writes go through Hermes' config.set and a post-write config.get; security-policy changes require explicit confirmation. This plugin does not read full expanded profile config, provider secrets, or write profile values to hermes-tern/settings.json. |
 | **Stored data** | `$HERMES_HOME/plugin-data/hermes-tern/`: linked pull requests, which panes show which sessions (with their Tern variables), chart rules and connect cards. `$HERMES_HOME/hermes-tern/settings.json`: the theme and chart settings. |
 
 ## How it works
