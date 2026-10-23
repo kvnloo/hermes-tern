@@ -57,6 +57,7 @@ def test_the_tern_command_hands_its_flags_to_hermes_chat(ctx):
     assert parser.parse_args(["-c", "--image", "a.png"]).tui_args == ["-c", "--image", "a.png"]
 
 
-def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
-    ((args, kwargs),) = ctx.of("register_auxiliary_task")
-    assert args[0] == "tern_charts" and kwargs["display_name"]
+def test_chart_tasks_keep_their_explicit_plugin_keys(ctx):
+    tasks = {args[0]: kwargs for args, kwargs in ctx.of("register_auxiliary_task")}
+    assert set(tasks) == {"tern_charts", "table_charts"}
+    assert all(task["display_name"] for task in tasks.values())
