@@ -5,6 +5,7 @@ import { openBrowserBlocks, type BrowserHost } from '../overlays/browser.js'
 import type { Overlay } from '../overlays/overlay.js'
 
 import { FakeGateway, key, must, stub, tree } from './fakes.js'
+import { nativeBrowserSurface } from './browserSdk.js'
 
 const user = { target_id: '7', title: 'User page', url: 'https://example.org/', owner: null, owned: false, available: true }
 const owned = { ...user, target_id: '9', title: 'Hermes page', owned: true, owner: 123 }
@@ -169,5 +170,124 @@ describe('Tern browser-block sheet', () => {
     }))
     await vi.waitFor(() => expect(JSON.stringify(tree(must(h.overlays.at(-1)).node('layer.browser-blocks')))).toContain('does not support browser-block controls'))
     expect(h.gateway.calls.map(c => c.method)).toEqual(['browser.blocks'])
+  })
+})
+
+describe('browser-block SDK callback ownership', () => {
+  const first = { ...owned, target_id: '7', title: 'First owned block' }
+
+  it('a captured native SDK Focus for 7 never follows keyboard selection to 9', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const clickSeven = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'choose', '7')
+      sheet.onKey(key('down'))
+      sdk.render('layer', sheet.node('layer.browser-blocks'))
+      await clickSeven()
+      await vi.waitFor(() => expect(h.gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }]))
+      expect(h.gateway.methods('browser.adopt')).toHaveLength(0)
+      expect(h.overlays).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('a captured native SDK Release for 7 never releases selected block 9', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const clickSeven = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'release', '7')
+      sheet.onKey(key('down'))
+      sdk.render('layer', sheet.node('layer.browser-blocks'))
+      await clickSeven()
+      await vi.waitFor(() => expect(h.gateway.sent('browser.release')).toEqual([{ session_id: 's1', target_id: '7' }]))
+      await vi.waitFor(() => expect(h.gateway.methods('browser.blocks')).toHaveLength(2))
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('a frame form begun for 7 stays owned by 7 after keyboard selection moves to 9', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    sheet.onKey(key('f'))
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const clickSeven = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'apply-frame', '7')
+      sheet.onKey(key('down'))
+      expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('Evaluation frame path')
+      sdk.render('layer', sheet.node('layer.browser-blocks'))
+      await clickSeven()
+      await vi.waitFor(() => expect(h.gateway.sent('browser.frame')).toEqual([{ session_id: 's1', target_id: '7', frame: 'main' }]))
+      expect(h.gateway.sent('browser.focus')).toEqual([])
+      expect(h.gateway.sent('browser.release')).toEqual([])
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('keyboard Enter in a frame form applies its original owner, not the selected row', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    sheet.onKey(key('f'))
+    sheet.onKey(key('down'))
+    sheet.onKey(key('enter'))
+    await vi.waitFor(() => expect(h.gateway.sent('browser.frame')).toEqual([{ session_id: 's1', target_id: '7', frame: 'main' }]))
+  })
+
+  it('a refresh revokes captured SDK actions, including same-id replacement and removed blocks', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const oldSeven = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'release', '7')
+      h.gateway.handlers.set('browser.blocks', () => ({ available: true, blocks: [{ ...first }, owned] }))
+      sheet.onKey(key('r', { shift: true }))
+      await vi.waitFor(() => expect(h.gateway.methods('browser.blocks')).toHaveLength(2))
+      await vi.waitFor(() => expect(h.updates()).toBeGreaterThan(3))
+      sdk.render('layer', sheet.node('layer.browser-blocks'))
+      await oldSeven()
+      expect(h.gateway.methods('browser.release')).toHaveLength(0)
+
+      h.gateway.handlers.set('browser.blocks', () => ({ available: true, blocks: [owned] }))
+      sheet.onKey(key('r', { shift: true }))
+      await vi.waitFor(() => expect(h.gateway.methods('browser.blocks')).toHaveLength(3))
+      await vi.waitFor(() => expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).not.toContain('First owned block'))
+      await oldSeven()
+      expect(h.gateway.methods('browser.release')).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('closing, session replacement, or a busy state invalidates a queued SDK mutation', async () => {
+    const h = harness([first, owned])
+    const sheet = await h.sheet()
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const release = sdk.capture(sdk.render('layer', sheet.node('layer.browser-blocks')), 'layer', 'release', '7')
+      h.setBusy(true)
+      await release()
+      expect(h.gateway.methods('browser.release')).toHaveLength(0)
+
+      h.setBusy(false)
+      h.session.ref = { live: liveSessionId('s1'), stored: null }
+      await release()
+      expect(h.gateway.methods('browser.release')).toHaveLength(0)
+
+      sheet.onKey(key('escape'))
+      await release()
+      expect(h.gateway.methods('browser.release')).toHaveLength(0)
+      expect(h.overlays).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
   })
 })

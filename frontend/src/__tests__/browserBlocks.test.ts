@@ -1,12 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { toolCallId } from '../core/ids.js'
+import { entryId, liveSessionId, toolCallId } from '../core/ids.js'
 import type { ToolCall } from '../model.js'
 import { ternTargetOf } from '../tools/browser.js'
+import { bindBrowserFocus, type BrowserFocusHost } from '../view/tools/cards/browser.js'
 import { viewOf } from '../view/tools/registry.js'
+import { toolDetail, toolNode } from '../view/tools/shell.js'
 import { browserTarget, listBrowserBlocks, releaseBrowserBlock, validBrowserFrame } from '../wire/browser.js'
 
-import { FakeGateway } from './fakes.js'
+import { FakeGateway, must, stub } from './fakes.js'
+import { nativeBrowserSurface } from './browserSdk.js'
 
 const block = { target_id: '7', title: 'User page', url: 'https://example.org/', owner: null, owned: false, available: true }
 const target = { target_id: '7', title: block.title, url: block.url, in_tern: true, frame: 'main' }
@@ -104,5 +107,105 @@ describe('browser tool card', () => {
     }
 
     expect(ternTargetOf(call('terminal', { tern_target: target }))).toBeUndefined()
+  })
+})
+
+describe('browser Focus in the actual SDK tool renderer', () => {
+  const owned = { ...block, owned: true, owner: 123 }
+  const focusHost = (gateway: FakeGateway, c: ToolCall) => {
+    const ref = { live: liveSessionId('s1'), stored: null }
+    const entries = [{
+      id: entryId('t1'),
+      kind: 'turn' as const,
+      rev: 1,
+      blocks: [{ id: entryId('browser1'), kind: 'tool' as const, call: c }],
+      end: { endedAt: 1, status: 'done' as const },
+      startedAt: 0
+    }]
+    const notice = vi.fn()
+    const session = { ref }
+    const host = stub<BrowserFocusHost>({ gw: gateway.client, notice, session, transcript: { entries } })
+
+    return { entries, host, notice, ref, session }
+  }
+
+  it('renders a real native SDK Focus action and sends only exact result target and session', async () => {
+    const gateway = new FakeGateway({ replies: { 'browser.focus': () => target } })
+    const c = call('browser_navigate', JSON.stringify({ success: true, tern_target: target }))
+    const h = focusHost(gateway, c)
+    const focus = must(bindBrowserFocus(h.host, h.ref))
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const view = sdk.render('main', toolNode(c, 0, focus))
+      const click = sdk.capture(view, 'main', 'browser-focus')
+      await click()
+      await vi.waitFor(() => expect(gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }]))
+      expect(gateway.methods('browser.blocks')).toEqual([])
+      expect(gateway.methods('browser.adopt')).toEqual([])
+      expect(JSON.stringify(toolDetail(c, 0, focus))).toContain('Focus Tern block 7')
+      expect(owned.owned).toBe(true)
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('rejects replayed SDK callbacks after transcript removal, replacement or changed target metadata', async () => {
+    const gateway = new FakeGateway({ replies: { 'browser.focus': () => target } })
+    const c = call('browser_navigate', { tern_target: target })
+    const h = focusHost(gateway, c)
+    const focus = must(bindBrowserFocus(h.host, h.ref))
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const click = sdk.capture(sdk.render('main', toolNode(c, 0, focus)), 'main', 'browser-focus')
+      h.entries.splice(0)
+      await click()
+      expect(gateway.methods('browser.focus')).toHaveLength(0)
+
+      h.entries.push({
+        id: entryId('t1'),
+        kind: 'turn',
+        rev: 1,
+        blocks: [{ id: entryId('browser1'), kind: 'tool', call: c }],
+        end: { endedAt: 1, status: 'done' },
+        startedAt: 0
+      })
+      c.result = { tern_target: { ...target, target_id: '9' } }
+      await click()
+      expect(gateway.methods('browser.focus')).toHaveLength(0)
+
+      c.result = { tern_target: target }
+      h.session.ref = { live: liveSessionId('s1'), stored: null }
+      await click()
+      expect(gateway.methods('browser.focus')).toHaveLength(0)
+    } finally {
+      await sdk.close()
+    }
+  })
+
+  it('does not offer Focus for unconfirmed or running results, and reports gateway ownership refusal', async () => {
+    const c = call('browser_navigate', { tern_target: { ...target, in_tern: false } })
+    const gateway = new FakeGateway({ replies: { 'browser.focus': () => { throw new Error('Not owned by this session') } } })
+    const h = focusHost(gateway, c)
+    const focus = must(bindBrowserFocus(h.host, h.ref))
+    expect(JSON.stringify(toolNode(c, 0, focus))).not.toContain('browser-focus')
+
+    c.result = { tern_target: target }
+    c.outcome = { kind: 'running' }
+    expect(JSON.stringify(toolNode(c, 0, focus))).not.toContain('browser-focus')
+
+    c.outcome = { kind: 'done', duration: 2 }
+    const sdk = await nativeBrowserSurface()
+
+    try {
+      const click = sdk.capture(sdk.render('main', toolNode(c, 0, focus)), 'main', 'browser-focus')
+      await click()
+      await vi.waitFor(() => expect(h.notice).toHaveBeenCalledWith('Not owned by this session', 'warning'))
+      expect(gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }])
+      expect(gateway.methods('browser.adopt')).toEqual([])
+    } finally {
+      await sdk.close()
+    }
   })
 })
