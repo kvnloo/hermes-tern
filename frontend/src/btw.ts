@@ -82,6 +82,11 @@ export class BtwThreads {
     this.host.changed()
   }
 
+  /** Overlay opening, dismissal or same-key replacement revokes already-dispatched SDK callbacks. */
+  invalidateActions() {
+    this.#noticeTicket++
+  }
+
   /** A fresh render ticket prevents a queued SDK action from following later selection or ownership. */
   get notices(): BtwNotice[] {
     return [...this.#notices.values()].map(notice => ({ ...notice, ticket: this.#noticeTicket }))

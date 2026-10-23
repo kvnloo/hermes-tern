@@ -130,8 +130,12 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   /** The open overlays; a modal one takes the keys from the completion list. */
   const stack = new OverlayStack({
     changed,
-    closed: overlay => sheets.closed(overlay),
+    closed: overlay => {
+      btw.invalidateActions()
+      sheets.closed(overlay)
+    },
     opened: overlay => {
+      btw.invalidateActions()
       if (overlay.modal) {
         // The sheet owns the keys now: a list or reply for the composer would only land under it.
         completion.dismiss()

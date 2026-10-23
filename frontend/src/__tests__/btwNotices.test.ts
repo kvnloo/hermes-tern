@@ -152,6 +152,9 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       f.app.btw.select('two')
       await oldSelection()
       expect(f.app.overlays).toEqual([])
+      f.app.btw.select('one')
+      await oldSelection()
+      expect(f.app.overlays).toEqual([])
 
       await settle(f.gw)
       const underApproval = sdk.capture(sdk.render('main', row(f)), 'main', 'view')
@@ -160,6 +163,9 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       await underApproval()
       expect(f.app.overlays).toEqual([approval])
       f.app.close(approval)
+      // The intervening modal's close must not reactivate the pre-approval callback.
+      await underApproval()
+      expect(f.app.overlays).toEqual([])
 
       await settle(f.gw)
       const beforeClose = sdk.capture(sdk.render('main', row(f)), 'main', 'view')
