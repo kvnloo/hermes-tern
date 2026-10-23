@@ -26,16 +26,18 @@ import select
 import selectors
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
+import traceback
 import tty
+from types import SimpleNamespace
 import uuid
 from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.native_fallback
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
@@ -326,28 +328,94 @@ def _stop_isolated_gateway(source: Path, env: dict[str, str]) -> None:
     )
 
 
-def _capture_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes, bytes]:
+def _with_gateway_cleanup(operation, source: Path, env: dict[str, str]):
+    """Report BOTH native-driver and teardown failures with their tracebacks."""
     try:
-        return _bounded_capture(_hermes_driver(source), cwd=ROOT, env=env, timeout=65)
-    finally:
-        _stop_isolated_gateway(source, env)
+        result = operation()
+    except BaseException as primary:
+        try:
+            _stop_isolated_gateway(source, env)
+        except BaseException as cleanup:
+            raise BaseExceptionGroup(
+                "Native driver and isolated gateway cleanup both failed",
+                [primary, cleanup],
+            ) from None
+        raise
+    _stop_isolated_gateway(source, env)
+    return result
+
+
+def _capture_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes, bytes]:
+    return _with_gateway_cleanup(
+        lambda: _bounded_capture(_hermes_driver(source), cwd=ROOT, env=env, timeout=65),
+        source, env,
+    )
 
 
 def _pty_driver(source: Path, env: dict[str, str]) -> tuple[int, bytes]:
-    try:
-        return _pty_process(_hermes_driver(source), cwd=ROOT, env=env,
-                            timeout=65, close_ink=True)
-    finally:
-        _stop_isolated_gateway(source, env)
+    return _with_gateway_cleanup(
+        lambda: _pty_process(_hermes_driver(source), cwd=ROOT, env=env,
+                             timeout=65, close_ink=True),
+        source, env,
+    )
 
 
-def _git_read(cwd: Path, *args: str) -> str:
+def _git_bytes(cwd: Path, *args: str) -> bytes:
     code, stdout, stderr = _bounded_capture(
         ["git", "-C", str(cwd), *args], cwd=cwd, env=dict(os.environ),
         timeout=12,
     )
     assert code == 0, (args, code, stdout[-800:], stderr[-800:])
-    return stdout.decode("utf-8").strip()
+    return stdout
+
+
+def _git_read(cwd: Path, *args: str) -> str:
+    return _git_bytes(cwd, *args).decode("utf-8").strip()
+
+
+def _assert_clean_pinned_tree(source: Path) -> None:
+    """Hash all tracked HEAD blobs directly from disk, bypassing index and mtimes.
+
+    Includes hermes_state.py, gateway/status.py and skip-worktree/assume-unchanged
+    paths. Untracked generated build outputs are exempt; gitlinks fail closed.
+    """
+    tree = _git_bytes(source, "ls-tree", "-rz", "--full-tree", "HEAD")
+    assert tree.endswith(b"\0"), "Pinned Hermes tracked tree enumeration incomplete"
+    checked = 0
+    for item in tree.split(b"\0"):
+        if not item:
+            continue
+        metadata, tab, relative = item.partition(b"\t")
+        assert tab == b"\t", "Malformed tracked tree entry"
+        mode, kind, expected = metadata.split(b" ")
+        path = source / os.fsdecode(relative)
+        assert kind == b"blob", f"Cannot qualify unchecked pinned submodule: {path}"
+        try:
+            file_mode = path.lstat().st_mode
+        except FileNotFoundError as exc:
+            raise AssertionError(f"Pinned tracked file missing: {path}") from exc
+        if mode == b"120000":
+            assert stat.S_ISLNK(file_mode), f"Pinned tracked symlink changed: {path}"
+            data = os.fsencode(os.readlink(path))
+            got = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+        else:
+            assert mode in (b"100644", b"100755"), f"Unexpected pinned file mode: {path}"
+            assert stat.S_ISREG(file_mode) and (
+                bool(file_mode & 0o111) == (mode == b"100755")
+            ), f"Pinned tracked file mode changed: {path}"
+            size = path.stat().st_size
+            digest = hashlib.sha1()
+            digest.update(b"blob " + str(size).encode() + b"\0")
+            consumed = 0
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(128 * 1024), b""):
+                    digest.update(chunk)
+                    consumed += len(chunk)
+            assert consumed == size, f"Pinned file changed during digest: {path}"
+            got = digest.hexdigest()
+        assert got == expected.decode("ascii"), f"Pinned tracked content changed: {path}"
+        checked += 1
+    assert checked > 0, "Pinned Hermes HEAD has no tracked content"
 
 
 def _digest(path: Path) -> str:
@@ -360,7 +428,14 @@ def _digest(path: Path) -> str:
 
 @pytest.fixture(scope="module")
 def native_source() -> tuple[Path, str]:
-    assert os.name == "posix", "Real PTY fallback requires POSIX"
+    assert os.name == "posix" and sys.platform == "linux" and sys.version_info >= (3, 11), (
+        "Native fallback requires Linux Python 3.11+ and isolated /tmp Hermes"
+    )
+    assert callable(getattr(os, "pidfd_open", None)) and callable(
+        getattr(signal, "pidfd_send_signal", None)
+    ) and callable(getattr(select, "poll", None)), (
+        "Native prerequisite missing: pidfd_open / pidfd_send_signal / poll"
+    )
     node = shutil.which("node")
     assert node is not None, "Node 22 is a real native prerequisite"
     source_env = os.environ.get("HERMES_FALLBACK_SOURCE")
@@ -374,10 +449,10 @@ def native_source() -> tuple[Path, str]:
 
     # HEAD/mtime alone do NOT establish source provenance. Reject modifications
     # to pinned tracked source/build inputs; generated outputs are untracked.
-    assert not _git_read(source, "status", "--porcelain=v1", "--untracked-files=no",
-                         "--", "hermes_cli", "ui-tui", "scripts"), (
-        "The pinned Hermes tracked build inputs were modified"
+    assert not _git_read(source, "status", "--porcelain=v1", "--untracked-files=no"), (
+        "The pinned Hermes tracked tree or index was modified"
     )
+    _assert_clean_pinned_tree(source)
     assert not _git_read(ROOT, "status", "--porcelain=v1", "--untracked-files=no",
                          "--", "__init__.py", "frontend/src", "frontend/hermes-src.lock"), (
         "The plugin tracked launch/source inputs differ from this checkout"
@@ -584,6 +659,7 @@ def _assert_real_entries(
         assert Path(call["TERMINAL_CWD"]).resolve() == Path(expected_cwd).resolve(), calls
 
 
+@pytest.mark.native_fallback
 def test_actual_compiled_entry_exits_75_without_tty(native_source, tmp_path):
     _, node = native_source
     env = _environment(tmp_path, native_source[0], node)
@@ -601,6 +677,7 @@ def test_actual_compiled_entry_exits_75_without_tty(native_source, tmp_path):
     {"ZELLIJ": "fixture-only", "TERM_PROGRAM": "tern"},
 ], ids=["ordinary-local-pty", "ssh-marker-only", "tmux-marker-only",
         "screen-marker-only", "zellij-marker-only"])
+@pytest.mark.native_fallback
 def test_actual_compiled_entry_fails_closed_in_non_tern_pty(native_source, tmp_path, markers):
     """Real PTYs with marker env, NOT actual SSH/multiplexer transports."""
     _, node = native_source
@@ -612,6 +689,7 @@ def test_actual_compiled_entry_fails_closed_in_non_tern_pty(native_source, tmp_p
     assert code == 75, (markers, code, output[-1200:])
 
 
+@pytest.mark.native_fallback
 def test_actual_launcher_retries_ink_once_without_tty(native_source, tmp_path):
     source, node = native_source
     env = _environment(tmp_path, source, node)
@@ -625,6 +703,7 @@ def test_actual_launcher_retries_ink_once_without_tty(native_source, tmp_path):
     assert TSP_FRAME not in stderr.split(BANNER, 1)[1], "TSP APC after Ink handoff"
 
 
+@pytest.mark.native_fallback
 def test_actual_launcher_ink_paints_and_quits_cleanly_in_real_pty(native_source, tmp_path):
     source, node = native_source
     env = _environment(tmp_path, source, node)
@@ -645,6 +724,7 @@ def test_actual_launcher_ink_paints_and_quits_cleanly_in_real_pty(native_source,
     )
 
 
+@pytest.mark.native_fallback
 def test_explicit_ordinary_tui_uses_real_ink_without_a_tern_attempt(native_source, tmp_path):
     source, node = native_source
     env = _environment(tmp_path, source, node)
