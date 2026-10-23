@@ -45,10 +45,10 @@ function turnAt(entries: readonly Entry[], i: number): TurnEntry {
 }
 
 /** Records actual SDK operations, not a second fake retention implementation. */
-function harness(live?: () => RetentionLive) {
+function harness(live?: () => RetentionLive, dirty?: Set<Entry>) {
   let current: readonly Entry[] = []
   let lifetime = 0
-  const changedEntries = new Set<Entry>()
+  const changedEntries = dirty ?? new Set<Entry>()
   const frames: Op[][] = []
   const changed = vi.fn()
   let blocked = false
@@ -308,5 +308,116 @@ describe('retained long-session transcript', () => {
     })
     expect(counts[0]).toBeGreaterThan(0)
     expect(counts[1]).toBe(counts[0])
+  })
+
+  it('rechecks the real Transcript lifetime before queued Copy on reset and load', async () => {
+    const transcript = new Transcript()
+    for (const entry of history(25)) {
+      transcript.push(entry)
+    }
+
+    const copy = vi.fn()
+    const cx = context(copy)
+    const h = harness(() => ({ entries: transcript.entries, lifetime: transcript.lifetime }), transcript.changedEntries)
+    h.paint(transcript.entries, cx)
+
+    const staleReset = h.click('main.u0.tools.copy')
+    expect(staleReset).toBeTypeOf('function')
+    transcript.reset({ session: 'other', usage: undefined })
+    // Deliberately execute before paint: the writer's old row map still exists.
+    await staleReset?.()
+    expect(copy).not.toHaveBeenCalled()
+
+    h.paint(transcript.entries, cx)
+    transcript.user({ at: 1, text: 'Current prompt' })
+    h.paint(transcript.entries, cx)
+    const current = transcript.entries.at(-1)
+    if (current?.kind !== 'user') {
+      throw new Error('Missing current user entry')
+    }
+
+    const currentAction = h.click(`main.${current.id}.tools.copy`)
+    await currentAction?.()
+    expect(copy).toHaveBeenCalledExactlyOnceWith('Current prompt', current.id)
+
+    const staleLoad = h.click(`main.${current.id}.tools.copy`)
+    transcript.load([])
+    await staleLoad?.()
+    expect(copy).toHaveBeenCalledTimes(1)
+    h.paint(transcript.entries, cx)
+  })
+
+  it('signals a late edit to an old settled turn through the actual Transcript store', () => {
+    const transcript = new Transcript()
+    for (const entry of history(25)) {
+      transcript.push(entry)
+    }
+
+    const h = harness(() => ({ entries: transcript.entries, lifetime: transcript.lifetime }), transcript.changedEntries)
+    h.paint(transcript.entries)
+    const old = turnAt(transcript.entries, 0)
+    const call = {
+      id: toolCallId('late'), name: 'terminal', args: {}, argsText: '', context: '',
+      outcome: { kind: 'done' as const, duration: 1 }, startedAt: 1, via: { kind: 'direct' as const }
+    }
+    old.blocks.push({ call, id: call.id, kind: 'tool' })
+    const before = h.ops().length
+    transcript.touchCall(call)
+
+    expect(transcript.changedEntries.has(old)).toBe(true)
+    h.paint(transcript.entries)
+    expect(h.since(before)).toContainEqual(['del', 'main.t0'])
+    expect(h.since(before)).toContainEqual(['settle', 'main.t0'])
+    expect(transcript.changedEntries.size).toBe(0)
+  })
+
+  it('refreshes a late backend version and tip without rebuilding evicted history', () => {
+    const entries: Entry[] = [{ id: entryId('welcome'), kind: 'welcome' }, ...history(25)]
+    const h = harness()
+    const cx = (version: string, tip = 'First tip'): TranscriptContext =>
+      ({ ...context(), welcome: { version, tip } })
+    h.paint(entries, cx('v1'))
+    h.gone(['main.u0', 'main.t0'])
+    h.paint(entries, cx('v1'))
+    const before = h.ops().length
+
+    h.paint(entries, cx('v2', 'Updated tip'))
+    const diff = h.since(before)
+    expect(JSON.stringify(diff)).toContain('v2')
+    expect(JSON.stringify(diff)).toContain('Updated tip')
+    expect(diff.some(op => op[0] === 'add' && (op[1] === 'main.u0' || op[1] === 'main.t0'))).toBe(false)
+    expect(diff.some(op => op[0] === 'del' && (op[1] === 'main.u0' || op[1] === 'main.t0'))).toBe(false)
+  })
+
+  it('inspects and builds constant steady work for 200 versus 2,000 entries', () => {
+    const work = [200, 2000].map(size => {
+      const entries = history(size / 2)
+      const h = harness()
+      h.paint(entries)
+      const live = turnAt(entries, size / 2 - 1)
+      live.end = { status: 'live' }
+      live.rev++
+      h.mark(live)
+      h.paint(entries) // Boundary transition is not a steady token paint.
+
+      let examined = 0
+      let built = 0
+      for (let i = 0; i < 128; i++) {
+        const text = live.blocks[0]
+        if (text?.kind === 'text') {
+          text.text += 'x'
+        }
+        live.rev++
+        h.mark(live)
+        h.paint(entries)
+        examined += h.retention.work.examined
+        built += h.retention.work.nodeBuilds
+      }
+
+      return { examined, built }
+    })
+
+    expect(work[0]).toEqual({ examined: 128, built: 128 })
+    expect(work[1]).toEqual(work[0])
   })
 })
