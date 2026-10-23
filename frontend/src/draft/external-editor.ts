@@ -55,7 +55,9 @@ export const openDraftFile: DraftOpener = file => {
 
   try {
     if (!native && process.stdin.isTTY) process.stdin.setRawMode(false)
-    const result = spawnSync(argv[0]!, argv.slice(1), { stdio: native ? 'pipe' : 'inherit' })
+    const binary = argv[0]
+    if (!binary) throw new Error('VISUAL/EDITOR command is empty.')
+    const result = spawnSync(binary, argv.slice(1), { stdio: native ? 'pipe' : 'inherit' })
     if (result.error) throw result.error
     if (result.status !== 0) throw new Error('External editor cancelled or failed; the composer draft was kept.')
   } finally {
