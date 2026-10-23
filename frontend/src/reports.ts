@@ -43,3 +43,23 @@ export function operationalText(result: OperationalReport): string {
     ...(result.state === 'ready' && result.rows.length === 0 ? [empty] : [])
   ].join('\n\n')
 }
+
+/** Explicitly supported report forms, never a guess from backend output. */
+export function isReportCommand(name: string, argument: string): boolean {
+  const command = name.toLowerCase()
+  const arg = argument.trim().toLowerCase()
+
+  if (command === 'status') {
+    return arg === ''
+  }
+
+  if (command === 'tools') {
+    return arg === '' || arg === 'list'
+  }
+
+  if (command === 'mcp' || command === 'ssh') {
+    return operationalView(command, arg) !== undefined
+  }
+
+  return command === 'usage' || command === 'context' || command === 'history' || command === 'help'
+}

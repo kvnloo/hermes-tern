@@ -31,6 +31,25 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
   Exceptions are redacted, a stale reply cannot replace another sheet, and
   keyboard scrolling/copy stay scoped to the sheet.
 
+## General read-only report sheets
+
+- `/usage`, `/context`, `/history [chars]`, `/tools [list]`,
+  `/help [command]` and bare `/status` use native reports without new
+  main transcript panels. Bare `/help` preserves its native shortcuts UI.
+  History uses the existing local preview; tools uses real `tools.show`.
+- Output is authorized by the typed command, not the contents of an arbitrary
+  slash reply. Mutating `/compress`, unsupported `/tools` forms, unknown
+  commands, skills and dispatch actions retain their old transcript/actions.
+  MCP/SSH inventory remains separately backend-owned and namespaced.
+- Native copy preserves exact report-only bytes, including Unicode and trailing
+  newlines. Loading, close, replacement, approval and session fences prevent
+  late reports from resurrecting private state; scroll is overlay-scoped.
+  The main draft/caret, transcript and main scroll are unchanged.
+- Real `background.complete` and `btw.complete` completion-notice View
+  actions remain a separate shared gateway/dock slice, serialized with other
+  owners; their existing transcript behavior is not changed by this PR.
+  No synthetic completion RPC or event is introduced.
+
 ## Backend compatibility
 
 The plugin currently pins Hermes source at
@@ -44,9 +63,10 @@ then rerun the full frontend check and integration smoke test on that gateway.
 OMP validation (not run by the implementation worker):
 
     cd frontend
-    bun run setup
+    node scripts/hermes-src.mjs
+    bun install --frozen-lockfile
     bun run typecheck
-    bun run test src/__tests__/btwSheets.test.ts src/__tests__/operationalSheets.test.ts
+    bun run test -- src/__tests__/btwSheets.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts
     bun run check
     bun run bundle
 

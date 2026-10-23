@@ -1,12 +1,20 @@
-// Read-only operational inventory. Hermes owns scope, MCP and SSH authority;
-// this feature never probes, installs, connects, authenticates or mutates.
+// Native report sheets share the same owner, per-session fences, SDK overlay,
+// clipboard and scroll container. Arbitrary output never grants inventory authority.
 import type { ChatPorts } from './app/ports.js'
 import type { Overlay } from './overlays/overlay.js'
 import { openOperationalOverlay } from './overlays/operational.js'
 import { operationalText, operationalView, type Report } from './reports.js'
+import { rpc } from './wire/rpc.js'
 import { readOperational } from './wire/side.js'
 
 type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'scroll' | 'session'>
+
+export interface ReportTicket {
+  readonly sid: string | null
+  readonly epoch: number
+  readonly sheet: Overlay
+  readonly report: Report
+}
 
 export class OperationalSheets {
   readonly host: Host
@@ -32,6 +40,7 @@ export class OperationalSheets {
     }
   }
 
+  /** Only the topmost, still-current overlay has key/copy/close authority. */
   owns(sheet: Overlay) {
     return this.#sheet === sheet &&
       this.host.overlays.includes(sheet) &&
@@ -46,68 +55,127 @@ export class OperationalSheets {
     }
   }
 
-  show(service: 'mcp' | 'ssh', argument: string) {
+  /** Claim the sheet before asynchronous work: a close fences its reply. */
+  begin(title: string, sid: string | null): ReportTicket | undefined {
+    this.adopt(sid)
+    const top = this.host.overlays.at(-1)
+
+    // The user cannot issue a typed slash beneath an approval/secret modal.
+    // Programmatic late responses must not cover that prompt either.
+    if (top?.modal && top !== this.#sheet) {
+      return undefined
+    }
+
+    const report: Report = { title, text: '', status: 'loading' }
+    const sheet = openOperationalOverlay(this, report)
+    this.#sheet = sheet
+
+    return { epoch: ++this.#epoch, report, sheet, sid }
+  }
+
+  #valid(ticket: ReportTicket): boolean {
+    return ticket.epoch === this.#epoch &&
+      ticket.sheet === this.#sheet &&
+      this.host.overlays.includes(ticket.sheet) &&
+      this.host.session.ref.live === ticket.sid &&
+      this.#sid === ticket.sid
+  }
+
+  /** Update a still-owned report even when an approval later covers it. */
+  finish(ticket: ReportTicket | undefined, text: string, status: Report['status'] = 'ready', scope?: string): boolean {
+    if (!ticket || !this.#valid(ticket)) {
+      return false
+    }
+
+    ticket.report.text = text
+    ticket.report.status = status
+
+    if (scope !== undefined) {
+      ticket.report.scope = scope
+    }
+
+    this.host.changed()
+
+    return true
+  }
+
+  withdraw(ticket: ReportTicket | undefined) {
+    if (ticket && this.#valid(ticket)) {
+      this.host.close(ticket.sheet)
+    }
+  }
+
+  showText(title: string, text: string) {
+    this.finish(this.begin(title, this.host.session.ref.live), text)
+  }
+
+  /** The real canonical tools.show RPC: read-only, not slash-output sniffing. */
+  async showTools(arg = ''): Promise<void> {
     const sid = this.host.session.ref.live
+    const ticket = this.begin('/tools' + (arg ? ' ' + arg : ''), sid)
+
+    if (!ticket) {
+      return
+    }
 
     if (!sid) {
-      this.adopt(null)
-      const sheet = openOperationalOverlay(this, {
-        title: '/' + service, status: 'unavailable',
-        text: 'No active Hermes session. No inventory read was attempted.'
-      })
-      this.#sheet = sheet
-      this.#epoch++
+      this.finish(ticket, 'No active Hermes session.', 'unavailable')
 
       return
     }
 
-    this.adopt(sid)
+    try {
+      const result = await rpc(this.host.gw, 'tools.show', { session_id: sid })
+      const sections = (result?.sections ?? []).filter(section => section.tools?.length)
+      const lines = sections.map(section => `[${section.name}] ${section.tools.map(tool => tool.name).join(', ')}`)
+      this.finish(ticket, lines.length ? [...lines, `Total: ${result?.total ?? 0} tools`].join('\n') : 'No tools available.')
+    } catch {
+      // Authentication text from thrown gateway errors must not enter the view.
+      this.finish(ticket, 'Hermes tools report is unavailable.', 'unavailable')
+    }
+  }
+
+  /** MCP and SSH inventory remain namespaced, backend-owned snapshots. */
+  show(service: 'mcp' | 'ssh', argument: string) {
+    const sid = this.host.session.ref.live
     const arg = argument.trim().toLowerCase()
     const view = operationalView(service, arg)
     const label = service.toUpperCase()
-    const report: Report = view
-      ? { title: '/' + service + (arg ? ' ' + arg : ''), text: 'Reading Hermes ' + label + ' inventory…', status: 'loading' }
-      : {
-          title: label + ' management unavailable',
-          status: 'unsupported',
-          text: label + ' management is unsupported in this native sheet. No command or mutation was sent.\n\n' +
-            (service === 'ssh'
-              ? 'Use /ssh list to inspect the configured target for this profile.'
-              : 'Use /mcp list, /mcp status, /mcp tools or /mcp catalog for read-only inventory.')
-        }
-    const sheet = openOperationalOverlay(this, report)
-    this.#sheet = sheet
-    // Opening a replacement closes the prior same-key overlay; fence its onClose first.
-    const epoch = ++this.#epoch
+    // Unsupported arguments can be secrets: do not echo them, even in the title.
+    const title = view ? '/' + service + (arg ? ' ' + arg : '') : label + ' management unavailable'
+    const ticket = this.begin(title, sid)
 
-    if (!view) {
+    if (!ticket) {
       return
     }
+
+    if (!sid) {
+      this.finish(ticket, 'No active Hermes session. No inventory read was attempted.', 'unavailable')
+
+      return
+    }
+
+    if (!view) {
+      this.finish(ticket,
+        label + ' management is unsupported in this native sheet. No command or mutation was sent.\n\n' +
+          (service === 'ssh'
+            ? 'Use /ssh list to inspect the configured target for this profile.'
+            : 'Use /mcp list, /mcp status, /mcp tools or /mcp catalog for read-only inventory.'),
+        'unsupported')
+
+      return
+    }
+
+    ticket.report.text = 'Reading Hermes ' + label + ' inventory…'
+    this.host.changed()
 
     void (async () => {
       try {
         const result = await readOperational(this.host.gw, sid, view)
-
-        if (this.#epoch !== epoch || this.#sheet !== sheet || !this.host.overlays.includes(sheet) ||
-            this.host.session.ref.live !== sid) {
-          return
-        }
-
-        report.status = result.state
-        report.scope = result.scope
-        report.text = operationalText(result)
+        this.finish(ticket, operationalText(result), result.state, result.scope)
       } catch {
-        if (this.#epoch !== epoch || this.#sheet !== sheet || !this.host.overlays.includes(sheet) ||
-            this.host.session.ref.live !== sid) {
-          return
-        }
-
-        // Never display raw gateway exceptions: authentication headers can appear there.
-        report.status = 'unavailable'
-        report.text = 'Hermes inventory service is unavailable. No connection or mutation was attempted.'
+        this.finish(ticket, 'Hermes inventory service is unavailable. No connection or mutation was attempted.', 'unavailable')
       }
-
-      this.host.changed()
     })()
   }
 }

@@ -246,7 +246,7 @@ const COMMANDS: readonly LocalCommand[] = [
   },
   {
     name: 'history',
-    run: (host, arg) => host.transcript.panel('/history', historyText(host.transcript.entries, arg))
+    run: (host, arg) => host.operations.showText('/history', historyText(host.transcript.entries, arg))
   },
   {
     // `/help <command>` is the backend's detailed usage.
@@ -257,7 +257,21 @@ const COMMANDS: readonly LocalCommand[] = [
   { name: 'btw', run: (host, arg) => host.btw.show(arg) },
   { name: 'mcp', run: (host, arg) => host.operations.show('mcp', arg) },
   { name: 'ssh', run: (host, arg) => host.operations.show('ssh', arg) },
-  ...CONTROL_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
+  {
+    name: 'tools',
+    run: (host, arg) => {
+      const query = arg.trim().toLowerCase()
+
+      if (query === '' || query === 'list') {
+        return host.operations.showTools(query)
+      }
+
+      return CONTROL_COMMANDS.find(c => c.name === 'tools')?.run(host.control(), arg)
+    }
+  },
+  ...CONTROL_COMMANDS.filter(c => c.name !== 'tools').map(c => ({
+    ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg)
+  })),
   ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
   ...REFUSED_COMMANDS
 ]

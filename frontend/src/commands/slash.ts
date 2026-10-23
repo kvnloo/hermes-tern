@@ -9,6 +9,8 @@ import { errorText } from '../core/errors.js'
 import type { Attachments } from '../draft/attachments.js'
 import type { Composer } from '../draft/composer.js'
 import { dispatchError, execRefusal } from '../hermes/slashErrors.js'
+import type { ReportTicket } from '../operations.js'
+import { isReportCommand } from '../reports.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { Transcript } from '../transcript/store.js'
 import type { Prompt } from '../turn/prompt.js'
@@ -87,7 +89,8 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
   const { sid } = ticket
   const stale = () => !ticket.isCurrent()
 
-  if (resolve) {
+  // Explicit reports claim their sheet before a catalog request could race an approval.
+  if (resolve && !isReportCommand(name, arg)) {
     // Sessionless (starting, or the backend is down), only this frontend's own commands resolve.
     const to = resolveSlashName(name, sid ? await cx.catalog.get(sid) : undefined)
 
@@ -111,6 +114,7 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
   }
 
   const title = `/${name}${arg ? ` ${arg}` : ''}`
+  const report = isReportCommand(name, arg) ? { ticket: cx.host.operations.begin(title, sid) } : undefined
 
   try {
     const r = await rpc(cx.gw, 'slash.exec', { command: text.slice(1), session_id: sid })
@@ -119,7 +123,7 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
       return
     }
 
-    await dispatched(r, cx, { arg, title })
+    await dispatched(r, cx, { arg, report, title })
   } catch (error) {
     if (stale()) {
       return
@@ -128,7 +132,11 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
     const refusal = execRefusal(name, error)
 
     if (refusal.kind === 'notice') {
-      cx.transcript.notice(refusal.text, refusal.tone)
+      if (report) {
+        cx.host.operations.finish(report.ticket, 'Hermes report is unavailable.', 'unavailable')
+      } else {
+        cx.transcript.notice(refusal.text, refusal.tone)
+      }
     } else {
       try {
         const r = await rpc(cx.gw, 'command.dispatch', { arg, name, session_id: sid })
@@ -137,13 +145,17 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
           return
         }
 
-        await dispatched(r, cx, { arg, title })
+        await dispatched(r, cx, { arg, report, title })
       } catch (dispatchFailure) {
         if (stale()) {
           return
         }
 
-        cx.transcript.notice(dispatchError(name, dispatchFailure), 'error')
+        if (report) {
+          cx.host.operations.finish(report.ticket, 'Hermes report is unavailable.', 'unavailable')
+        } else {
+          cx.transcript.notice(dispatchError(name, dispatchFailure), 'error')
+        }
       }
     }
   }
@@ -155,8 +167,27 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
  * Acts on a slash.exec / command.dispatch answer: output, a skill or message to send, an alias
  * or a prefill. `title` heads its output panel; `arg` follows an alias.
  */
-export async function dispatched(raw: unknown, cx: SlashCx, { arg, title }: { arg: string; title: string }): Promise<void> {
+export async function dispatched(raw: unknown, cx: SlashCx, { arg, report, title }: {
+  arg: string
+  title: string
+  report?: { ticket: ReportTicket | undefined }
+}): Promise<void> {
   const { dispatch: d, output, warning } = commandEnvelope(raw)
+
+  // Only output envelopes for explicit read-only command forms enter a sheet.
+  // Action dispatches (skill, send, prefill, alias) retain their existing path.
+  if (report && (!d || d.type === 'exec' || d.type === 'plugin')) {
+    const text = d ? d.output : output
+    cx.host.operations.finish(report.ticket,
+      text?.trim() ? text : 'Hermes returned no report text.',
+      text?.trim() ? 'ready' : 'unavailable')
+
+    return
+  }
+
+  if (report) {
+    cx.host.operations.withdraw(report.ticket)
+  }
 
   if (warning) {
     cx.transcript.notice(warning, 'warning')
