@@ -155,9 +155,6 @@ export class App implements ChatPorts {
       sid: () => this.session.ref.live,
       summarize: delay => this.#act.summarize(delay)
     })
-    // Forward-only side updates: absent from the plugin's currently pinned gateway event union.
-    // They remain outside main transcript and are owner-fenced in BtwThreads.
-    this.#gw.on('event', (event: unknown) => s.btw.onEvent(event))
     this.processes.poke()
     this.#frame()
     this.#surface.focus(INPUT_ID)

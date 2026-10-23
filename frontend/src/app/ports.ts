@@ -5,17 +5,17 @@
 
 import type { ScrollTo } from '@stencil-hq/tern'
 
-import type { BtwThreads } from '../btw.js'
-import type { OperationalSheets } from '../operations.js'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { Agents } from '../agents/store.js'
+import type { BtwThreads } from '../btw.js'
 import type { SessionHost } from '../commands/session.js'
 import type { PrKey, SessionIds, StoredSessionId } from '../core/ids.js'
 import type { GitState } from '../git/status.js'
 import type { PullRequests } from '../github/store.js'
 import type { NoticeEntry } from '../model.js'
+import type { OperationalSheets } from '../operations.js'
 import type { OverlayHost, Overlay } from '../overlays/overlay.js'
 import type { Cron } from '../processes/cron.js'
 import type { Processes } from '../processes/store.js'

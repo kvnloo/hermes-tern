@@ -5,9 +5,9 @@
 
 import type { SessionResumeResult } from '@hermes/shared/gateway-events'
 
-import type { BtwThreads } from '../btw.js'
-import type { OperationalSheets } from '../operations.js'
 import type { SessionInfo } from '@tui/types.js'
+
+import type { BtwThreads } from '../btw.js'
 
 import type { Agents } from '../agents/store.js'
 import type { NoticeStrip } from '../chrome/notices.js'
@@ -17,6 +17,7 @@ import { durable, type DurableSessionId, type LiveSessionId, type SessionIds, ty
 import type { PullRequests } from '../github/store.js'
 import { storedCompactions } from '../hermes/compactions.js'
 import type { Media } from '../media.js'
+import type { OperationalSheets } from '../operations.js'
 import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
 import type { PromptSheets } from '../prompts/sheets.js'
