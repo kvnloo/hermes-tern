@@ -67,9 +67,13 @@ function markdownFileTarget(target: string, cwd: string): string | undefined {
     return undefined
   }
 
-  return fileHref(path, cwd, anchored
-    ? { line: Number(anchored[2]), endLine: anchored[3] ? Number(anchored[3]) : undefined }
-    : undefined)
+  if (!anchored) {
+    return fileHref(path, cwd)
+  }
+
+  const line = Number(anchored[2])
+
+  return fileHref(path, cwd, anchored[3] ? { line, endLine: Number(anchored[3]) } : { line })
 }
 
 /** Odd preceding backslashes escape a Markdown delimiter. */

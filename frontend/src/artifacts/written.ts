@@ -49,23 +49,23 @@ const modelMimes: Record<string, readonly string[]> = {
 /** Project the owning completion, never the streaming arguments alone. No async cache to go stale. */
 export function confirmedWriteArtifact(call: ToolCall, cwd: string, hostLocal: boolean): ConfirmedWriteArtifact | undefined {
   const result = record(call.result)
-  const source = typeof call.args.content === 'string' ? call.args.content : call.args.contents
+  const source = typeof call.args['content'] === 'string' ? call.args['content'] : call.args['contents']
 
   // WriteResult.verified is the backend's on-disk hash check. bytes_written also
   // rejects partial results and differently sized/incomplete arguments.
-  if (call.name !== 'write_file' || call.outcome.kind !== 'done' || !result || result.error || result.success === false ||
-      result.verified !== true || result.partial === true || result.truncated === true || typeof source !== 'string' ||
-      !source || result.bytes_written !== Buffer.byteLength(source, 'utf8')) {
+  if (call.name !== 'write_file' || call.outcome.kind !== 'done' || !result || result['error'] || result['success'] === false ||
+      result['verified'] !== true || result['partial'] === true || result['truncated'] === true || typeof source !== 'string' ||
+      !source || result['bytes_written'] !== Buffer.byteLength(source, 'utf8')) {
     return undefined
   }
 
-  const rawPath = result.resolved_path ?? call.args.path ?? call.args.file_path
+  const rawPath = result['resolved_path'] ?? call.args['path'] ?? call.args['file_path']
 
   if (typeof rawPath !== 'string') { return undefined }
 
   const href = fileHref(rawPath, cwd)
   const ext = extname(rawPath).slice(1).toLowerCase()
-  const reportedMime = result.mime ?? result.mime_type ?? result.mimetype
+  const reportedMime = result['mime'] ?? result['mime_type'] ?? result['mimetype']
 
   if (!href || (reportedMime !== undefined && typeof reportedMime !== 'string')) { return undefined }
 

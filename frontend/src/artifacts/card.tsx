@@ -20,9 +20,14 @@ export function artifactCard(call: ToolCall, card: Card, context: FileContext): 
   const resolved = result?.['resolved_path']
   const specified = call.args['path'] ?? call.args['file_path']
   const path = typeof resolved === 'string' ? resolved : typeof specified === 'string' ? specified : card.target
-  const href = context.hostLocal && path ? fileHref(path, context.cwd, {
-    line: call.name === 'read_file' ? firstLine(result?.['content']) : undefined
-  }) : undefined
+  let href: string | undefined
+
+  if (context.hostLocal && path) {
+    const line = call.name === 'read_file' ? firstLine(result?.['content']) : undefined
+
+    href = fileHref(path, context.cwd, line === undefined ? undefined : { line })
+  }
+
   const base: Card = {
     ...card,
     ...(path ? { target: path } : {}),
