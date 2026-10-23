@@ -366,7 +366,7 @@ export class VimComposer {
       to = nextGrapheme(text, to)
     }
 
-    this.#operate(operator, { from, to, linewise: motion.linewise })
+    this.#operate(operator, { from, to, linewise: motion.linewise === true })
   }
   #range(): Range {
     const { text, cursor } = this.composer

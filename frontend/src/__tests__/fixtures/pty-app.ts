@@ -24,7 +24,7 @@ const gw = new FakeGateway({
     'config.get': params => params['key'] === 'full'
       ? { config: { display: { vim_mode: mode === 'vim' } } }
       : { value: 'queue' },
-    'commands.catalog': () => ({ canon: {}, skills: {} }),
+    'commands.catalog': () => ({ canon: { '/ask': '/ask' }, skills: {} }),
     'slash.exec': () => ({ output: 'Command received' })
   }
 })
