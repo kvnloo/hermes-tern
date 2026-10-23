@@ -11,6 +11,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 import { agentName } from '../agents/rows.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
+import { nativePathIsLocal } from '../artifacts/attachments.js'
 import { clipboardDraft } from '../artifacts/clipboard.js'
 import { copyToClipboard } from '../clipboard.js'
 import type { SessionHostCx } from '../commands/host.js'
@@ -179,7 +180,13 @@ export class AppActions {
       transcript
     }
     this.events = {
-      attachImageData: (data, name) => void attachments.fromDataUrl(data, name),
+      attachNativeImage: image => {
+        if (image.kind === 'path') {
+          void attachments.fromNativePath(image.path, nativePathIsLocal(gw))
+        } else {
+          void attachments.fromDataUrl(image.data, image.name)
+        }
+      },
       connect: cx.connect,
       focusComposer: () => {
         cx.hud.release()

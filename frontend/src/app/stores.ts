@@ -158,7 +158,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       gw,
       launchCwd: launch.cwd,
       note: (text, tone) => transcript.notice(text, tone),
-      sid: () => session.ref.live
+      owner: () => session.ref
     },
     { startup: launch.image }
   )

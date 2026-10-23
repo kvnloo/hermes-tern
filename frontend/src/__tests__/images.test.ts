@@ -5,13 +5,14 @@ import { join } from 'node:path'
 import type { NodeJson } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
-import { entryId, toolCallId } from '../core/ids.js'
+import { entryId, liveSessionId, storedSessionId, toolCallId } from '../core/ids.js'
 import { Attachments, type AttachmentsHost, type ClipboardReader, type Image } from '../draft/attachments.js'
 import { extractClipboardImage, type Runner, withClipboardImage } from '../hermes/clipboardImage.js'
 import { imageSize } from '../hermes/images.js'
 import { localSource, Media, shownImage } from '../media.js'
 import type { ToolCall, TurnEntry, UserEntry } from '../model.js'
 import { promptAttachments, splitPrompt } from '../transcript/promptRefs.js'
+import { SessionState } from '../session/state.js'
 import { Transcript } from '../transcript/store.js'
 import { imageChip } from '../view/dock.js'
 import { toolNode } from '../view/tools/shell.js'
@@ -327,6 +328,8 @@ function attachments({ blob, canonical = true, clipboard = clipboardOf(holding),
   gw.handlers.set('image.attach_bytes', () => ({ path: `/uploads/${++uploads}.png` }))
   const notes: { text: string; tone: string | undefined }[] = []
   const changed = vi.fn()
+  const state = new SessionState(changed)
+  state.ref = { live: sid === null ? null : liveSessionId(sid), stored: sid === null ? null : storedSessionId('stored-' + sid) }
 
   const host: AttachmentsHost = {
     attachToHead: image => {
@@ -340,7 +343,7 @@ function attachments({ blob, canonical = true, clipboard = clipboardOf(holding),
     gw: gw.client,
     launchCwd: dir,
     note: (text, tone) => void notes.push({ text, tone }),
-    sid: () => sid
+    owner: () => state.ref
   }
 
   return { a: new Attachments(host, { clipboard, ...(startup ? { startup } : {}) }), changed, gw, notes }
