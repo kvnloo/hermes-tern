@@ -56,7 +56,7 @@ const initial = (): PlanFixture => ({
   }
 })
 
-function fixture(replies: Record<string, Reply> = {}, { busy = false }: { busy?: boolean } = {}) {
+function fixture(replies: Record<string, Reply> = {}, { busy = false, queued = 0 }: { busy?: boolean; queued?: number } = {}) {
   const overlays: Overlay[] = []
   const gw = new FakeGateway({ replies })
   const transcript = new Transcript()
@@ -77,6 +77,7 @@ function fixture(replies: Record<string, Reply> = {}, { busy = false }: { busy?:
     control: () => stub<SessionHost>({
       busy,
       enqueue,
+      queued,
       get sid() { return session.ref.live },
       send,
       stale: () => false
@@ -255,6 +256,21 @@ describe('native plan review', () => {
     expect(f.send).not.toHaveBeenCalled()
     expect(f.gw.sent('plan.decide')).toEqual([])
     expect(f.draft.text).toBe('Keep this draft and caret')
+  })
+
+  it('queues an ordinary decision behind existing prompts while otherwise idle', async () => {
+    const f = fixture({}, { queued: 1 })
+    openPlanReview(f.host)
+    await paint()
+
+    const stale = f.capture('approve')
+    f.click('approve')
+    stale()
+
+    expect(f.enqueue).toHaveBeenCalledTimes(1)
+    expect(f.enqueue).toHaveBeenCalledWith('Approved — proceed with the plan.')
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.gw.sent('prompt.submit')).toEqual([])
   })
 
   it('does not offer ordinary approval in enabled planning mode, or while status is loading', async () => {
