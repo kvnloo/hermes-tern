@@ -1,8 +1,12 @@
 // Typed Hermes LSP payloads through the plugin's tool-card registry, including
 // stored JSON replay, malformed fallback, and Tern SDK semantic node metadata.
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import type { NodeJson } from '@stencil-hq/tern'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import { App } from '../app/chat.js'
 import { detailOf, toolKeyOf } from '../tools/detail.js'
@@ -246,7 +250,8 @@ describe('LSP file hrefs through the typed tool registry', () => {
     expect(lspFileHref('/project/a b#c%.py', local, span)).toBe('file:///project/a%20b%23c%25.py#L2-L4')
     for (const target of [
       'file:///etc/passwd', 'https://host/x', '//server/share',
-      '/project/a' + String.fromCharCode(0) + 'b.py', ''
+      '/project/a' + String.fromCharCode(0) + 'b.py',
+      '/project/' + String.fromCharCode(0x202e) + 'hidden.py', ''
     ]) {
       expect(lspFileHref(target, local)).toBeUndefined()
     }
@@ -263,6 +268,18 @@ describe('LSP file hrefs through the typed tool registry', () => {
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 
 const sshVariables = ['SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'] as const
+const previousHome = process.env['HERMES_HOME']
+const isolatedHome = mkdtempSync(join(tmpdir(), 'hermes-tern-lsp-results-'))
+process.env['HERMES_HOME'] = isolatedHome
+
+afterAll(() => {
+  if (previousHome === undefined) {
+    delete process.env['HERMES_HOME']
+  } else {
+    process.env['HERMES_HOME'] = previousHome
+  }
+  rmSync(isolatedHome, { recursive: true, force: true })
+})
 
 async function withLspApp(
   run: (h: {

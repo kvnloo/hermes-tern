@@ -27,7 +27,8 @@ function safePath(path: string): boolean {
     !Array.from(path).some(char => {
       const code = char.charCodeAt(0)
 
-      return code < 32 || code === 127
+      return code < 32 || (code >= 127 && code <= 159) ||
+        (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
     })
 }
 
