@@ -83,6 +83,7 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
     h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
     h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
     const nested = { ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1 }
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
 
     // Before any registry/list result mentions group-c, parent ancestry proves A.
     h.agents.apply('subagent.spawn_requested', nested, 22)
@@ -103,7 +104,9 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
       summary: 'nested finished', toolCount: 3
     })
     expect(b.subagents).toMatchObject([{ delegationId: 'group-b', id: 'root-b', status: 'running' }])
-    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual([5, 1])
+    const after = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+    expect(after[0]).toBeGreaterThan(revisions[0] ?? 0)
+    expect(after[1]).toBe(revisions[1])
     h.agents.dispose()
   })
 
@@ -137,6 +140,62 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
       delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'done'
     })
     expect(b.subagents).toMatchObject([{ id: 'root-b', status: 'running' }])
+    h.agents.dispose()
+  })
+
+  it('binds a later explicit nested batch to an id-less child with the same proven parent', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
+
+    // The spawn may be relayed before the child's own delegation_id is stamped.
+    h.agents.apply('subagent.spawn_requested', {
+      ...payload('nested-c'), parent_id: 'root-a', depth: 1
+    }, 22)
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      id: 'nested-c', depth: 1, parentId: 'root-a'
+    })
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')?.delegationId).toBeUndefined()
+
+    const beforeA = JSON.stringify(a.subagents)
+    const beforeB = JSON.stringify(b.subagents)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-b', depth: 1, tool_name: 'foreign'
+    }, 23)
+    expect(JSON.stringify(a.subagents)).toBe(beforeA)
+    expect(JSON.stringify(b.subagents)).toBe(beforeB)
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1, tool_name: 'terminal'
+    }, 24)
+    h.agents.apply('subagent.progress', { ...payload('nested-c'), tool_count: 3 }, 25)
+    h.agents.apply('subagent.complete', { ...payload('nested-c', 'group-c'), status: 'completed' }, 26)
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'done', toolCount: 3
+    })
+    expect(b.subagents).toMatchObject([{ id: 'root-b', status: 'running' }])
+    h.agents.dispose()
+  })
+
+  it('inherits an established nested batch parent for a later sibling event with no parent hint', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c0', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 22)
+    h.agents.apply('subagent.start', { ...payload('nested-c1', 'group-c'), task_index: 0 }, 23)
+
+    expect(a.subagents?.find(agent => agent.id === 'nested-c1')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'running'
+    })
+    expect(b.subagents?.map(agent => agent.id)).toEqual(['root-b'])
     h.agents.dispose()
   })
 
