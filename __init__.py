@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import connections, media_backend, panes, pull_requests, tern_env
+from . import connections, panes, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
 
@@ -109,4 +109,5 @@ def register(ctx) -> None:
     tern_env.register(ctx)
     # Gateway RPCs are optional: older Hermes still launches and uploads normally.
     if callable(getattr(ctx, 'register_gateway_method', None)):
+        from . import media_backend
         media_backend.register(ctx)
