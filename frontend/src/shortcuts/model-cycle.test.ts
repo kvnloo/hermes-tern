@@ -1,5 +1,4 @@
 import type { ModelOptionsResult } from '@hermes/shared/gateway-events'
-import type { Key } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ModelsHost } from '../overlays/models.js'
