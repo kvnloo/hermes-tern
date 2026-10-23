@@ -271,6 +271,32 @@ describe('the session-owned image controller', () => {
     expect(app.stores.queue.server.queued()).toEqual([])
   })
 
+  it('rejects same-ID ref replacement in the final queue serialization microtask', async () => {
+    const { app, sent } = setup()
+    await app.stores.attachments.fromDataUrl(url, 'A.png')
+    const images = app.stores.attachments.take()
+    const owner = app.session.ref
+    const expanded = app.stores.router.expanded.bind(app.stores.router)
+    vi.spyOn(app.stores.router, 'expanded').mockImplementation(async (sid, prompt) => {
+      const ready = await expanded(sid, prompt)
+      queueMicrotask(() => {
+        app.session.ref = { live: liveSessionId('s2'), stored: storedSessionId('stored-b') }
+        app.session.ref = { ...owner }
+      })
+      return ready
+    })
+    await app.stores.queue.admit(liveSessionId('s1'), {
+      kind: 'typed', images, pasted: [], text: 'retain my unsent image prompt'
+    })
+    expect(app.session.ref).not.toBe(owner)
+    expect(app.session.ref.live).toBe(owner.live)
+    expect(sent('prompt.submit')).toEqual([])
+    expect(app.stores.queue.server.queued()).toEqual([])
+    expect(app.stores.composer.text).toBe('retain my unsent image prompt')
+    expect(app.stores.attachments.items).toEqual([])
+    expect(app.transcript.entries.some(e => e.kind === 'notice' && e.text.includes('an image belongs to another session'))).toBe(true)
+  })
+
   it('exposes a visible App notice for oversized pinned-SDK-wrapped native image bytes', async () => {
     const gw = new FakeGateway()
     const tern = fakeTern({ draws: true })

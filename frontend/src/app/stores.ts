@@ -164,6 +164,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   )
   /** The prompts waiting behind the turn: held here, and the shared gateway's queue for this session. */
   const queue: PromptQueue = new PromptQueue({
+    allowImages: (sid, prompt) => router.allowImages(sid, prompt),
     busy: () => Boolean(activity.busy),
     canDrain: () => canDrain(act().gates()),
     changed,

@@ -240,6 +240,7 @@ function queueSetup() {
   const log: string[] = []
   const state: { canDrain: boolean; sid: LiveSessionId | null } = { canDrain: false, sid: liveSessionId('s1') }
   const host: QueueHost = {
+    allowImages: () => true,
     busy: () => true,
     canDrain: () => state.canDrain,
     changed: () => undefined,

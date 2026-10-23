@@ -136,7 +136,7 @@ export class PromptRouter {
   }
 
   /** Refuse the whole prompt, not a silent text-only downgrade, if even one image is stale. */
-  #allowImages(sid: LiveSessionId, prompt: Prompt): boolean {
+  allowImages(sid: LiveSessionId, prompt: Prompt): boolean {
     if (!prompt.images.length || this.#host.ownsImages(sid, prompt.images)) return true
 
     this.#host.transcript.notice(
@@ -238,9 +238,9 @@ export class PromptRouter {
   /** `prompt` with its `{!cmd}`s run (a typed prompt's); undefined when one failed (the prompt is back in the composer). */
   async expanded(sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
     // In the shared gateway's queue this is the last awaited step before its RPC serialization.
-    if (!this.#allowImages(sid, prompt)) return undefined
+    if (!this.allowImages(sid, prompt)) return undefined
     const ready = await expand(this.#host, sid, prompt)
-    if (ready && !this.#allowImages(sid, prompt)) return undefined
+    if (ready && !this.allowImages(sid, prompt)) return undefined
     return ready
   }
 
@@ -264,7 +264,7 @@ export class PromptRouter {
     const { sid } = gate
 
     // Includes prompts taken from A while a switch was pending and drained into B.
-    if (!this.#allowImages(sid, prompt)) {
+    if (!this.allowImages(sid, prompt)) {
       host.queue.drain()
       return
     }
