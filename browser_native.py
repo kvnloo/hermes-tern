@@ -6,12 +6,12 @@ ownership. Ported from the Hermes ui-tsp browser provider, not installed in core
 """
 from __future__ import annotations
 
-import base64
 import re
 import subprocess
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 
 from .browser_transport import NativeBrowserError, TernBrowserCLI, exact_block
@@ -78,6 +78,9 @@ class BrowserDriver:
 
     def request(self, op: dict) -> dict:
         self.scope.require_current()
+        checker = _EFFECT_FENCE.get()
+        if checker is not None:
+            checker()  # original RPC task/busy authority immediately before each effect
         return self.scope.cli(op)
 
     def _taken(self, block: int) -> bool:
@@ -205,6 +208,9 @@ class BrowserDriver:
         with self.lock:
             target = self.owned(chosen)
             # Focus only the exact original window and exact claimed native block.
+            checker = _EFFECT_FENCE.get()
+            if checker is not None:
+                checker()
             self.scope.cli.invoke(["focus", str(target.block), "--json"])
             return self.identity()
 
@@ -331,6 +337,17 @@ def press_events(combo: str) -> list[dict]:
             active.remove(modifiers[key])
         up.append({"type": "key", "action": "up", "key": key, "mods": list(active)})
     return down + up
+
+
+_EFFECT_FENCE: ContextVar[Callable[[], None] | None] = ContextVar('tern_effect_fence', default=None)
+
+@contextmanager
+def effect_fence(check: Callable[[], None]):
+    token = _EFFECT_FENCE.set(check)
+    try:
+        yield
+    finally:
+        _EFFECT_FENCE.reset(token)
 
 
 _LOCK = threading.RLock()
