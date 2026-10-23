@@ -116,7 +116,21 @@ export class WatchApp {
   }
 
   async run(): Promise<number> {
-    this.#surface = new SurfaceHost(this.#tern, this.#spec.name, STYLES)
+    this.#surface = new SurfaceHost(this.#tern, this.#spec.name, STYLES, {
+      changed: () => this.changed(),
+      recovered: () => this.#surface.guardHandlers(false),
+      report: message => {
+        process.stderr.write('hermes tern watch: ' + message + '\n')
+        this.transcript.notice(message, 'error')
+        this.changed()
+        // Only terminal protocol/frame failures end the watcher; a stalled ACK
+        // is diagnostic and must not create a timer-driven reopen or exit.
+        if (this.#surface.state === 'failed') {
+          this.#done.resolve(1)
+        }
+      }
+    })
+    this.#surface.guardHandlers(false)
     const theme = this.#settings.load().theme ?? 'tern'
     this.#surface.palette(paletteFor(theme, undefined))
     this.#gw.on('event', (ev: AnyGatewayEvent) => {
@@ -153,6 +167,7 @@ export class WatchApp {
     void this.#readInput()
 
     const code = await this.#done.promise
+    this.#surface.dispose()
     this.#poller.dispose()
     this.#store?.close()
     await this.#tern.close()
@@ -270,17 +285,28 @@ export class WatchApp {
 
   async #readInput() {
     // A failure means the pane went away: it ends the loop quietly.
-    await runInput(this.#tern, { after: () => this.changed(), onEvent: event => this.#onEvent(event), onKey: key => this.#onKey(key) })
+    await runInput(this.#tern, {
+      after: () => this.changed(),
+      onError: error => this.#surface.failure(new Error('Tern input failed: ' + errorText(error))),
+      onEvent: event => this.#onEvent(event),
+      onKey: key => this.#onKey(key)
+    })
     this.#done.resolve(0)
   }
 
   #onEvent(ev: TspEvent) {
+    if (!this.#surface.event(ev)) {
+      return
+    }
     if (ev.ev === 'focus' && ev.id === INPUT_ID) {
       this.#surface.focus(INPUT_ID)
     }
   }
 
   #onKey(key: Key) {
+    if (this.#surface.state !== 'visible') {
+      return
+    }
     if (key.ctrl && key.name === 'c') {
       if (this.composer.text) {
         this.composer.set('')
@@ -365,6 +391,18 @@ export class WatchApp {
   }
 
   #render() {
+    if (this.#surface.closed) {
+      return
+    }
+    try {
+      this.#paint()
+      this.#surface.rendered()
+    } catch (error) {
+      this.#surface.failure(error)
+    }
+  }
+
+  #paint() {
     const now = Date.now()
     const a = this.#agent
     const running = isRunning(a)
@@ -394,5 +432,7 @@ export class WatchApp {
         ...this.transcript.entries.map(e => entryNode(e, `main.${e.id}`, cx))
       ]
     })
+    // Reapply the editor caret only after the current document has rebuilt it.
+    this.#surface.follow(INPUT_ID)
   }
 }

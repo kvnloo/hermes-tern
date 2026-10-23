@@ -4,11 +4,15 @@
 // arranges what a test starts from through the stores' own APIs.
 import { EventEmitter } from 'node:events'
 
-import { type JSX, type Key, node, Node, type NodeJson, type Region, type RegionName, type Renderable, type Session, Span, type ViewInput } from '@stencil-hq/tern'
+import { type JSX, type Key, node, Node, type NodeJson, type OpenOptions, type Region, type RegionName, type Renderable, type Session, Span, Surface, type SurfaceLink, type ViewInput } from '@stencil-hq/tern'
+import { vi } from 'vitest'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { SessionView } from '../app/ports.js'
+import { SurfaceView } from '../surface/lifecycle.js'
+
+const pinnedPaint = SurfaceView.prototype.paint
 import { liveSessionId } from '../core/ids.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { SessionState } from '../session/state.js'
@@ -100,16 +104,17 @@ export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOp
   const focused: (string | null)[] = []
   let frame: Renderable | undefined
 
-  const blank: object = new Proxy({}, { get: (_, name) => (name === 'closed' ? true : () => blank) })
-  const surface = draws
-    ? {
-        closed: false,
-        focus: (id: string | null) => void focused.push(id),
-        palette: () => undefined,
-        render: (tree: Renderable) => void (frame = tree),
-        stylesheet: () => undefined
+  // The test transport uses the actual pinned Surface contract. Capture Renderable only
+  // at the fixture boundary: production never forks on an incomplete mock.
+  const surfaces = new Set<Surface>()
+  if (draws) {
+    vi.spyOn(SurfaceView.prototype, 'paint').mockImplementation(function (this: SurfaceView, surface, tree) {
+      if (surfaces.has(surface)) {
+        frame = tree
       }
-    : blank
+      return pinnedPaint.call(this, surface, tree)
+    })
+  }
 
   const input = (value: TernInput) => {
     const wake = waiting.shift()
@@ -133,9 +138,29 @@ export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOp
     blob: () => 'blob',
     caps: { cols, features },
     close: async () => undefined,
-    open: (options: unknown) => {
+    open: (options: OpenOptions) => {
       opened.push(options)
-
+      let surface: Surface
+      const link: SurfaceLink = {
+        credits: () => 1,
+        dropped: () => undefined,
+        send: message => {
+          if (message.verb === 'f') {
+            for (const op of message.body.ops) {
+              if (op[0] === 'focus') {
+                focused.push(op[1])
+              }
+            }
+            // Credit only the fixture peer's genuinely emitted frame.
+            queueMicrotask(() => surface.acknowledge(message.body.s))
+          }
+        }
+      }
+      surface = new Surface(link, options.id ?? 'hermes', options)
+      surfaces.add(surface)
+      if (!draws) {
+        surface.gone()
+      }
       return surface
     }
   }
