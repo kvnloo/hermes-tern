@@ -6,6 +6,7 @@ ownership. Ported from the Hermes ui-tsp browser provider, not installed in core
 """
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import threading
@@ -18,6 +19,7 @@ from .browser_transport import NativeBrowserError, TernBrowserCLI, exact_block
 
 _FRAME = re.compile(r"(?:main|(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))*)\Z")
 _ID = re.compile(r"[1-9][0-9]*\Z")
+logger = logging.getLogger(__name__)
 
 
 def block_id(value: Any) -> int:
@@ -378,7 +380,17 @@ def register_driver(scope: BrowserScope) -> BrowserDriver:
 
 
 def unload_profile(profile: str) -> None:
-    """Do not discard unacknowledged native cleanup or unknown-orphan claims."""
+    """Retain unknown or unacknowledged native claims; never force cleanup with a revoked lease."""
+    cleanup_errors: tuple[type[Exception], ...] = (
+        NativeBrowserError, OSError, subprocess.SubprocessError, PermissionError,
+    )
+    try:
+        from hermes_cli.plugin_gateway_scopes import GatewayScopeError
+    except ImportError:
+        # A pinned older Hermes without plugin scopes may still unload safely.
+        pass
+    else:
+        cleanup_errors += (GatewayScopeError,)
     with _LOCK:
         for key, driver in tuple(_DRIVERS.items()):
             if key[0] != profile:
@@ -387,9 +399,13 @@ def unload_profile(profile: str) -> None:
                 driver.reconcile_open()
                 driver._release_pending()
                 driver.close()
-            except (NativeBrowserError, OSError, subprocess.SubprocessError):
-                # Retain quarantine/claims for explicit post-recovery reconciliation.
-                pass
+            except cleanup_errors as exc:
+                # A revoked original caller cannot close a page: log the refusal
+                # and KEEP the claim/quarantine, never attempt another backend.
+                logger.warning(
+                    "Native browser unload deferred unacknowledged cleanup (%s); retaining original claim",
+                    type(exc).__name__,
+                )
             if not (driver.target or driver.pending_open or driver.unknown_open
                     or driver.pending_releases or driver.scope.cli.unknown):
                 driver.scope.lease.close()

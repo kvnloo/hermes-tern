@@ -213,6 +213,19 @@ def test_detached_lease_fences_all_native_effects(rig):
     assert driver.target is not None
 
 
+def test_unload_defers_revoked_original_lease_without_losing_native_claim(rig, caplog):
+    driver, cli, lease = rig
+    driver.adopt("7")
+    lease.current = False
+    before = list(cli.calls)
+    native.unload_profile("work")
+    assert native.get_driver("work", "s1") is driver
+    assert driver.target is not None and driver.target.block == 7
+    assert cli.calls == before
+    assert "unload deferred unacknowledged cleanup (PermissionError)" in caplog.text
+    assert not lease.closed  # keep the original quarantined lease; do not retarget it
+
+
 def test_exact_late_open_cleanup_no_discovery_guess(rig):
     driver, cli, _ = rig
     cli.entries[73] = {"block": 73, "title": "Late", "url": "about:blank", "driven": True}
