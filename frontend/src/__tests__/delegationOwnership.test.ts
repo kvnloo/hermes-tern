@@ -76,6 +76,191 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
     h.agents.dispose()
   })
 
+  it('binds a distinct nested batch under A while root batch B overlaps', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
+    const nested = { ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1 }
+
+    // Before any registry/list result mentions group-c, parent ancestry proves A.
+    h.agents.apply('subagent.spawn_requested', nested, 22)
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'queued'
+    })
+    expect(b.subagents?.map(agent => agent.id)).toEqual(['root-b'])
+
+    h.agents.apply('subagent.start', nested, 23)
+    h.agents.apply('subagent.tool', { ...nested, tool_name: 'terminal' }, 24)
+    h.agents.apply('subagent.progress', { ...payload('nested-c', 'group-c'), status: 'running', tool_count: 3 }, 25)
+    h.agents.apply('subagent.complete', {
+      ...payload('nested-c', 'group-c'), status: 'completed', summary: 'nested finished'
+    }, 26)
+
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'done',
+      summary: 'nested finished', toolCount: 3
+    })
+    expect(b.subagents).toMatchObject([{ delegationId: 'group-b', id: 'root-b', status: 'running' }])
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual([5, 1])
+    h.agents.dispose()
+  })
+
+  it('accepts a nested tool before start, retains its batch through id-less progress, and anchors a grandchild', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
+
+    // Out-of-order delivery still provides a complete first-event parent chain.
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1, tool_name: 'read_file'
+    }, 22)
+    h.agents.apply('subagent.progress', { ...payload('nested-c'), tool_count: 2 }, 23)
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', tool: 'read_file', toolCount: 2
+    })
+
+    h.agents.apply('subagent.start', payload('nested-c', 'group-c'), 24)
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-d', 'group-d'), parent_id: 'nested-c', depth: 2, tool_name: 'terminal'
+    }, 25)
+    h.agents.apply('subagent.complete', { ...payload('nested-d', 'group-d'), status: 'completed' }, 26)
+    h.agents.apply('subagent.complete', { ...payload('nested-c', 'group-c'), status: 'completed' }, 27)
+
+    expect(a.subagents?.find(agent => agent.id === 'nested-d')).toMatchObject({
+      delegationId: 'group-d', depth: 2, parentId: 'nested-c', status: 'done'
+    })
+    expect(a.subagents?.find(agent => agent.id === 'nested-c')).toMatchObject({
+      delegationId: 'group-c', depth: 1, parentId: 'root-a', status: 'done'
+    })
+    expect(b.subagents).toMatchObject([{ id: 'root-b', status: 'running' }])
+    h.agents.dispose()
+  })
+
+  it('rejects new foreign batches without a unique existing parent and does not touch transcript revisions', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 21)
+    const beforeA = JSON.stringify(a.subagents)
+    const beforeB = JSON.stringify(b.subagents)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+
+    h.agents.apply('subagent.start', payload('orphan', 'group-c'), 22)
+    h.agents.apply('subagent.tool', {
+      ...payload('unknown-parent', 'group-c'), parent_id: 'not-an-agent', depth: 1, tool_name: 'terminal'
+    }, 23)
+    h.agents.apply('subagent.start', {
+      ...payload('root-b', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 24)
+    h.agents.apply('subagent.start', {
+      ...payload('root-a', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 25)
+    h.agents.apply('subagent.start', {
+      ...payload('cross-batch', 'group-b'), parent_id: 'root-a', depth: 1
+    }, 26)
+
+    expect(JSON.stringify(a.subagents)).toBe(beforeA)
+    expect(JSON.stringify(b.subagents)).toBe(beforeB)
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+    h.agents.dispose()
+  })
+
+  it('requires consistent nested depth and task ordinals before binding a new group', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 10)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+
+    h.agents.apply('subagent.start', {
+      ...payload('bad-depth', 'group-c'), parent_id: 'root-a', depth: 2
+    }, 11)
+    h.agents.apply('subagent.start', {
+      ...payload('bad-index', 'group-d'), parent_id: 'root-a', depth: 1,
+      task_index: 2, task_count: 1
+    }, 12)
+    h.agents.apply('subagent.start', {
+      ...payload('bad-count', 'group-e'), parent_id: 'root-a', depth: 1,
+      task_index: 0, task_count: 0
+    }, 13)
+
+    expect(a.subagents?.map(agent => agent.id)).toEqual(['root-a'])
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+    h.agents.dispose()
+  })
+
+  it('rejects a reused nested batch id beneath another parent, including in the same call', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    h.agents.apply('subagent.start', { ...payload('other-a', 'group-a'), depth: 0 }, 21)
+    h.agents.apply('subagent.start', { ...payload('root-b', 'group-b'), depth: 0 }, 22)
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 23)
+    const beforeA = JSON.stringify(a.subagents)
+    const beforeB = JSON.stringify(b.subagents)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+
+    h.agents.apply('subagent.start', {
+      ...payload('hijack', 'group-c'), parent_id: 'other-a', depth: 1
+    }, 24)
+    h.agents.apply('subagent.tool', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-b', depth: 1, tool_name: 'terminal'
+    }, 25)
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c', 'new-group'), parent_id: 'root-a', depth: 1
+    }, 26)
+
+    expect(JSON.stringify(a.subagents)).toBe(beforeA)
+    expect(JSON.stringify(b.subagents)).toBe(beforeB)
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+    h.agents.dispose()
+  })
+
+  it('rejects ambiguous duplicate parent ids even within two otherwise distinct root batches', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    const b = dispatched(h.transcript, 'call-b', 'group-b', 10)
+    h.agents.apply('subagent.start', { ...payload('root-a', 'group-a'), depth: 0 }, 20)
+    attachRow(ownersOf(h.transcript.delegations()), b, 0, {
+      delegation_id: 'group-b', depth: 0, goal: 'duplicate identity', subagent_id: 'root-a'
+    }, undefined)
+    const beforeA = JSON.stringify(a.subagents)
+    const beforeB = JSON.stringify(b.subagents)
+
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 21)
+
+    expect(JSON.stringify(a.subagents)).toBe(beforeA)
+    expect(JSON.stringify(b.subagents)).toBe(beforeB)
+    h.agents.dispose()
+  })
+
+  it('rejects a nested anchor when a top-level delegation id is duplicated across calls', () => {
+    const h = rig()
+    const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
+    dispatched(h.transcript, 'call-b', 'group-a', 10)
+    attachRow(ownersOf(h.transcript.delegations()), a, 0, {
+      delegation_id: 'group-a', depth: 0, goal: 'known root', subagent_id: 'root-a'
+    }, undefined)
+    const revisions = h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)
+
+    h.agents.apply('subagent.start', {
+      ...payload('nested-c', 'group-c'), parent_id: 'root-a', depth: 1
+    }, 20)
+
+    expect(a.subagents?.map(agent => agent.id)).toEqual(['root-a'])
+    expect(h.transcript.entries.filter(e => e.kind === 'turn').map(t => t.rev)).toEqual(revisions)
+    h.agents.dispose()
+  })
+
   it('rejects a foreign explicit id without mutating either call or triggering attention', () => {
     const h = rig()
     const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
@@ -190,10 +375,10 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
     const h = rig()
     const a = dispatched(h.transcript, 'call-a', 'group-a', 0)
     h.agents.apply('subagent.start', payload('root', 'group-a'), 10)
-    h.agents.apply('subagent.start', { ...payload('child', 'group-a'), parent_id: 'root', depth: 1 }, 11)
+    h.agents.apply('subagent.start', { ...payload('child', 'group-c'), parent_id: 'root', depth: 1 }, 11)
 
     expect(a.subagents?.find(x => x.id === 'child')).toMatchObject({
-      delegationId: 'group-a', depth: 1, parentId: 'root'
+      delegationId: 'group-c', depth: 1, parentId: 'root'
     })
 
     h.agents.apply('subagent.progress', { ...payload('root', 'group-a'), parent_id: 'child' }, 12)
