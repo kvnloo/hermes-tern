@@ -26,7 +26,7 @@ function search(nodes: readonly Node[]): Node | undefined {
 /** Keep the real App key dispatcher; only replace its OS editor opener with a fixture. */
 function fixtureEditor(opener: DraftOpener) {
   const done = Promise.withResolvers<void>()
-  const spy = vi.spyOn(App.prototype, 'editExternal').mockImplementation(function (this: App) {
+  const spy = vi.spyOn(App.prototype, 'editExternal').mockImplementation(function (this: InstanceType<typeof App>) {
     return editExternal({
       composer: this.stores.composer,
       sid: () => this.session.ref.live,
@@ -171,7 +171,7 @@ describe('Vim composer plugged into the actual app and native Tern dock', () => 
       expect(undo).toBeTypeOf('function')
       if (typeof edit === 'function') edit({ ev: 'edit', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, from: 0, to: 3, text: 'bad', cursor: 3, len: 3 })
       if (typeof send === 'function') send({ ev: 'send', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, text: 'competing submit' })
-      if (typeof undo === 'function') undo()
+      if (typeof undo === 'function') undo({ ev: 'undo', sf: 'hermes', id: 'dock.composer.line.input', raw: {} })
       expect(app.stores.composer.text).toBe(before)
       expect(gw.sent('prompt.submit')).toHaveLength(0)
 

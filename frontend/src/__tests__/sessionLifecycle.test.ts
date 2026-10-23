@@ -163,6 +163,7 @@ function recordingHost() {
     prs: { adopt: rec('prs.adopt') },
     queue: { adopt: ref => void log.push(`queue.adopt ${ref.live}`), server: { reset: rec('queue.reset') } },
     readBusyMode: rec('readBusyMode'),
+    readVimPreference: rec('readVimPreference'),
     reportCwd: rec('reportCwd'),
     sheets: { dropAll: rec('sheets.dropAll') },
     sidebar: { adopt: sid => void log.push(`sidebar.adopt ${sid}`) },
@@ -206,6 +207,7 @@ describe('adoptSteps', () => {
       'sheets.dropAll',
       'busyMode queue',
       'readBusyMode',
+      'readVimPreference',
       'queue.reset',
       'showThoughts b',
       'markViewer sb sa',
@@ -247,7 +249,7 @@ describe('adoptSteps', () => {
     expect(log).not.toContain('busyMode queue')
     expect(log).not.toContain('transcript.load')
     expect(log).not.toContain('transcript.inflight')
-    expect(log.slice(0, 4)).toEqual(['ref a', 'transcript.reset same', 'readBusyMode', 'queue.reset'])
+    expect(log.slice(0, 5)).toEqual(['ref a', 'transcript.reset same', 'readBusyMode', 'readVimPreference', 'queue.reset'])
     expect(log.at(-1)).toBe('changed')
   })
 })
