@@ -10,7 +10,7 @@ import { openPlanReview, type PlanReviewHost } from '../overlays/plan.js'
 import { latestPlan, parsePlan, planStatusOf, reviewPlanText } from '../plan.js'
 import { Transcript } from '../transcript/store.js'
 
-import { FakeGateway, key, type Reply } from './fakes.js'
+import { FakeGateway, key, must, stub, type Reply } from './fakes.js'
 
 const paint = async () => {
   await new Promise<void>(resolve => setImmediate(resolve))
@@ -115,7 +115,7 @@ function fixture(replies: Record<string, Reply> = {}) {
 describe('Hermes plan parser and authority boundary', () => {
   it('ignores fenced headings, user text and unfinished turns', () => {
     const text = 'Intro\n' + '~~~md\n# Hidden\n~~~\n' + '# Actual\nBody\n## Same\nOne\n## Same\nTwo'
-    const parsed = parsePlan(text)!
+    const parsed = must(parsePlan(text))
 
     expect(parsed.preamble).toBe('Intro\n~~~md\n# Hidden\n~~~\n')
     expect(parsed.sections.map(section => section.title)).toEqual(['Actual', 'Same', 'Same'])
@@ -264,7 +264,11 @@ describe('native plan review', () => {
     afterReplacement()
     expect(f.gw.sent('plan.decide')).toEqual([])
 
-    f.host.close(f.overlays[0]!)
+    const active = f.overlays.at(0)
+
+    if (active) {
+      f.host.close(active)
+    }
     const prompt: Overlay = { key: 'approval', modal: true, node: () => node('overlay', { key: 'approval', modal: true }), onKey: () => true }
     f.host.open(prompt)
     openPlanReview(f.host)
@@ -274,11 +278,11 @@ describe('native plan review', () => {
 
   it('preserves /plan with arguments as gateway generation and opens only bare /plan locally', async () => {
     const f = fixture({ 'plan.status': initial })
-    const cmd = localCommand('plan')!
+    const cmd = must(localCommand('plan'))
 
-    expect(await cmd.run(f.host as unknown as CommandHost, 'build the change')).toBe(false)
+    expect(await cmd.run(stub<CommandHost>(f.host), 'build the change')).toBe(false)
     expect(f.gw.sent('plan.status')).toEqual([])
-    await cmd.run(f.host as unknown as CommandHost, '')
+    await cmd.run(stub<CommandHost>(f.host), '')
     await paint()
     expect(f.element('authority')?.props.text).toContain('revision 3')
   })

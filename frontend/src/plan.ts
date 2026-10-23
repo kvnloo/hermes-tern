@@ -109,15 +109,15 @@ export function parsePlan(text: string): Plan | undefined {
         fence = undefined
       }
     } else if (marker) {
-      fence = { length: marker[1]!.length, marker: marker[1]![0]! }
+      fence = { length: (marker[1]?.length ?? 0), marker: (marker[1]?.[0] ?? '') }
     } else {
       const heading = line.match(/^ {0,3}(#{1,6})[\t ]+(.+?)\s*$/)
 
       if (heading) {
         headings.push({
-          level: heading[1]!.length,
+          level: (heading[1]?.length ?? 0),
           offset,
-          title: heading[2]!.replace(/[\t ]+#+[\t ]*$/, '')
+          title: (heading[2] ?? '').replace(/[\t ]+#+[\t ]*$/, '')
         })
       }
     }
@@ -130,7 +130,7 @@ export function parsePlan(text: string): Plan | undefined {
   }
 
   return {
-    preamble: text.slice(0, headings[0]!.offset),
+    preamble: text.slice(0, (headings[0]?.offset ?? 0)),
     sections: headings.map((heading, index) => ({
       level: heading.level,
       text: text.slice(heading.offset, headings[index + 1]?.offset ?? text.length),

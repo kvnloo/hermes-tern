@@ -142,7 +142,7 @@ export function openPlanReview(host: PlanReviewHost): void {
   }
 
   const write = (revision: Target | undefined) => {
-    if (!owned() || !canDecide() || !same(revision) || !editing) {
+    if (!owned() || !canDecide() || !revision || !same(revision) || !editing) {
       return
     }
 
@@ -157,7 +157,7 @@ export function openPlanReview(host: PlanReviewHost): void {
       }
 
       void transact(() => host.gw.request<unknown>('plan.annotate', {
-        ...revision!, section: editingSection, text
+        ...revision, section: editingSection, text
       }))
     } else if (editing === 'plan') {
       if (!text || note.text.length > 200000) {
@@ -167,7 +167,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         return
       }
 
-      void transact(() => host.gw.request<unknown>('plan.edit', { ...revision!, text: note.text }))
+      void transact(() => host.gw.request<unknown>('plan.edit', { ...revision, text: note.text }))
     } else {
       if (text.length > 16000) {
         error = 'Refinement feedback must be at most 16,000 characters.'
@@ -178,7 +178,7 @@ export function openPlanReview(host: PlanReviewHost): void {
 
       if (text || status?.plan?.annotations.length) {
         void transact(
-          () => host.gw.request<unknown>('plan.decide', { ...revision!, feedback: text, intent: 'refine' }),
+          () => host.gw.request<unknown>('plan.decide', { ...revision, feedback: text, intent: 'refine' }),
           true
         )
       }
@@ -186,12 +186,12 @@ export function openPlanReview(host: PlanReviewHost): void {
   }
 
   const approve = (revision: Target | undefined) => {
-    if (!owned() || !canDecide() || !same(revision) || editing) {
+    if (!owned() || !canDecide() || !revision || !same(revision) || editing) {
       return
     }
 
     void transact(
-      () => host.gw.request<unknown>('plan.decide', { ...revision!, feedback: '', intent: 'approve' }),
+      () => host.gw.request<unknown>('plan.decide', { ...revision, feedback: '', intent: 'approve' }),
       true
     )
   }
@@ -207,7 +207,7 @@ export function openPlanReview(host: PlanReviewHost): void {
   }
 
   const externalEdit = (revision: Target | undefined, initial: string | undefined) => {
-    if (!owned() || !canDecide() || !same(revision) || initial === undefined) {
+    if (!owned() || !canDecide() || !revision || !same(revision) || initial === undefined) {
       return
     }
 
@@ -222,7 +222,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         throw new Error('The edited plan must contain 1 to 200,000 characters.')
       }
 
-      return host.gw.request<unknown>('plan.edit', { ...revision!, text })
+      return host.gw.request<unknown>('plan.edit', { ...revision, text })
     })
   }
 

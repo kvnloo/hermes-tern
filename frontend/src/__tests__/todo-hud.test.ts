@@ -16,7 +16,9 @@ describe('session-scoped todo.updated projection', () => {
 
     model.adopt('session-a')
     model.update(original)
-    original[0]!.status = 'completed'
+    if (original[0]) {
+      original[0].status = 'completed'
+    }
     original.push(todo('c', 'in_progress'))
 
     expect(model.visible(false)).toEqual([todo('a', 'pending'), todo('b', 'pending')])
@@ -30,7 +32,9 @@ describe('session-scoped todo.updated projection', () => {
     const history = [todo('a', 'pending')]
 
     model.adopt('a', history)
-    history[0]!.status = 'completed'
+    if (history[0]) {
+      history[0].status = 'completed'
+    }
     expect(model.visible(false)).toEqual([todo('a', 'pending')])
     model.adopt('b')
     expect(model.visible(false)).toBeUndefined()

@@ -40,7 +40,13 @@ export class TodoHud {
     this.#plans.set(key, plan.map(todo => ({ ...todo })))
 
     while (this.#plans.size > MAX_CACHED_SESSIONS) {
-      this.#plans.delete(this.#plans.keys().next().value!)
+      const oldest = this.#plans.keys().next().value
+
+      if (oldest === undefined) {
+        break
+      }
+
+      this.#plans.delete(oldest)
     }
   }
 }

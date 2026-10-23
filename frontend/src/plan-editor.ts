@@ -20,7 +20,7 @@ export const openPlanFile: PlanOpener = path => {
       process.stdin.setRawMode(false)
     }
 
-    const result = spawnSync(argv[0]!, argv.slice(1), { stdio: inTern ? 'pipe' : 'inherit' })
+    const result = spawnSync(argv[0] || 'vi', argv.slice(1), { stdio: inTern ? 'pipe' : 'inherit' })
 
     if (result.error) {
       throw result.error
