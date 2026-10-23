@@ -203,8 +203,11 @@ export class LiveVoice {
   }
 
   /** Inline semantic controls preserve regular tool/approval and transcript rendering. */
-  node(): JSX.Element {
+  node(): JSX.Element | null {
     const active = this.#lease !== undefined
+    // Preserve the existing idle dock, including recorded golden replays.
+    // /live and Alt+Shift+V expose this panel on explicit request.
+    if (!active && this.phase === 'idle') return null
     return (
       <col key="live-voice" role="omp.live.voice">
         <row key="toggle" role="omp.live.toggle" onClick={() => this.toggle()} title="Live voice · Alt+Shift+V">
