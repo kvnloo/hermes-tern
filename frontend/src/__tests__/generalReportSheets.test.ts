@@ -50,7 +50,7 @@ describe('native general report sheets', () => {
     const input = new EventEmitter()
     const tern = new Session(input, { write() {} }, { exitHooks: false, record: '' })
     const connecting = tern.handshake()
-    input.emit('data', `\\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\\x1b\\\\`)
+    input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\x1b\\`)
     expect(await connecting).toBe(true)
 
     const gw = new FakeGateway()
@@ -66,7 +66,7 @@ describe('native general report sheets', () => {
       given.session(app, 's1')
       const before = [...app.transcript.entries]
       app.stores.composer.set('  draft 🦉  ', { cursor: 3 })
-      app.operations.showText('/history', '# Native\\n\\nExact 🦉')
+      app.operations.showText('/history', '# Native\n\nExact 🦉')
       await new Promise<void>(resolve => setImmediate(resolve))
       await new Promise<void>(resolve => setImmediate(resolve))
       const nodes = rendered.regions.find(region => region?.id === 'layer')?.children ?? []
