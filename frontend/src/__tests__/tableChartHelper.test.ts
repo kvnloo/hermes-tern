@@ -12,7 +12,7 @@ const UI = join(REPO, 'frontend')
 const TABLE = '| Category | Revenue |\n| --- | --- |\n| Alpha | 10 |\n| Beta | 25 |'
 const parsed = analyzeTable(TABLE)
 
-function route(scenario: string) {
+function route(scenario: string, expectRedaction = false) {
   // The actual shipped adapter launches the actual shipped Python script;
   // PYTHONPATH resolves fixture providers, not credentials or a live model.
   return hermesTableChartPlanner({
@@ -20,7 +20,8 @@ function route(scenario: string) {
     HERMES_PYTHON: process.env['HERMES_PYTHON'] || 'python3',
     HERMES_PYTHON_SRC_ROOT: FIXTURE,
     HERMES_TUI_DIR: UI,
-    TABLE_CHART_FIXTURE_OUTPUT: scenario
+    TABLE_CHART_FIXTURE_OUTPUT: scenario,
+    TABLE_CHART_FIXTURE_EXPECT_REDACTION: expectRedaction ? '1' : '0'
   })
 }
 
@@ -31,7 +32,14 @@ describe('table chart Python auxiliary transport (fixture provider)', () => {
     await expect(route(kind)('owned-session', parsed, new AbortController().signal)).resolves.toBe(kind)
   })
 
-  it.each(['invalid content', '<svg>unsafe</svg>', 'raise', 'unavailable'])('keeps the local bar for %s', async reply => {
+  it('redacts source before the single local provider send', async () => {
+    const sensitive = analyzeTable(TABLE.replace('| Alpha |', '| secret |'))
+    expect(sensitive).toBeDefined()
+    if (!sensitive) { return }
+    await expect(route('line', true)('owned-session', sensitive, new AbortController().signal)).resolves.toBe('line')
+  })
+
+  it.each(['invalid content', '<svg>unsafe</svg>', 'raise', 'unavailable', 'unsafe'])('keeps the local bar for %s', async reply => {
     expect(parsed).toBeDefined()
     if (!parsed) { return }
     await expect(route(reply)('owned-session', parsed, new AbortController().signal)).resolves.toBe('bar')
@@ -70,5 +78,6 @@ describe('table chart Python auxiliary transport (fixture provider)', () => {
     const started = Date.now()
     await expect(route('slow')('owned-session', parsed, new AbortController().signal)).rejects.toThrow()
     expect(Date.now() - started).toBeLessThan(TABLE_CHART_DEADLINE_MS + 2500)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(TABLE_CHART_DEADLINE_MS - 1000)
   }, 9000)
 })
