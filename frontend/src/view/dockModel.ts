@@ -65,7 +65,7 @@ export function isModal(overlays: readonly Pick<Overlay, 'modal'>[]): boolean {
 }
 
 /** The agent's todo list while it matters: a turn runs, or something on it is still open. */
-export function shownTodos(src: Pick<DockSources, 'activity' | 'transcript'>): Todo[] | undefined {
+export function shownTodos(src: Pick<DockSources, 'activity' | 'todoHud' | 'transcript'>): Todo[] | undefined {
   const busy = Boolean(src.activity.busy)
   const history = src.transcript.currentTodos()
 

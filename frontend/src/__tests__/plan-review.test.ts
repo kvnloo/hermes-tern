@@ -281,7 +281,7 @@ describe('native plan review', () => {
     if (active) {
       f.host.close(active)
     }
-    const prompt: Overlay = { key: 'approval', modal: true, node: () => node('overlay', { key: 'approval', modal: true }), onKey: () => true }
+    const prompt: Overlay = { key: 'approval', modal: true, node: () => node('box', { key: 'approval' }), onKey: () => true }
     f.host.open(prompt)
     openPlanReview(f.host)
     expect(f.overlays).toEqual([prompt])
