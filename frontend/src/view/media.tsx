@@ -26,10 +26,16 @@ export function imagePreviewNode(source: MediaPath, delivery: MediaDelivery, alt
   }
 
   if (state.status === 'available' || state.status === 'failed') {
+    const session = delivery.deps.session()
+    const token = delivery.token()
+
     return (
       <col gap="xs" key={key} role="omp.media.preview">
         {state.status === 'failed' ? <text key="error" role="omp.media.notice" text={state.error} wrap="word" /> : null}
-        {button({ key: 'load', label: state.label, onClick: () => void delivery.load(source) })}
+        {button({
+          key: 'load', label: state.label,
+          onClick: () => { if (session === delivery.deps.session() && token === delivery.token()) { void delivery.load(source) } }
+        })}
       </col>
     )
   }
