@@ -1,16 +1,22 @@
 import { Node, node, type JSX } from '@stencil-hq/tern'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { localCommand } from '../commands/local.js'
 import type { CommandHost } from '../commands/local.js'
 import { entryId, liveSessionId } from '../core/ids.js'
+import { Composer } from '../draft/composer.js'
 import type { Entry } from '../model.js'
+import type { SessionHost } from '../commands/session.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { openPlanReview, type PlanReviewHost } from '../overlays/plan.js'
+import { editPlanExternal } from '../plan-editor.js'
 import { latestPlan, parsePlan, planStatusOf, reviewPlanText } from '../plan.js'
 import { Transcript } from '../transcript/store.js'
 
-import { FakeGateway, key, must, stub, type Reply } from './fakes.js'
+import { FakeGateway, key, must, stub, stubOverlay, type Reply } from './fakes.js'
+
+vi.mock('../plan-editor.js', () => ({ editPlanExternal: vi.fn() }))
+afterEach(() => vi.mocked(editPlanExternal).mockReset())
 
 const paint = async () => {
   await new Promise<void>(resolve => setImmediate(resolve))
@@ -50,7 +56,7 @@ const initial = (): PlanFixture => ({
   }
 })
 
-function fixture(replies: Record<string, Reply> = {}) {
+function fixture(replies: Record<string, Reply> = {}, { busy = false }: { busy?: boolean } = {}) {
   const overlays: Overlay[] = []
   const gw = new FakeGateway({ replies })
   const transcript = new Transcript()
@@ -58,12 +64,23 @@ function fixture(replies: Record<string, Reply> = {}) {
   const changed = vi.fn()
   const scroll = vi.fn()
   const notices = vi.fn()
+  const send = vi.fn<(text: string) => void>()
+  const enqueue = vi.fn<(text: string) => void>()
+  const draft = new Composer()
+  draft.set('Keep this draft and caret', { cursor: 7, pasted: ['!literal'] })
 
   transcript.push(doneTurn('Preamble\n# Assistant plan\n## Phase one\nComplete the task'))
 
   const host: PlanReviewHost = {
-    busy: null,
+    busy: busy ? stub<NonNullable<PlanReviewHost['busy']>>({ since: 1 }) : null,
     changed,
+    control: () => stub<SessionHost>({
+      busy,
+      enqueue,
+      get sid() { return session.ref.live },
+      send,
+      stale: () => false
+    }),
     close: overlay => {
       const index = overlays.indexOf(overlay)
 
@@ -121,7 +138,7 @@ function fixture(replies: Record<string, Reply> = {}) {
     return () => action({ act: 'click', ev: 'action', id: 'fixture', raw: {}, sf: 'hermes' })
   }
 
-  return { capture, changed, click, element, gw, host, nodes, notices, overlays, scroll, session, transcript }
+  return { capture, changed, click, draft, element, enqueue, gw, host, nodes, notices, overlays, scroll, send, session, transcript }
 }
 
 describe('Hermes plan parser and authority boundary', () => {
@@ -158,7 +175,7 @@ describe('Hermes plan parser and authority boundary', () => {
 })
 
 describe('native plan review', () => {
-  it('is read-only without a compatible backend, including an ordinary heading-based candidate', async () => {
+  it('exposes ordinary actions without a compatible backend while retaining inspection-only authority', async () => {
     const f = fixture()
     openPlanReview(f.host)
     await paint()
@@ -166,8 +183,8 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.status')).toEqual([{ session_id: 'runtime-a' }])
     expect(f.element('authority')?.props.text).toContain('Plan authority unavailable')
     expect(f.element('markdown')?.props.text).toContain('# Assistant plan')
-    expect(f.element('approve')).toBeUndefined()
-    expect(f.element('refine')).toBeUndefined()
+    expect(f.element('approve')?.props.title).toBe('Continue (ordinary prompt)')
+    expect(f.element('refine')).toBeDefined()
     expect(f.element('mode')).toBeUndefined()
     f.click('section-1')
     expect(f.scroll).toHaveBeenCalledWith('layer.plan.body.markdown', 'start')
@@ -175,6 +192,168 @@ describe('native plan review', () => {
     f.click('close')
     expect(f.overlays).toHaveLength(0)
     expect(f.gw.sent('prompt.submit')).toEqual([])
+    expect(f.send).not.toHaveBeenCalled()
+  })
+
+  it('routes ordinary Continue exactly once through the typed normal prompt port, leaving draft and images untouched', async () => {
+    const f = fixture()
+    openPlanReview(f.host)
+    await paint()
+    const first = f.capture('approve')
+    const draftBefore = [f.draft.text, f.draft.cursor, [...f.draft.pasted]]
+
+    first()
+    first()
+    await paint()
+
+    expect(f.send).toHaveBeenCalledExactlyOnceWith('Approved — proceed with the plan.')
+    expect(f.enqueue).not.toHaveBeenCalled()
+    expect(f.overlays).toHaveLength(0)
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.gw.sent('prompt.submit')).toEqual([])
+    expect([f.draft.text, f.draft.cursor, [...f.draft.pasted]]).toEqual(draftBefore)
+  })
+
+  it('sends ordinary refinement text via the prompt port, not plan.decide; empty and duplicate submissions do nothing', async () => {
+    const f = fixture({ 'plan.status': () => ({ enabled: false, generating: false, plan: null }) })
+    openPlanReview(f.host)
+    await paint()
+
+    expect(f.element('approve')?.props.title).toBe('Continue (ordinary prompt)')
+    f.click('refine')
+    const empty = f.capture('save')
+    empty()
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.overlays).toHaveLength(1)
+
+    f.overlays.at(-1)?.onKey(key('text', { text: 'Add rollback checks' }))
+    const submit = f.capture('save')
+    submit()
+    submit()
+    await paint()
+
+    expect(f.send).toHaveBeenCalledExactlyOnceWith('Refine the plan: Add rollback checks')
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.enqueue).not.toHaveBeenCalled()
+    expect(f.draft.text).toBe('Keep this draft and caret')
+    expect(f.draft.cursor).toBe(7)
+    expect(f.draft.pasted).toEqual(['!literal'])
+  })
+
+  it('queues an ordinary Continue while busy rather than steering or borrowing composer attachments', async () => {
+    const f = fixture({}, { busy: true })
+    openPlanReview(f.host)
+    await paint()
+
+    f.click('approve')
+    expect(f.enqueue).toHaveBeenCalledExactlyOnceWith('Approved — proceed with the plan.')
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.draft.text).toBe('Keep this draft and caret')
+  })
+
+  it('does not offer ordinary approval in enabled planning mode, or while status is loading', async () => {
+    let respond!: (value: unknown) => void
+    const f = fixture({
+      'plan.status': () => new Promise(resolve => { respond = resolve })
+    })
+    openPlanReview(f.host)
+    expect(f.element('approve')).toBeUndefined()
+    respond({ enabled: true, generating: false, plan: null })
+    await paint()
+    expect(f.element('approve')).toBeUndefined()
+    expect(f.element('refine')).toBeUndefined()
+    expect(f.send).not.toHaveBeenCalled()
+  })
+
+  it('rejects captured mode, edit and approve actions after an idle modal preempts the plan sheet', async () => {
+    const f = fixture({ 'plan.status': initial, 'plan.mode': initial })
+    openPlanReview(f.host)
+    await paint()
+
+    const mode = f.capture('mode')
+    const edit = f.capture('edit-plan')
+    const approve = f.capture('approve')
+    const refine = f.capture('refine')
+    const planSheet = must(f.overlays.at(-1))
+    f.host.open(stubOverlay('approval', { modal: true }))
+
+    mode()
+    edit()
+    approve()
+    refine()
+    planSheet.onKey(key('a', { alt: true }))
+    planSheet.onKey(key('text', { text: 'ignored' }))
+    expect(f.gw.sent('plan.mode')).toEqual([])
+    expect(f.gw.sent('plan.edit')).toEqual([])
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.overlays).toHaveLength(2)
+  })
+
+  it('rejects late external-editor completion after a modal preemption without any RPC', async () => {
+    let finish!: (text: string) => void
+    vi.mocked(editPlanExternal).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const f = fixture({ 'plan.status': initial })
+    openPlanReview(f.host)
+    await paint()
+    f.click('external-editor')
+    expect(editPlanExternal).toHaveBeenCalledExactlyOnceWith(initial().plan.text)
+    f.host.open(stubOverlay('approval', { modal: true }))
+    finish('# Late edit from $EDITOR')
+    await paint()
+
+    expect(f.gw.sent('plan.edit')).toEqual([])
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.send).not.toHaveBeenCalled()
+  })
+
+  it('rejects stale ordinary pointer callbacks across refinement, replacement, preemption and session changes', async () => {
+    const f = fixture()
+    openPlanReview(f.host)
+    await paint()
+
+    const oldContinue = f.capture('approve')
+    f.click('refine')
+    const oldSave = f.capture('save')
+    f.click('review')
+    oldSave()
+    expect(f.send).not.toHaveBeenCalled()
+
+    f.host.open(stubOverlay('approval', { modal: true }))
+    oldContinue()
+    expect(f.send).not.toHaveBeenCalled()
+    f.host.close(must(f.overlays.at(-1)))
+
+    openPlanReview(f.host)
+    await paint()
+    oldContinue()
+    expect(f.send).not.toHaveBeenCalled()
+    const latestContinue = f.capture('approve')
+    f.session.ref.live = liveSessionId('runtime-b')
+    latestContinue()
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('invalidates a captured mode toggle when a fresh backend revision arrives', async () => {
+    let status = initial()
+    const f = fixture({
+      'plan.status': () => structuredClone(status),
+      'plan.mode': () => {
+        status = { ...status, enabled: false }
+        return structuredClone(status)
+      }
+    })
+    openPlanReview(f.host)
+    await paint()
+    const oldMode = f.capture('mode')
+    f.click('mode')
+    await paint()
+    oldMode()
+
+    expect(f.gw.sent('plan.mode')).toEqual([{ enabled: false, session_id: 'runtime-a' }])
+    expect(f.send).not.toHaveBeenCalled()
   })
 
   it('renders authoritative status and sends a single exact-revision approval, not a prompt', async () => {
