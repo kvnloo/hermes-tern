@@ -151,6 +151,7 @@ export class App implements ChatPorts {
       eventLog: this.#launch.eventLog,
       gw: this.#gw,
       onShown: ev => this.#onShown(ev, s),
+      onLost: () => this.#orbActivity.reset(),
       labels: { busy: busyLabel, preparing: preparingLabel },
       reportCwd: () => this.#act.reportCwd(),
       request: req => this.#act.onRequest(req),
