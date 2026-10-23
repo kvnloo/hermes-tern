@@ -6,6 +6,7 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../core/assert.js'
+import type { MediaDelivery } from '../media-delivery.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
@@ -28,6 +29,9 @@ export interface TranscriptContext {
   copy(text: string, id: string): void
   /** The entry copied a moment ago, whose copy button shows a check. */
   copied?: string | undefined
+  /** Optional for isolated render fixtures; App supplies its current delivery service. */
+  media?: MediaDelivery
+  mediaRev?: string
 }
 
 const kNode = Symbol('tsp.node')
@@ -50,7 +54,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}`
+  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}:${cx.mediaRev ?? ''}`
   const cached = built[kNode]
 
   if (cached?.rev === rev) {
@@ -230,7 +234,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.media)
     }
 
     const b = p.block
@@ -244,7 +248,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now)
+        return toolNode(b.call, cx.now, cx.media)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))
