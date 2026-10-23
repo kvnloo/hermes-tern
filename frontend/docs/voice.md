@@ -7,7 +7,8 @@ and [PUSH-TO-TALK.md](https://github.com/kvnloo/hermes-agent/blob/preview/tern-f
 **Dictation** stays owned by [alt-glitch/hermes-tern#71](https://github.com/alt-glitch/hermes-tern/pull/71):
 its recorder, /voice on/off, Alt+V, STT partials and final-at-caret undo splice are
 not duplicated here. This port adds separate opt-in **Live voice** via
-Alt+Shift+V or /live. The shortcut opens a disclosure; only the user's
+Alt+Shift+V or /live. Idle UI is unchanged until the command or shortcut
+opens a disclosure; only the user's
 explicit Allow click may call voice.live.start. The gateway-machine mic,
 Hermes STT, regular prompt pipeline and Hermes TTS power the conversation.
 Automatic spoken turns never send or edit the typed composer draft.

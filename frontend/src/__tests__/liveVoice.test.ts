@@ -1,3 +1,4 @@
+import { type JSX, Node } from '@stencil-hq/tern'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { dockModel } from '../view/dockModel.js'
@@ -13,6 +14,15 @@ beforeEach(() => {
 })
 
 const toggle = key('v', { alt: true, shift: true })
+
+/** The same semantic click contract the dock tests drive. */
+function clickRole(root: JSX.Element | null, role: string): void {
+  const walk = (node: JSX.Element): Node[] =>
+    node instanceof Node ? [node, ...node.children.flatMap(child => walk(child))] : []
+  const control = root ? walk(root).find(node => node.props['role'] === role) : undefined
+  if (!control) throw new Error('Missing clickable voice control: ' + role)
+  control.handlers?.onClick?.({ act: 'click', ev: 'action', id: 'x', raw: {}, sf: 'hermes' })
+}
 
 describe('live voice and consent lifecycle', () => {
   it('a shortcut opens a disclosure, never audio; consent blocks send without clearing draft', async () => {
@@ -40,7 +50,7 @@ describe('live voice and consent lifecycle', () => {
     app.liveVoice.start()
     expect(sent('voice.live.start')).toHaveLength(0)
     await press(toggle)
-    app.liveVoice.start()
+    clickRole(app.liveVoice.node(), 'omp.live.start')
     app.liveVoice.start()
     await settle()
     expect(sent('voice.live.start')).toHaveLength(1)
@@ -93,13 +103,13 @@ describe('live voice and consent lifecycle', () => {
     emit('event', { type: 'voice.live', session_id: 's2', payload: { live_id: liveId, phase: 'speaking', assistant_text: 'foreign' } })
     await settle()
     expect(app.liveVoice.assistant).toBe('')
-    const before = app.transcript.entries.length
+    const before = app.transcript.entries.filter(e => e.kind !== 'notice').length
     emit('event', { type: 'voice.live', session_id: 's1', payload: {
       live_id: liveId, phase: 'speaking', assistant_text: 'spoken response', user_text: 'spoken user'
     } })
     await settle()
     expect(app.liveVoice.assistant).toBe('spoken response')
-    expect(app.transcript.entries).toHaveLength(before)
+    expect(app.transcript.entries.filter(e => e.kind !== 'notice')).toHaveLength(before)
   })
 
   it('new session identity retires old lease without moving it to the next owner', async () => {
