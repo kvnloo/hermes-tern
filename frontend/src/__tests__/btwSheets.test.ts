@@ -6,18 +6,40 @@ import { App } from '../app/chat.js'
 import { BtwThreads } from '../btw.js'
 import { copyToClipboard } from '../clipboard.js'
 import { localCommand } from '../commands/local.js'
+import { append as appendHistory } from '../hermes/history.js'
 import type { BtwThread } from '../wire/side.js'
 
 import { FakeGateway, fakeTern, given, key, must, stubOverlay, tree } from './fakes.js'
 import { sideSetup } from './sideSetup.js'
 
 vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
-vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
+vi.mock('@tui/lib/history.js', () => ({ append: vi.fn(), load: () => [] }))
 
 function thread(id: string, state: BtwThread['turns'][number]['state'] = 'answered', revision = 1): BtwThread {
   return {
     id, revision,
     turns: [{ id: id + '-turn', question: 'Question ' + id, answer: 'Answer ' + id, state }]
+  }
+}
+
+/** Exercise the actual main composer -> Enter -> local /btw -> conversation store path. */
+async function openedBySlash(gw: FakeGateway, question: string) {
+  const tern = fakeTern()
+  const app = new App(tern.session, gw.client, 'test')
+  const running = app.run()
+  given.session(app, 's1')
+  await vi.waitFor(() => expect(tern.reading).toBe(true))
+  app.stores.composer.set('/btw ' + question)
+  tern.press('enter')
+  await vi.waitFor(() => expect(gw.sent('btw.list')).toEqual([{ session_id: 's1' }]))
+
+  return {
+    app, tern,
+    close: async () => {
+      app.quit()
+      tern.end()
+      await running
+    }
   }
 }
 
@@ -245,5 +267,141 @@ describe('native BTW thread history and reader', () => {
     expect(model.draft.text).toBe('Keep my draft')
     model.onEvent({ type: 'btw.update', session_id: 's1', payload: { thread: { id: 'bad' } } })
     expect(model.threads).toEqual([])
+  })
+
+  it('keeps a typed Unicode slash question in the native new-thread editor when history is rejected', async () => {
+    const gw = new FakeGateway()
+    const pending = Promise.withResolvers<unknown>()
+    gw.handlers.set('btw.list', () => pending.promise)
+    const question = 'native side 🧪 粘'
+    const f = await openedBySlash(gw, question)
+
+    try {
+      expect(f.app.btw.state).toBe('loading')
+      expect(f.app.btw.selected).toBe(null)
+      expect(f.app.btw.draft.text).toBe(question)
+      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.btw')))
+        .some(n => n.p?.['text'] === question)).toBe(true)
+      expect(appendHistory).toHaveBeenCalledWith('/btw ' + question)
+      const history = vi.mocked(appendHistory).mock.calls.slice()
+      const transcript = [...f.app.transcript.entries]
+      const image = { name: 'unsent.png', mime: 'image/png', path: '/tmp/unsent.png' }
+      f.app.stores.composer.set('Main unsent 🦉', { cursor: 3 })
+      f.app.stores.attachments.restore([image])
+
+      pending.reject(new Error('unsupported btw.list'))
+      await vi.waitFor(() => expect(f.app.btw.error).toContain('unavailable'))
+      expect(f.app.btw.state).toBe('idle')
+      expect(f.app.btw.draft.text).toBe(question)
+      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.btw')))
+        .some(n => n.p?.['text'] === question)).toBe(true)
+      expect(f.app.stores.composer.text).toBe('Main unsent 🦉')
+      expect(f.app.stores.composer.cursor).toBe(3)
+      expect(f.app.stores.attachments.items).toEqual([image])
+      expect(f.app.transcript.entries).toEqual(transcript)
+      expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
+      for (const name of ['btw.submit', 'prompt.btw', 'prompt.submit', 'slash.exec', 'command.dispatch']) {
+        expect(gw.methods(name), name).toHaveLength(0)
+      }
+
+      f.app.btw.close()
+      gw.handlers.set('btw.list', () => { throw new Error('still unavailable') })
+      await f.app.btw.show()
+      expect(f.app.btw.selected).toBe(null)
+      expect(f.app.btw.draft.text).toBe(question)
+      expect(f.app.btw.error).toContain('unavailable')
+      expect(f.app.transcript.entries).toEqual(transcript)
+      expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
+      expect(gw.methods('btw.submit')).toHaveLength(0)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('does not auto-submit or overwrite newer side edits after delayed successful slash history', async () => {
+    const gw = new FakeGateway()
+    const pending = Promise.withResolvers<unknown>()
+    gw.handlers.set('btw.list', () => pending.promise)
+    const question = 'fresh 🧪'
+    const f = await openedBySlash(gw, question)
+
+    try {
+      const draft = f.app.btw.draft
+      const seededRevision = draft.revision
+      const transcript = [...f.app.transcript.entries]
+      const history = vi.mocked(appendHistory).mock.calls.slice()
+      f.app.stores.composer.set('Other main draft', { cursor: 4 })
+      f.tern.press('tab') // reader -> conversation-owned side composer
+      f.tern.press('x')
+      await vi.waitFor(() => expect(draft.text).toBe(question + 'x'))
+      expect(draft.revision).toBeGreaterThan(seededRevision)
+
+      gw.handlers.set('btw.list', () => ({ threads: [] }))
+      pending.resolve({ threads: [] })
+      await vi.waitFor(() => expect(f.app.btw.state).toBe('idle'))
+      expect(f.app.btw.selected).toBe(null)
+      expect(f.app.btw.draft).toBe(draft)
+      expect(draft.text).toBe(question + 'x')
+      expect(gw.methods('btw.submit')).toHaveLength(0)
+      expect(gw.methods('prompt.submit')).toHaveLength(0)
+      expect(f.app.stores.composer.text).toBe('Other main draft')
+      expect(f.app.stores.composer.cursor).toBe(4)
+      expect(f.app.transcript.entries).toEqual(transcript)
+      expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
+
+      f.app.btw.close()
+      await f.app.btw.show()
+      expect(f.app.btw.draft).toBe(draft)
+      expect(draft.text).toBe(question + 'x')
+      expect(gw.methods('btw.submit')).toHaveLength(0)
+
+      // Only an explicit side Send may admit the revised question.
+      gw.handlers.set('btw.submit', () => ({ thread: thread('created'), turn_id: 'created-turn' }))
+      await f.app.btw.submit()
+      expect(gw.sent('btw.submit')).toEqual([{ session_id: 's1', text: question + 'x' }])
+      expect(f.app.transcript.entries).toEqual(transcript)
+      expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('retains earlier unadmitted new-thread text, paste ownership and caret on another slash question', async () => {
+    const f = sideSetup()
+    const model = new BtwThreads(f.host)
+    const draft = model.draft
+    draft.set('Earlier 🦉', { cursor: 3, pasted: ['Earlier 🦉'] })
+    f.gw.handlers.set('btw.list', () => ({ threads: [] }))
+
+    await model.show('Later 🧪')
+    expect(model.selected).toBe(null)
+    expect(model.draft).toBe(draft)
+    expect(draft.text).toBe('Earlier 🦉\nLater 🧪')
+    expect(draft.cursor).toBe(3)
+    expect(draft.pasted).toEqual(['Earlier 🦉'])
+    expect(f.gw.sent('btw.list')).toEqual([{ session_id: 's1' }])
+    expect(f.gw.methods('btw.submit')).toHaveLength(0)
+  })
+
+  it('refuses automatic admission after a selected-thread ABA during slow history', async () => {
+    const f = sideSetup()
+    const model = new BtwThreads(f.host)
+    f.gw.handlers.set('btw.list', () => ({ threads: [thread('known')] }))
+    await model.show()
+    const held = Promise.withResolvers<unknown>()
+    f.gw.handlers.set('btw.list', () => held.promise)
+
+    const opening = model.show('Unsent 🧪')
+    expect(model.selected).toBe(null)
+    expect(model.draft.text).toBe('Unsent 🧪')
+    model.select('known')
+    model.select(null)
+    held.resolve({ threads: [thread('known')] })
+    await opening
+
+    expect(model.draft.text).toBe('Unsent 🧪')
+    expect(model.state).toBe('idle')
+    expect(f.gw.methods('btw.submit')).toHaveLength(0)
+    expect(f.gw.methods('prompt.submit')).toHaveLength(0)
   })
 })

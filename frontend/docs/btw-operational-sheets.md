@@ -19,6 +19,16 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
 - List, submit and cancel use btw.list, btw.submit and btw.cancel. Older gateways
   return an explicit unavailable state; never silently fall back to prompt.btw
   because that older method has different one-shot transcript semantics.
+- A typed /btw <question> stages the literal question in the conversation's
+  NEW-thread editor before btw.list. Unsupported or rejected history leaves
+  the question visible and unsent; close/reopen retains it. A successful list
+  auto-sends only a newly seeded draft whose revision and selection stayed
+  unchanged during lookup. Editing or changing selection means manual Send.
+  If the new-thread slot already holds an unadmitted draft, the next slash
+  question is appended on a new line without discarding its caret or pasted
+  content, and must be reviewed and sent manually. Main draft, images,
+  transcript and history receive no extra side-question entry; the typed
+  slash command itself remains one normal prompt-history entry.
 
 ## MCP and SSH
 
@@ -95,7 +105,7 @@ OMP validation (not run by this connector-only implementation worker):
     node scripts/hermes-src.mjs
     bun install --frozen-lockfile --prefer-offline
     bun run check
-    bun run test src/__tests__/btwNotices.test.ts src/__tests__/dockModel.test.ts src/__tests__/dispatch.test.ts src/__tests__/chrome.test.ts src/__tests__/btwSheets.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
+    bun run test src/__tests__/btwSheets.test.ts src/__tests__/btwNotices.test.ts src/__tests__/dockModel.test.ts src/__tests__/dispatch.test.ts src/__tests__/chrome.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
     bun run bundle
 
 On a compatible Hermes gateway, smoke /btw (list, start, follow up, cancel,

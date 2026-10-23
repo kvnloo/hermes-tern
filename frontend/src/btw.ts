@@ -241,17 +241,32 @@ export class BtwThreads {
       return
     }
 
-    // A notice View is pinned to its own thread, not the history's latest selection.
-    // An explicit question, by contrast, always opens a new side thread.
+    // A notice View is pinned to its thread; a slash question uses the NEW-thread slot.
+    // Stage it before the fallible history read, so an unsupported gateway cannot lose it.
+    const explicitQuestion = Boolean(question.trim())
+    let autoSubmit: { draft: Composer; revision: bigint } | undefined
+
     if (selectedThread) {
       this.selected = selectedThread
-    } else if (question.trim()) {
+    } else if (explicitQuestion) {
       this.selected = null
+      const draft = this.draft
+
+      if (!draft.text) {
+        draft.set(question)
+        autoSubmit = { draft, revision: draft.revision }
+      } else if (draft.text !== question) {
+        // A previous unadmitted question owns this draft. Retain both and require
+        // an explicit Send rather than silently submitting their combined text.
+        draft.splice(draft.text.length, draft.text.length, '\n' + question, draft.cursor)
+      }
     }
 
     this.#noticeTicket++
     const sheet = openBtwOverlay(this)
     this.#sheet = sheet
+    // Re-selecting a different thread and back while history loads revokes auto-send.
+    const selectionTicket = this.#noticeTicket
     const epoch = ++this.#epoch
     this.state = 'loading'
     this.error = ''
@@ -268,11 +283,14 @@ export class BtwThreads {
         this.update(thread)
       }
 
-      this.selected ??= question.trim() ? null : this.threads.at(-1)?.id ?? null
+      this.selected ??= explicitQuestion ? null : this.threads.at(-1)?.id ?? null
       this.state = 'idle'
 
-      if (question.trim()) {
-        this.draft.set(question)
+      // A list can settle after the user edits or changes selection. Never
+      // auto-submit that newer draft, or overwrite it with the slash argument.
+      if (autoSubmit && this.#noticeTicket === selectionTicket &&
+          this.selected === null && this.draft === autoSubmit.draft &&
+          this.draft.revision === autoSubmit.revision) {
         await this.submit()
       }
     } catch {
