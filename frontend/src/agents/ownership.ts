@@ -63,12 +63,13 @@ function trustedParentChain(calls: readonly ToolCall[], owner: ToolCall, parent:
     }
 
     const ancestors = agentsWith(calls, current.parentId)
+    const ancestorRow = ancestors[0]
 
-    if (ancestors.length !== 1 || ancestors[0]?.call !== owner) {
+    if (ancestors.length !== 1 || !ancestorRow || ancestorRow.call !== owner) {
       return false
     }
 
-    const ancestor = ancestors[0].agent
+    const ancestor = ancestorRow.agent
 
     if (current.depth !== undefined && ancestor.depth !== undefined && current.depth !== ancestor.depth + 1) {
       return false
