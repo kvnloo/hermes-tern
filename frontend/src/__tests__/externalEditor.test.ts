@@ -92,6 +92,34 @@ describe('external draft editor', () => {
     expect(x.composer.text).toBe('keep')
   })
 
+  it('leaves pasted command provenance, caret, revision and undo untouched on an unchanged round-trip', async () => {
+    const x = host('')
+    x.composer.paste('{!echo untrusted}')
+    const before = { cursor: x.composer.cursor, rev: x.composer.rev, pasted: [...x.composer.pasted] }
+    await editExternal(x.h, async file => {
+      expect(await readFile(file, 'utf8')).toBe('{!echo untrusted}')
+    })
+    expect(x.composer.text).toBe('{!echo untrusted}')
+    expect(x.composer.pasted).toEqual(before.pasted)
+    expect(x.composer.cursor).toBe(before.cursor)
+    expect(x.composer.rev).toBe(before.rev)
+    x.composer.undo()
+    expect(x.composer.text).toBe('')
+  })
+
+  it('treats all modified editor bytes as pasted and retains the original caret and undo step', async () => {
+    const x = host('safe')
+    x.composer.move(2)
+    const result = ['!echo untrusted', '{!echo untrusted}'].join('\n')
+    await editExternal(x.h, async file => { await writeFile(file, result) })
+    expect(x.composer.text).toBe(result)
+    expect(x.composer.cursor).toBe(2)
+    expect(x.composer.pasted).toContain(result)
+    x.composer.undo()
+    expect(x.composer.text).toBe('safe')
+    expect(x.composer.cursor).toBe(2)
+  })
+
   it('refuses to open without an active session', async () => {
     const x = host()
     x.setSid(null)

@@ -8,6 +8,7 @@ import type { Decor, Key } from '@stencil-hq/tern'
 import { append as appendHistory, load as loadHistory } from '../hermes/history.js'
 
 import { listNewline, markdownDecor, type Splice, toggleMark } from './markdown.js'
+import { nextWord, prevWord } from './readline-words.js'
 import { type Snapshot, UndoHistory } from './undo.js'
 import { VimComposer } from './vim.js'
 
@@ -15,7 +16,6 @@ import { VimComposer } from './vim.js'
 export type ComposerAction = 'submit' | null
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-const WORD = /[\p{L}\p{N}_]/u
 
 /** The prompt editor: text, caret, undo/redo, prompt history and kill ring, driven by keys and native edits. */
 export class Composer {
@@ -568,34 +568,6 @@ function nextGrapheme(text: string, at: number): number {
   }
 
   return text.length
-}
-
-function prevWord(text: string, at: number): number {
-  let i = at
-
-  while (i > 0 && !WORD.test(text[i - 1] ?? '')) {
-    i--
-  }
-
-  while (i > 0 && WORD.test(text[i - 1] ?? '')) {
-    i--
-  }
-
-  return i
-}
-
-function nextWord(text: string, at: number): number {
-  let i = at
-
-  while (i < text.length && !WORD.test(text[i] ?? '')) {
-    i++
-  }
-
-  while (i < text.length && WORD.test(text[i] ?? '')) {
-    i++
-  }
-
-  return i
 }
 
 /** Text that would run a command if typed: a `{!cmd}`, or a leading `!`. */

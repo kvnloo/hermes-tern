@@ -64,6 +64,9 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   steer: { label: 'alt+enter', name: 'enter', with: ['alt'] }
 }
 
+/** Opens the unsent draft without routing a typed slash command. */
+export const EXTERNAL_EDITOR_KEY: KeyMatch = { label: 'ctrl+g', name: 'g', with: ['ctrl'], without: ['alt', 'meta', 'shift'] }
+
 /** Whether `key` is shortcut `match`. */
 export function matches(key: Key, match: KeyMatch): boolean {
   return key.name === match.name && match.with.every(m => key[m]) && !match.without?.some(m => key[m])
@@ -99,6 +102,7 @@ export interface KeyCx {
   cycleEffort(): void
   openAgents(): void
   openBackground(): void
+  openExternalEditor(): void
   openPrs(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
@@ -177,6 +181,13 @@ const modal: KeyRule = (_key, _cx, top) => top?.modal === true
 const hud: KeyRule = (key, cx) => cx.hud(key)
 
 const completion: KeyRule = (key, cx) => cx.completion.onKey(key)
+
+/** A focused sheet, the HUD or completion owns Ctrl+G before this fallback. */
+const externalEditor: KeyRule = (key, cx) => {
+  if (!matches(key, EXTERNAL_EDITOR_KEY)) return false
+  cx.openExternalEditor()
+  return true
+}
 
 /** Vim owns modal keys after overlays/completion, before the app's Esc Esc shortcut. */
 const vim: KeyRule = (key, cx) => {
@@ -297,6 +308,7 @@ export const KEY_RULES: readonly KeyRule[] = [
   modal,
   hud,
   completion,
+  externalEditor,
   vim,
   doubleEsc,
   effort,

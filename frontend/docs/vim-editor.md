@@ -38,13 +38,20 @@ are not supported.
 
 ## External editor
 
-`/editor` round-trips the draft through a private temporary file (0600),
-then removes it. In a Tern native window, `tern open --wait` opens the file.
+`/editor` is the text fallback for an empty composer. **Ctrl+G** opens the
+current unsent draft without calling submit or clearing text, attachments, undo,
+or caret. An overlay, the HUD or completion gets first refusal of the key.
+The editor uses a private temporary file (0600), then removes it.
+In a Tern native window, `tern open --wait` opens the file.
 In an ordinary terminal it suspends the surface, invokes `$VISUAL`, `$EDITOR`,
 or `vi` with **argv** (no shell interpretation), and resumes the surface.
 Failures preserve the draft. If a session switches or the draft changes while
 editing, the returned text appears in an informational transcript panel instead
 of overwriting newer work. One editor per composer may be open at a time.
+An unchanged round-trip keeps the original paste provenance and undo history.
+Changed editor output is all untrusted paste: new or old `!cmd` and `{!cmd}`
+are not promoted to executable shell input. The prior caret is preserved
+(clamped to the updated length), and Undo restores the prior draft.
 
 ## Qualification
 
@@ -52,8 +59,8 @@ From this repository's `frontend/` directory:
 
 ```sh
 bun run setup
+bun install --frozen-lockfile && bun run check
 bunx vitest run src/__tests__/vim.test.ts src/__tests__/vimPreference.test.ts src/__tests__/externalEditor.test.ts src/__tests__/vimApp.test.ts src/__tests__/keys.test.ts
-bun run check
 bun run bundle
 ```
 

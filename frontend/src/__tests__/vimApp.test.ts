@@ -1,5 +1,9 @@
-import type { Node } from '@stencil-hq/tern'
+import { readFile, writeFile } from 'node:fs/promises'
+
+import type { Key, Node } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
+
+import { editExternal, type DraftOpener } from '../draft/external-editor.js'
 
 import { App } from './appSetup.js'
 import { FakeGateway, fakeTern, given, key, topNodes } from './fakes.js'
@@ -19,7 +23,113 @@ function search(nodes: readonly Node[]): Node | undefined {
   return undefined
 }
 
+/** Keep the real App key dispatcher; only replace its OS editor opener with a fixture. */
+function fixtureEditor(opener: DraftOpener) {
+  const done = Promise.withResolvers<void>()
+  const spy = vi.spyOn(App.prototype, 'editExternal').mockImplementation(function (this: App) {
+    return editExternal({
+      composer: this.stores.composer,
+      sid: () => this.session.ref.live,
+      changed: () => this.changed(),
+      notice: (text, tone) => this.notice(text, tone),
+      panel: (title, text) => this.transcript.panel(title, text)
+    }, opener).finally(() => done.resolve())
+  })
+  return { finished: done.promise, spy }
+}
+
+async function appPress(tern: ReturnType<typeof fakeTern>, k: Key) {
+  await vi.waitFor(() => expect(tern.reading).toBe(true))
+  tern.press(k)
+  await vi.waitFor(() => expect(tern.reading).toBe(true))
+  await new Promise<void>(resolve => setImmediate(resolve))
+}
+
 describe('Vim composer plugged into the actual app and native Tern dock', () => {
+  it('opens an unsent draft with Ctrl+G through App and retains the caret and undo', async () => {
+    const opener = vi.fn(async (file: string) => {
+      expect(await readFile(file, 'utf8')).toBe('draft before')
+      await writeFile(file, 'draft after')
+    })
+    const { finished, spy } = fixtureEditor(opener)
+    const gw = new FakeGateway()
+    const tern = fakeTern({ draws: true })
+    const app = new App(tern.session, gw.client, 'test')
+    const running = app.run()
+    given.session(app, 's1')
+    app.stores.composer.set('draft before', { cursor: 3 })
+    try {
+      await appPress(tern, key('g', { ctrl: true }))
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce())
+      await finished
+      expect(opener).toHaveBeenCalledOnce()
+      expect(app.stores.composer.text).toBe('draft after')
+      expect(app.stores.composer.cursor).toBe(3)
+      expect(gw.sent('prompt.submit')).toHaveLength(0)
+      app.stores.composer.undo()
+      expect(app.stores.composer.text).toBe('draft before')
+      expect(app.stores.composer.cursor).toBe(3)
+    } finally {
+      app.quit()
+      await running
+      spy.mockRestore()
+    }
+  })
+
+  it('preserves pasted {!cmd} through an unchanged editor transaction and never requests shell.exec', async () => {
+    const untrusted = '{!echo should-not-execute}'
+    const opener = vi.fn(async (file: string) => {
+      expect(await readFile(file, 'utf8')).toBe(untrusted)
+    })
+    const { finished, spy } = fixtureEditor(opener)
+    const gw = new FakeGateway()
+    const tern = fakeTern({ draws: true })
+    const app = new App(tern.session, gw.client, 'test')
+    const running = app.run()
+    given.session(app, 's1')
+    app.stores.composer.paste(untrusted)
+    try {
+      await appPress(tern, key('g', { ctrl: true }))
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce())
+      await finished
+      expect(app.stores.composer.pasted).toContain(untrusted)
+      await appPress(tern, key('enter'))
+      await vi.waitFor(() => expect(gw.sent('prompt.submit')).toHaveLength(1))
+      expect(gw.sent('prompt.submit')[0]?.['text']).toBe(untrusted)
+      expect(gw.sent('shell.exec')).toHaveLength(0)
+    } finally {
+      app.quit()
+      await running
+      spy.mockRestore()
+    }
+  })
+
+  it('does not promote directives newly written by an external editor to shell instructions', async () => {
+    const untrusted = ['!echo unsafe', '{!echo unsafe}'].join('\n')
+    const opener = vi.fn(async (file: string) => { await writeFile(file, untrusted) })
+    const { finished, spy } = fixtureEditor(opener)
+    const gw = new FakeGateway()
+    const tern = fakeTern({ draws: true })
+    const app = new App(tern.session, gw.client, 'test')
+    const running = app.run()
+    given.session(app, 's1')
+    app.stores.composer.set('safe')
+    try {
+      await appPress(tern, key('g', { ctrl: true }))
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce())
+      await finished
+      expect(app.stores.composer.pasted).toContain(untrusted)
+      await appPress(tern, key('enter'))
+      await vi.waitFor(() => expect(gw.sent('prompt.submit')).toHaveLength(1))
+      expect(gw.sent('prompt.submit')[0]?.['text']).toBe(untrusted)
+      expect(gw.sent('shell.exec')).toHaveLength(0)
+    } finally {
+      app.quit()
+      await running
+      spy.mockRestore()
+    }
+  })
+
   it('routes modal input after overlay ownership and blocks native edit/send/undo until disabled', async () => {
     const gw = new FakeGateway({ replies: {
       'config.get': () => ({ config: { display: { vim_mode: true } } })

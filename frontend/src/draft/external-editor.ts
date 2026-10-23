@@ -79,7 +79,7 @@ export async function editTextExternal(initial: string, opener: DraftOpener = op
 }
 
 export interface ExternalDraftHost {
-  readonly composer: Pick<Composer, 'text' | 'rev' | 'set'>
+  readonly composer: Pick<Composer, 'text' | 'cursor' | 'pasted' | 'rev' | 'set'>
   sid(): string | null
   changed(): void
   notice(text: string, tone: 'error' | 'warning'): void
@@ -100,10 +100,17 @@ export async function editExternal(host: ExternalDraftHost, opener: DraftOpener 
   active.add(composer)
   const rev = composer.rev
   const initial = composer.text
+  const cursor = composer.cursor
+  const pasted = [...composer.pasted]
   try {
     const result = await editTextExternal(initial, opener)
-    if (host.sid() === sid && composer.rev === rev) composer.set(result)
-    else host.panel('External editor result (draft changed while editing)', result)
+    if (host.sid() === sid && composer.rev === rev) {
+      // An unchanged file is not a new edit: retain its undo history, caret and paste origin.
+      if (result !== initial) {
+        // Treat the entire editor return as untrusted paste, including newly inserted directives.
+        composer.set(result, { cursor: Math.min(cursor, result.length), pasted: [...pasted, result] })
+      }
+    } else host.panel('External editor result (draft changed while editing)', result)
   } catch (error) {
     host.notice(error instanceof Error ? error.message : String(error), 'error')
   } finally {
