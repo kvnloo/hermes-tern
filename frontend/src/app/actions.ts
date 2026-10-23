@@ -31,6 +31,7 @@ import type { ToolCall } from '../model.js'
 import { openAgents } from '../overlays/agents.js'
 import { openAutomation } from '../overlays/automation.js'
 import { openBackground } from '../overlays/background.js'
+import { openBrowserBlocks } from '../overlays/browser.js'
 import type { Completion } from '../overlays/completion.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
@@ -159,6 +160,7 @@ export class AppActions {
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
+      openBrowserBlocks: () => openBrowserBlocks(chat),
       openPrs: () => openPrMenu(chat),
       presses: cx.presses,
       queue,

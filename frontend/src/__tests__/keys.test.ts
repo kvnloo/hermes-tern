@@ -80,6 +80,7 @@ function pane(over: Partial<Pane> = {}) {
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
+    openBrowserBlocks: did('browser blocks'),
     openPrs: did('prs'),
     presses: { esc: 0, exit: 0 },
     queue: {
@@ -265,6 +266,14 @@ describe('the key rules', () => {
     onKey(key('s', { alt: true, meta: true }), p.cx, undefined)
     onKey(alt('b'), p.cx, undefined)
     expect(p.log.slice(4)).toEqual(['composer', 'composer', 'composer'])
+  })
+
+  it("Alt+Shift+B opens browser blocks without consuming the composer's Alt+B word key", () => {
+    const p = pane({ text: 'draft' })
+    onKey(key('b', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('b', { alt: true }), p.cx, undefined)
+    expect(p.log).toEqual(['browser blocks', 'composer'])
+    expect(p.state.text).toBe('draft')
   })
 
   it('9. Alt+Up edits the oldest queued prompt, when one waits', () => {

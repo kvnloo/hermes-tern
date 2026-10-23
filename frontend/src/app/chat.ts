@@ -115,6 +115,7 @@ export class App implements ChatPorts {
     this.#view = {
       ...s,
       actions: this.#act.dock,
+      browser: this,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
       surface: this.#surface

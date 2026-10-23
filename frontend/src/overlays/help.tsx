@@ -52,6 +52,7 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
       [[KEYS.steer.label], 'Steer the running turn with the oldest queued prompt (empty prompt)'],
       [[KEYS.agents.label], 'Agents'],
       [[KEYS.background.label], 'Background processes and cron jobs (/ps)'],
+      [[KEYS.browser.label], 'Tern browser blocks: inspect, hand over, focus, release, select frame'],
       [[KEYS.prs.label], 'Pull requests Hermes linked (/prs)'],
       [[KEYS.sidebar.label], 'Session sidebar: branch, PRs, changes (/sidebar)'],
       [[KEYS.clipboardImage.label], 'Attach the clipboard image (also ⌘V of an image, a dropped image file, /paste)'],

@@ -12,6 +12,7 @@ import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
+import { bindBrowserFocus, type BrowserFocusHost } from '../view/tools/cards/browser.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
 
@@ -32,6 +33,8 @@ export interface FrameCx extends DockSources {
   readonly welcome: WelcomeContext
   /** The Copy buttons: the entry whose button reads Copied, and what a click does. */
   readonly copies: Pick<TranscriptContext, 'copied' | 'copy'>
+  /** Only for session-scoped native browser-card Focus; never used by ordinary tool cards. */
+  readonly browser: BrowserFocusHost
 }
 
 /** Draws one frame at `now`; nothing once the surface closed. */
@@ -67,11 +70,14 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 /** What the transcript's entries draw with this frame. */
 function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
   const info = cx.session.info
+  const focusBrowser = bindBrowserFocus(cx.browser, cx.session.ref)
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
   return {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
+    focusBrowser,
+    browserSource: cx.session.ref,
     now,
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
