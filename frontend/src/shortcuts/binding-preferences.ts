@@ -85,7 +85,8 @@ export class BindingPreferences {
     // A corrupt/manual external edit never installs any partial action map.
     try {
       const display = displayConfig(result)
-      const actions = effectiveShortcuts(display['tern_keybindings'] ?? {})
+      const configured = display['tern_keybindings']
+      const actions = effectiveShortcuts(configured === undefined ? {} : configured)
       this.#sid = sid
       this.#actions = actions
       this.#profile = display['tern_profile_identity'] === true && typeof identity?.display === 'string'
