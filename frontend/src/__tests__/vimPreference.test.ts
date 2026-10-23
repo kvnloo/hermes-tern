@@ -40,8 +40,8 @@ describe('Vim profile preference', () => {
   it('discards session-stale and out-of-order readbacks, including ABA session changes', async () => {
     const h = pref(false)
     await h.preference.refresh()
-    const first = Promise.withResolvers<unknown>()
-    h.request.mockImplementationOnce(() => first.promise as Promise<{ config: { display: { vim_mode: unknown } } }>)
+    const first = Promise.withResolvers<{ config: { display: { vim_mode: unknown } } }>()
+    h.request.mockImplementationOnce(() => first.promise)
     const pending = h.preference.refresh()
     h.setSid('sid-2')
     h.setValue(true)
