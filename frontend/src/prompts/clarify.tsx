@@ -5,6 +5,7 @@
 import type { ClarifyResult } from '@hermes/shared/gateway-events'
 
 import { Composer } from '../draft/composer.js'
+import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
 import { actionsRow } from '../view/ui/button.js'
 
@@ -161,14 +162,14 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
       const d = drafts[step]
 
       if (!q || !d) {
-        return <overlay anchor="bottom" key={key} modal role="omp.overlay.ask" size="md" />
+        return <overlay anchor="bottom" key={nativeOverlayKey(id)} modal role="omp.overlay.ask" size="md" />
       }
 
       const freeText = !q.choices.length
       const last = questions.every((other, i) => i === step || other.qid in answers)
 
       return (
-        <overlay anchor="bottom" key={key} modal role="omp.overlay.ask" size="md">
+        <overlay anchor="bottom" key={nativeOverlayKey(id)} modal role="omp.overlay.ask" size="md">
           <col gap="md" key="body">
             {questions.length > 1 ? (
               <row align="center" gap="sm" key="head" role="omp.ask.head">
