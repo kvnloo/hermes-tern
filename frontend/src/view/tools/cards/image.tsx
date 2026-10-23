@@ -34,6 +34,11 @@ function imageNode(call: ToolCall, d: GenericFields, src: string, media?: MediaD
 
   // A screenshot or generated image on a remote owner is not a local Tern file.
   if (source && 'path' in source && media && !media.context().local) {
+    // The gateway's media.image authorizes completed read/browser tools, not image_generate paths.
+    if (call.name === 'image_generate') {
+      return <text key="image" role="omp.media.notice" text="Generated image is on a remote host; this gateway cannot authorize its file path." />
+    }
+
     const path = localMediaPath(source.path, media.context().cwd)
     const host = media.context().remoteHost
 
