@@ -6,13 +6,14 @@
 // and the actions over them (app/actions.ts), lends them as ChatPorts, and
 // runs the pane until it quits.
 
-import type { ScrollTo, Session } from '@stencil-hq/tern'
+import type { ScrollTo, Session, TspEvent } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
+import type { AnyGatewayEvent } from '@tui/gatewayTypes.js'
 
 import logo from '../../assets/logo.png'
 import type { Agents } from '../agents/store.js'
-import type { Sidebar } from '../chrome/sidebar.js'
 import { OrbActivity, ThinkingOrb } from '../chrome/orb.js'
+import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
 import type { SessionHost } from '../commands/session.js'
 import { type LaunchEnv, readLaunchEnv } from '../config/env.js'
@@ -202,17 +203,21 @@ export class App implements ChatPorts {
       this.#orbActivity.reset(Boolean(this.busy))
     }
 
-    if (!this.#visible) return
+    if (!this.#visible) {
+      return
+    }
 
     this.#orb?.update(
       this.#orbActivity.state(this.overlays.some(o => o.key.startsWith('prompt:')), Boolean(this.busy)),
       this.overlays.at(-1)?.modal === true
     )
-    if (this.#view) drawFrame(this.#view)
+    if (this.#view) {
+      drawFrame(this.#view)
+    }
   }
 
   /** Only routed events for the shown session affect the orb or hidden-pane completion notices. */
-  #onShown(ev: import('@tui/gatewayTypes.js').AnyGatewayEvent, s: ChatStores) {
+  #onShown(ev: AnyGatewayEvent, s: ChatStores) {
     const sid = this.session.ref.live
     if (sid !== this.#orbSid) {
       this.#orbSid = sid
@@ -243,21 +248,31 @@ export class App implements ChatPorts {
       })
     }
 
-    if (ev.type === 'voice.status') this.changed()
+    if (ev.type === 'voice.status') {
+      this.changed()
+    }
   }
 
   /** Tern owns visibility, theme and motion; stop animation and expiry work while hidden. */
-  #onSurfaceEvent(ev: import('@stencil-hq/tern').TspEvent) {
-    if ('sf' in ev && ev.sf && ev.sf !== 'hermes') return
+  #onSurfaceEvent(ev: TspEvent) {
+    if ('sf' in ev && ev.sf && ev.sf !== 'hermes') {
+      return
+    }
 
     if ((ev.ev === 'visible' || ev.ev === 'resize') && ev.visible !== undefined) {
       this.#visible = ev.visible
       this.#orb?.environment({ visible: ev.visible })
       this.stores.notices.visible(ev.visible)
     }
-    if (ev.ev === 'theme') this.#orb?.environment({ dark: ev.dark })
-    if (ev.ev === 'motion') this.#orb?.environment({ reduce: ev.reduce })
-    if (ev.ev === 'gone' && this.#surface.closed) this.#orb?.close()
+    if (ev.ev === 'theme') {
+      this.#orb?.environment({ dark: ev.dark })
+    }
+    if (ev.ev === 'motion') {
+      this.#orb?.environment({ reduce: ev.reduce })
+    }
+    if (ev.ev === 'gone' && this.#surface.closed) {
+      this.#orb?.close()
+    }
   }
 
   open(overlay: Overlay) {
