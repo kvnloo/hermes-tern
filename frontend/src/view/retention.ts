@@ -8,8 +8,6 @@ import type { Entry } from '../model.js'
 import { retentionBoundary, safePrompt, safeToSettle } from './retention-policy.js'
 import { entryNode, forgetEntryNode, type TranscriptContext } from './transcript.js'
 
-export { RETAIN_TURNS, retentionBoundary, safeToSettle } from './retention-policy.js'
-
 export const RELOAD_PAGE = 40
 const LOAD_ID = 'main.retention-load'
 
