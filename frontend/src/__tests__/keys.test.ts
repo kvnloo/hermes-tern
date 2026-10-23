@@ -268,7 +268,7 @@ describe('the key rules', () => {
     expect(p.log.slice(4)).toEqual(['composer', 'composer', 'composer'])
   })
 
-  it('Alt+Shift+B opens browser blocks without consuming the composer's Alt+B word key', () => {
+  it("Alt+Shift+B opens browser blocks without consuming the composer's Alt+B word key", () => {
     const p = pane({ text: 'draft' })
     onKey(key('b', { alt: true, shift: true }), p.cx, undefined)
     onKey(key('b', { alt: true }), p.cx, undefined)
