@@ -16,6 +16,7 @@ import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
+import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
@@ -54,7 +55,8 @@ export type CommandHost = Pick<
   PullRequestsSheetHost &
   RefusedHost &
   SessionsHost &
-  ThemeHost
+  ThemeHost &
+  VisualPickerHost
 
 /** A client-side slash command. */
 export interface LocalCommand {
@@ -208,6 +210,11 @@ const COMMANDS: readonly LocalCommand[] = [
         host.transcript.notice('Hermes wears the skin in the skin theme: /theme skin')
       }
     }
+  },
+  {
+    help: 'Inspect a prepared OpenUI preview [/absolute/path/to/file.hvisual.json]',
+    name: 'visual',
+    run: (host, arg) => openVisualPicker(host, arg.trim())
   },
   {
     // The Ink TUI's `/paste`: the clipboard's image on the next prompt.
