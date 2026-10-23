@@ -3,15 +3,15 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { Surface, View, type NodeJson } from '@stencil-hq/tern'
-import type { SessionInfo } from '@tui/types.js'
-import type { Overlay } from '../overlays/overlay.js'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { SessionInfo } from '@tui/types.js'
 import { localCommand } from '../commands/local.js'
 import { preference, preferenceValue, PROFILE_PREFERENCES } from '../preferences/contracts.js'
 import { readProfile, writeProfile } from '../preferences/transactions.js'
 import { openSettings } from '../overlays/settings.js'
 import { openModelHub } from '../overlays/modelHub.js'
+import type { Overlay } from '../overlays/overlay.js'
 import { record } from '../wire/json.js'
 
 import { settle, setup } from './appSetup.js'
@@ -23,7 +23,7 @@ const coreFixture = fileURLToPath(new URL('./fixtures/native-settings-profile-co
 
 function ownedSetup(replies: Parameters<typeof setup>[0]) {
   const running = setup(replies)
-  running.app.session.info = stub<SessionInfo>({ profile_name: 'Work' })
+  running.app.session.info = stub<SessionInfo>({ profile_name: 'work' })
   return running
 }
 
@@ -155,7 +155,7 @@ describe('native Settings registrations and real App rendering', () => {
     await press(key('enter'))
     await press(key('down'))
     await press(key('enter'))
-    await vi.waitFor(() => expect(sent('config.set')).toEqual([{ key: 'busy', value: 'steer', session_id: 's1', profile: 'Work' }]))
+    await vi.waitFor(() => expect(sent('config.set')).toEqual([{ key: 'busy', value: 'steer', session_id: 's1', profile: 'work' }]))
     await vi.waitFor(() => expect(values.get('busy')).toBe('steer'))
     expect(app.stores.composer.text).toBe(before.text)
     expect(app.stores.composer.cursor).toBe(before.cursor)
@@ -227,7 +227,7 @@ describe('native Settings registrations and real App rendering', () => {
 
     expect(sent('model.options')).toEqual([])
     openModelHub(app)
-    await vi.waitFor(() => expect(sent('model.options')).toEqual([{ session_id: 's1', profile: 'Work' }]))
+    await vi.waitFor(() => expect(sent('model.options')).toEqual([{ session_id: 's1', profile: 'work' }]))
     const hub = must(app.overlays.find(o => o.key === 'model-hub'))
     const rendered = JSON.stringify(tree(hub.node('layer.model-hub')))
     expect(rendered).toContain('Safe provider')
@@ -251,10 +251,10 @@ describe('pinned Hermes Settings transaction and isolation contract', () => {
       calls.push({ method, params })
       return { value: values.get(String(params['key'])) }
     })
-    const rows = await readProfile({ active: () => true, gw, sid: 'profile-a-session', profile: 'Work' })
+    const rows = await readProfile({ active: () => true, gw, sid: 'profile-a-session', profile: 'work' })
     expect(rows.map(row => row.field.key)).toEqual(PROFILE_PREFERENCES.map(field => field.key))
     expect(calls).toHaveLength(PROFILE_PREFERENCES.length)
-    expect(calls.every(call => call.method === 'config.get' && call.params['session_id'] === 'profile-a-session' && call.params['profile'] === 'Work' && call.params['key'] !== 'full')).toBe(true)
+    expect(calls.every(call => call.method === 'config.get' && call.params['session_id'] === 'profile-a-session' && call.params['profile'] === 'work' && call.params['key'] !== 'full')).toBe(true)
   })
 
   it('rejects a conflicting owner read before write instead of bumping a silent revision', async () => {
@@ -264,7 +264,7 @@ describe('pinned Hermes Settings transaction and isolation contract', () => {
       return { value: params['key'] === 'busy' ? 'interrupt' : '' }
     })
     const field = must(preference('busy'))
-    await expect(writeProfile({ active: () => true, gw, sid: 's1', profile: 'Work' }, field, 'steer', 'queue')).rejects.toThrow('Profile changed')
+    await expect(writeProfile({ active: () => true, gw, sid: 's1', profile: 'work' }, field, 'steer', 'queue')).rejects.toThrow('Profile changed')
     expect(calls).toEqual(['config.get'])
   })
 
@@ -273,7 +273,7 @@ describe('pinned Hermes Settings transaction and isolation contract', () => {
     const calls: string[] = []
     let alive = true
     const gw = gateway((method) => { calls.push(method); return first.promise })
-    const write = writeProfile({ active: () => alive, gw, sid: 's1', profile: 'Work' }, must(preference('busy')), 'steer', 'queue')
+    const write = writeProfile({ active: () => alive, gw, sid: 's1', profile: 'work' }, must(preference('busy')), 'steer', 'queue')
     await vi.waitFor(() => expect(calls).toEqual(['config.get']))
     alive = false
     first.resolve({ value: 'queue' })
@@ -289,7 +289,7 @@ describe('pinned Hermes Settings transaction and isolation contract', () => {
       }
       return { key: params['key'], value: params['value'] }
     })
-    await expect(writeProfile({ active: () => true, gw, sid: 's1', profile: 'Work' }, must(preference('busy')), 'steer', 'queue')).rejects.toThrow('Canonical readback differs')
+    await expect(writeProfile({ active: () => true, gw, sid: 's1', profile: 'work' }, must(preference('busy')), 'steer', 'queue')).rejects.toThrow('Canonical readback differs')
   })
 
   it('rejects undeclared setting values and cannot use a generic secret/role/fallback key', async () => {
@@ -373,7 +373,7 @@ describe('SDK Settings instance IDs and scoped profile transaction regressions',
     await current?.()
     await vi.waitFor(() => expect(values.get('busy')).toBe('steer'))
     expect(sent('config.set')).toEqual([{
-      key: 'busy', value: 'steer', session_id: 's1', profile: 'Work'
+      key: 'busy', value: 'steer', session_id: 's1', profile: 'work'
     }])
     expect(send).toHaveBeenCalled()
   })
@@ -419,8 +419,8 @@ describe('SDK Settings instance IDs and scoped profile transaction regressions',
     await press(key('enter'))
     await vi.waitFor(() => expect(f.values.get('details_mode')).toBe('hidden'))
     expect(sent('config.set').filter(p => p['key'] === 'details_mode')).toEqual([
-      { key: 'details_mode', value: 'collapsed', session_id: 's1', profile: 'Work' },
-      { key: 'details_mode', value: 'hidden', session_id: 's1', profile: 'Work' }
+      { key: 'details_mode', value: 'collapsed', session_id: 's1', profile: 'work' },
+      { key: 'details_mode', value: 'hidden', session_id: 's1', profile: 'work' }
     ])
   })
 
