@@ -442,6 +442,8 @@ export function openModelPicker(host: ModelsHost) {
 
 const caps = (row: Row) => row.provider.capabilities?.[row.model]
 
+const RECENT_BADGE: { text: string; tone: 'info' } = { text: 'recent', tone: 'info' }
+
 /** The model has a fast tier on its provider. */
 const fastable = (row: Row) => Boolean(caps(row)?.fast || caps(row)?.ultrafast)
 
@@ -453,7 +455,7 @@ function itemOf(row: Row, recent = false): PickerItem {
 
   return {
     badges: [
-      ...(recent ? [{ text: 'recent', tone: 'info' as const }] : []),
+      ...(recent ? [RECENT_BADGE] : []),
       ...(free ? [{ text: 'free', tone: 'success' as const }] : []),
       ...(caps?.ultrafast
         ? [{ text: 'ultrafast', tone: 'info' as const }]
