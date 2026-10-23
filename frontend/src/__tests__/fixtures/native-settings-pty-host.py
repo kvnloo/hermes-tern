@@ -200,16 +200,48 @@ def run(app_path: str, mode: str) -> dict:
                 wait("Vim Insert from raw i", lambda: read_status().get("vimMode") == "insert")
                 insert_seen = True
 
-            # Settings is opened through raw PTY bytes and reads only safe normalized keys.
+            # Root A: real raw /settings, the canonical owner, and a native prefs frame.
             send([b"/settings"])
             wait("raw settings draft", lambda: read_status().get("draft") == "/settings")
             send([b"\r"])
-            wait("native Settings open and lazy profile read", lambda:
+            wait("native Settings A open and canonical owner read", lambda:
                  "settings" in read_status().get("overlays", [])
-                 and any(c.get("params", {}).get("key") == "skin" for c in calls("config.get")))
+                 and str(read_status().get("settingsRoot", "")).startswith("settings-")
+                 and read_status().get("canonicalProfile") == "default"
+                 and any(c.get("params", {}).get("key") == "skin" for c in calls("config.get"))
+                 and native_prefs > 0)
+            root_a = "layer." + read_status()["settingsRoot"]
             send([b"\x1b"])
-            wait("Settings closed through raw Escape", lambda:
+            wait("Settings A closed through raw Escape", lambda:
                  "settings" not in read_status().get("overlays", []))
+
+            # Render B, then deliver old A IDs through actual SDK event routing.
+            send([b"/settings"])
+            wait("raw second settings command", lambda: read_status().get("draft") == "/settings")
+            send([b"\r"])
+            wait("native Settings B has distinct root and new prefs frame", lambda:
+                 "settings" in read_status().get("overlays", [])
+                 and str(read_status().get("settingsRoot", "")).startswith("settings-")
+                 and ("layer." + str(read_status()["settingsRoot"])) != root_a
+                 and len([c for c in calls("config.get") if c.get("params", {}).get("key") == "skin"]) >= 2
+                 and native_prefs >= 2)
+            root_b = "layer." + read_status()["settingsRoot"]
+            send([
+                tsp({"ev": "change", "sf": "hermes", "id": root_a, "item": "busy", "value": "interrupt"}),
+                tsp({"ev": "action", "sf": "hermes", "id": root_a, "act": "page", "value": "profile.Safety"}),
+                tsp({"ev": "action", "sf": "hermes", "id": root_b, "act": "page", "value": "profile.Agent"})
+            ])
+            wait("B page action dispatched through actual SDK", lambda:
+                 read_status().get("settingsPage") == "profile.Agent")
+            if calls("config.set") or read_status().get("settingsBusy") != "queue":
+                raise AssertionError("Stale A native event mutated B")
+            send([tsp({"ev": "change", "sf": "hermes", "id": root_b, "item": "busy", "value": "steer"})])
+            wait("B native prefs change performs scoped write/readback", lambda:
+                 len(calls("config.set")) == 1
+                 and read_status().get("settingsBusy") == "steer"
+                 and len([c for c in calls("config.get") if c.get("params", {}).get("key") == "busy"]) >= 4)
+            send([b"\x1b"])
+            wait("Settings B closes", lambda: "settings" not in read_status().get("overlays", []))
 
             # The actual slash command is typed in a terminal; no direct App edits or sends.
             send([b"/ask status"])
@@ -222,6 +254,24 @@ def run(app_path: str, mode: str) -> dict:
             emoji = raw.index("😀".encode("utf-8")) + 2
             send([raw[:e], raw[e:emoji], raw[emoji:]])
             wait("split UTF-8 composer draft", lambda: read_status().get("draft") == UNICODE)
+            before = read_status()
+            # Invoke the real opening command while RAW keyboard draft is held.
+            # Neither input.edit nor input.send is fabricated in this scenario.
+            Path(str(report) + ".control").write_text("open-settings", encoding="utf-8")
+            wait("Settings C opens without stealing raw composer", lambda:
+                 "settings" in read_status().get("overlays", [])
+                 and str(read_status().get("settingsRoot", "")).startswith("settings-")
+                 and ("layer." + str(read_status()["settingsRoot"])) not in (root_a, root_b))
+            root_c = "layer." + read_status()["settingsRoot"]
+            send([tsp({"ev": "change", "sf": "hermes", "id": root_c, "item": "theme", "value": "dark"})])
+            wait("native owner-scoped save while raw draft held", lambda:
+                 len(calls("config.set")) == 2 and read_status().get("settingsTheme") == "dark")
+            send([b"\x1b"])
+            wait("Settings C close keeps text/caret/paste provenance", lambda:
+                 "settings" not in read_status().get("overlays", [])
+                 and read_status().get("draft") == before["draft"]
+                 and read_status().get("caret") == before["caret"]
+                 and read_status().get("pasted") == before["pasted"])
             send([b"\r"])
             wait("split UTF-8 prompt via Enter", lambda:
                  len(calls("prompt.submit")) == 1 and read_status().get("idle") is True)
@@ -232,6 +282,14 @@ def run(app_path: str, mode: str) -> dict:
             cut = data.index("🧩".encode("utf-8")) + 2
             send([b"\x1b[20", b"0~", data[:cut], data[cut:], b"\x1b[20", b"1~"])
             wait("paste remains literal with command provenance", lambda:
+                 read_status().get("draft") == PASTE and read_status().get("pasted") == [PASTE])
+            # Real Ctrl+Z traverses the Tern raw-key parser; paste undo restores
+            # both the original empty draft and the command-safety provenance.
+            send([b"\x1a"])
+            wait("raw undo restores empty draft and removes paste provenance", lambda:
+                 read_status().get("draft") == "" and read_status().get("pasted") == [])
+            send([b"\x1b[20", b"0~", data[:cut], data[cut:], b"\x1b[20", b"1~"])
+            wait("raw paste after undo retains inert provenance", lambda:
                  read_status().get("draft") == PASTE and read_status().get("pasted") == [PASTE])
             send([b"\r"])
             wait("literal bracketed paste via Enter", lambda:
@@ -251,6 +309,13 @@ def run(app_path: str, mode: str) -> dict:
                 "opened": b"\x1b_tsp;o;" in output,
                 "bracketed": b"\x1b[?2004h" in output,
                 "frames": frames,
+                "nativePrefsFrames": native_prefs,
+                "rootA": root_a,
+                "rootB": root_b,
+                "rootC": root_c,
+                "staleRejected": True,
+                "undoProved": True,
+                "composerPreserved": True,
                 "closed": result["closed"],
                 "vim": result["vim"],
                 "vimInsert": insert_seen,
