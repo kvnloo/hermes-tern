@@ -79,12 +79,14 @@ export function cycleTarget(
 }
 
 export function cycleModel(host: ModelsHost, direction: -1 | 1): Promise<void> {
-  const ticket = host.session.ticket()
-  const sid = ticket.sid
+  // SessionView exposes the adopted ref, not the concrete SessionState ticket.
+  // Each replacement adopts a new ref object, including A -> B -> A.
+  const owner = host.session.ref
+  const sid = owner.live
   const history = modelRecents(host.session)
 
   return history.enqueue(async () => {
-    const current = () => !ticket.signal.aborted && host.session.ref.live === sid
+    const current = () => host.session.ref === owner
 
     if (!sid || !current()) {
       return
