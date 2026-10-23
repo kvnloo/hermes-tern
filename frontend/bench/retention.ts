@@ -133,7 +133,7 @@ function replay(size: number, repetition: number): Measure {
     surface.acknowledge(i + 2) // Exactly one ACK for each emitted frame, both sizes.
   }
 
-  const ids = [...visible].filter(id => /^main\\.[ut]/.test(id)).sort()
+  const ids = [...visible].filter(id => id.startsWith('main.u') || id.startsWith('main.t')).sort()
   if (ids.length !== size || examined !== DELTAS || nodeBuilds !== DELTAS) {
     throw new Error(`Retention invariant failed: size=${size}, visible=${ids.length}, examined=${examined}, built=${nodeBuilds}`)
   }
