@@ -49,7 +49,7 @@ export class Notices {
     }
   }
 
-  nextExpiry(now = Date.now()): number | undefined {
+  nextExpiry(now = Number.NEGATIVE_INFINITY): number | undefined {
     return this.#items.nextExpiry(now) ?? undefined
   }
 
@@ -125,7 +125,7 @@ export class NoticeStrip {
   /** Re-renders when the next `ttl` notice expires, so the strip drops it on time. */
   #arm() {
     clearTimeout(this.#timer)
-    const at = this.#visible ? this.#notices.nextExpiry() : undefined
+    const at = this.#visible ? this.#notices.nextExpiry(Date.now()) : undefined
 
     if (at !== undefined) {
       this.#timer = setTimeout(() => {
