@@ -332,6 +332,52 @@ describe('SDK Settings instance IDs and scoped profile transaction regressions',
     expect(renderWithSdk(hubB).find('layer.' + nativeRoot(hubB))).toBeDefined()
   })
 
+  it('dispatches actual SDK A IDs only against the latest B tree, never B callbacks', async () => {
+    const { replies, values } = fixture()
+    const { app, sent } = ownedSetup(replies)
+    const send = vi.fn()
+    const surface = new Surface({ send, credits: () => 1, dropped: () => {} }, 'hermes', { mode: 'inline' })
+
+    openSettings(app)
+    await vi.waitFor(() => expect(sent('config.get').filter(p => p['key'] === 'skin')).toHaveLength(1))
+    await settle()
+    const oldSheet = must(app.overlays.find(o => o.key === 'settings'))
+    const oldId = 'layer.' + nativeRoot(oldSheet)
+    surface.render({ layer: [oldSheet.node('layer.settings')] })
+    expect(View.from({ layer: [oldSheet.node('layer.settings')] }).find(oldId)).toBeDefined()
+
+    app.close(oldSheet)
+    openSettings(app)
+    await vi.waitFor(() => expect(sent('config.get').filter(p => p['key'] === 'skin')).toHaveLength(2))
+    await settle()
+    const newSheet = must(app.overlays.find(o => o.key === 'settings'))
+    const newId = 'layer.' + nativeRoot(newSheet)
+    surface.render({ layer: [newSheet.node('layer.settings')] })
+
+    // Real SDK resolves incoming terminal IDs against #latest after render(), not
+    // against whichever handler was originally attached before the last paint.
+    expect(surface.dispatch({
+      ev: 'change', sf: 'hermes', id: oldId, item: 'busy', value: 'interrupt', raw: {}
+    })).toBeUndefined()
+    expect(surface.dispatch({
+      ev: 'action', sf: 'hermes', id: oldId, act: 'page',
+      value: 'profile.Safety', raw: {}
+    })).toBeUndefined()
+    expect(sent('config.set')).toEqual([])
+    expect(values.get('busy')).toBe('queue')
+
+    const current = surface.dispatch({
+      ev: 'change', sf: 'hermes', id: newId, item: 'busy', value: 'steer', raw: {}
+    })
+    expect(current).toBeDefined()
+    await current?.()
+    await vi.waitFor(() => expect(values.get('busy')).toBe('steer'))
+    expect(sent('config.set')).toEqual([{
+      key: 'busy', value: 'steer', session_id: 's1', profile: 'Work'
+    }])
+    expect(send).toHaveBeenCalled()
+  })
+
   it('fails closed without canonical session.info profile and sends no profile RPC', async () => {
     const { app, sent } = setup(fixture().replies)
     openSettings(app)
