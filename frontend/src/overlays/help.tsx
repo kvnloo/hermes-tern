@@ -10,6 +10,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { HIDDEN_COMMANDS, localCommands } from '../commands/local.js'
 import { errorText } from '../core/errors.js'
 import { KEYS } from '../draft/keys.js'
+import { APP_SHORTCUTS, shortcutGroups, type Shortcut } from '../shortcuts/actions.js'
 import { actionsRow } from '../view/ui/button.js'
 import { rpc } from '../wire/rpc.js'
 
@@ -63,7 +64,7 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
 ]
 
 /** Opens the help sheet; the command list comes from the gateway's catalog. */
-export async function openHelp(host: HelpHost) {
+export async function openHelp(host: HelpHost, actions: readonly Shortcut[] = APP_SHORTCUTS) {
   let catalog: CommandsCatalogResult = {}
   const sid = host.session.ref.live
 
@@ -90,13 +91,29 @@ export async function openHelp(host: HelpHost) {
       .filter(c => c.pairs.length)
   ]
 
+  // Editing and immutable Ctrl+C/Ctrl+D stay local. Configurable actions
+  // come only from the effective owning profile, never stale default labels.
+  const defaultLabels = new Set(APP_SHORTCUTS.flatMap(action => action.keys))
+  const sections = [
+    ...HOTKEYS.map(section => ({
+      ...section,
+      rows: section.group === 'Control'
+        ? section.rows.filter(([keys]) => !keys.some(key => defaultLabels.has(key)))
+        : section.rows
+    })),
+    ...shortcutGroups(actions).map(section => ({
+      group: section.group,
+      rows: section.rows.map(([keys, title]): [string[], string] => [[...keys], title])
+    }))
+  ]
+
   const overlay: Overlay = {
     key: KEY,
     modal: true,
     node: () => (
       <overlay anchor="center" head="Commands and shortcuts" key={KEY} modal role="omp.overlay.hotkeys" size="lg">
         <col gap="lg" key="body">
-          {HOTKEYS.map(({ group, rows }) => (
+          {sections.map(({ group, rows }) => (
             <section head={group} key={`keys-${group}`} role="omp.hotkeys.group">
               <table
                 cols={[
