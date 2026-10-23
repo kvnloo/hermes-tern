@@ -20,9 +20,6 @@ const EXTENSIONS: Record<MediaFamily, readonly string[]> = {
   model: ['glb', 'gltf', 'obj', 'usd', 'usda', 'usdc', 'usdz']
 }
 
-const FAMILY_BY_EXTENSION = new Map(Object.entries(EXTENSIONS).flatMap(([family, extensions]) =>
-  extensions.map(extension => [extension, family as MediaFamily] as const)
-))
 const MODEL_MIMES: Record<string, readonly string[]> = {
   glb: ['model/gltf-binary'],
   gltf: ['model/gltf+json'],
@@ -50,7 +47,9 @@ export type ToolMedia =
 
 /** No scheme, network path, control byte, or implicit frontend cwd may become a terminal path. */
 export function localMediaPath(path: string, cwd: string | undefined): string | undefined {
-  if (!path || !path.trim() || /[\x00-\x1f\x7f]/.test(path) ||
+  const control = Array.from(path).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+
+  if (!path || !path.trim() || control ||
       /^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//')) {
     return undefined
   }
@@ -59,13 +58,18 @@ export function localMediaPath(path: string, cwd: string | undefined): string | 
     return undefined
   }
 
-  return isAbsolute(path) ? resolve(path) : resolve(cwd!, path)
+  return isAbsolute(path) ? resolve(path) : cwd ? resolve(cwd, path) : undefined
 }
 
 /** Only a matching file suffix and reported MIME may claim a native media family. */
 export function mediaFamily(path: string, reportedMime?: string): MediaFamily | undefined {
   const extension = extname(path).slice(1).toLowerCase()
-  const family = FAMILY_BY_EXTENSION.get(extension)
+  const family: MediaFamily | undefined = EXTENSIONS.image.includes(extension) ? 'image'
+    : EXTENSIONS.pdf.includes(extension) ? 'pdf'
+      : EXTENSIONS.video.includes(extension) ? 'video'
+        : EXTENSIONS.audio.includes(extension) ? 'audio'
+          : EXTENSIONS.model.includes(extension) ? 'model'
+            : undefined
 
   if (!family) {
     return undefined
