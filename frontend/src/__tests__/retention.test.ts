@@ -147,7 +147,7 @@ describe('retained long-session transcript', () => {
     const updates = h.since(start)
     expect(updates.some(op => (op[0] === 'add' || op[0] === 'del') && op[1] === 'main')).toBe(false)
     expect(updates.some(op => op[0] === 'move' || op[0] === 'reveal')).toBe(false)
-    expect(updates.some(op => op[1] === 'main.t0' || op[1] === 'main.u0')).toBe(false)
+    expect(updates.some(op => op.length > 1 && (op[1] === 'main.t0' || op[1] === 'main.u0'))).toBe(false)
     expect(updates.some(op => op[0] === 'text' || op[0] === 'set')).toBe(true)
   })
 
@@ -199,7 +199,7 @@ describe('retained long-session transcript', () => {
     h.paint(entries, context(copy))
     h.gone(['main.t0'], 'another-surface')
     h.paint(entries, context(copy))
-    expect(h.ops().some(op => op[1] === 'main.retention-load')).toBe(false)
+    expect(h.ops().some(op => op.length > 1 && op[1] === 'main.retention-load')).toBe(false)
     const action = h.click('main.u0.tools.copy')
     expect(action).toBeTypeOf('function')
     h.paint([], context(copy))
