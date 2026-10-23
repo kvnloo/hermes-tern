@@ -1,6 +1,7 @@
 import { type JSX, Node } from '@stencil-hq/tern'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { localCommand } from '../commands/local.js'
 import { dockModel } from '../view/dockModel.js'
 
 import { settle, setup } from './appSetup.js'
@@ -154,6 +155,22 @@ describe('live voice and consent lifecycle', () => {
     await other.app.liveVoice.control('stop')
     expect(other.app.liveVoice.blocked).toBe(true)
     expect(other.app.liveVoice.error).toContain('Audio release failed')
+  })
+
+  it('/live and /ptt stay local; /live off revokes consent without opening audio', async () => {
+    const { app, sent } = setup()
+    const live = localCommand('live')
+    const ptt = localCommand('ptt')
+    expect(live?.name).toBe('live')
+    expect(ptt?.name).toBe('ptt')
+    await live?.run(app, '')
+    expect(app.liveVoice.phase).toBe('consent')
+    await ptt?.run(app, '')
+    expect(app.transcript.entries.some(e => e.kind === 'notice' && e.text.includes('key-down/key-up'))).toBe(true)
+    await live?.run(app, 'off')
+    expect(app.liveVoice.blocked).toBe(false)
+    expect(sent('voice.live.start')).toHaveLength(0)
+    expect(sent('slash.exec')).toHaveLength(0)
   })
 
   it('backend exit revokes local consent/lease; late voice hints are not adopted', async () => {
