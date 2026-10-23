@@ -316,7 +316,7 @@ describe('native plan review', () => {
 
   it('rejects late external-editor completion after a modal preemption without any RPC', async () => {
     let finish!: (text: string) => void
-    vi.mocked(editPlanExternal).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    vi.mocked(editPlanExternal).mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve }))
     const f = fixture({ 'plan.status': initial })
     openPlanReview(f.host)
     await paint()
