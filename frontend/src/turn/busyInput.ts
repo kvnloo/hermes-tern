@@ -44,7 +44,9 @@ export class BusyDraft {
     }
 
     // Native Tern Send may carry the submitted text before its matching edit callback.
-    if (raw !== composer.text) composer.set(raw)
+    if (raw !== composer.text) {
+      composer.set(raw)
+    }
 
     const revision = composer.revision
     const cursor = composer.cursor
