@@ -115,7 +115,7 @@ export class App implements ChatPorts {
     const s = this.stores
     this.#surface = new SurfaceHost(this.#tern, 'hermes', STYLES)
     if (this.#tern.caps.features.includes('settle')) {
-      this.#retention = new Retention(this.#surface.raw, () => this.changed())
+      this.#retention = new Retention(this.#surface.raw, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
     }
     this.#view = {
       ...s,
