@@ -140,10 +140,10 @@ describe('BTW native SDK editor focus and ownership', () => {
       })
       const edit = () => surface.dispatch({
         ev: 'edit', sf: surface.id, id: EDITOR,
-        from: 3, to: 3, text: 'X', cursor: 4, len: draftA.text.length
+        from: 3, to: 3, text: 'X', cursor: 4, len: draftA.text.length, raw: {}
       })
       const send = () => surface.dispatch({
-        ev: 'send', sf: surface.id, id: EDITOR, text: 'Not admitted'
+        ev: 'send', sf: surface.id, id: EDITOR, text: 'Not admitted', raw: {}
       })
       const staleClick = click()
       const staleEdit = edit()
