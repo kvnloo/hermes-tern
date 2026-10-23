@@ -317,7 +317,7 @@ class SettingsSheet implements Overlay {
   node(id: string): JSX.Element {
     if (!this.#live()) {
       return (
-        <overlay anchor="center" key={id.slice('layer.'.length)} modal size="md">
+        <overlay anchor="bottom" key={id.slice('layer.'.length)} modal size="md">
           <col gap="md" key="expired">
             <text key="warning" text="This Settings sheet belongs to a previous session. Close and reopen it." />
             {button({ key: 'close', label: 'Close', onClick: () => this.#host.close(this) })}
@@ -330,7 +330,7 @@ class SettingsSheet implements Overlay {
 
     if (ask) {
       return (
-        <overlay anchor="center" key={id.slice('layer.'.length)} modal size="md">
+        <overlay anchor="bottom" key={id.slice('layer.'.length)} modal size="md">
           <col gap="md" key="confirm">
             <text key="heading" text="Confirm Hermes profile change" />
             <text key="scope" text={`Profile setting: ${ask.field.label}. This is persistent, not a live session pin.`} wrap="word" />
