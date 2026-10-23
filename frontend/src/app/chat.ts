@@ -208,7 +208,7 @@ export class App implements ChatPorts {
     }
 
     this.#orb?.update(
-      this.#orbActivity.state(this.overlays.some(o => o.key.startsWith('prompt:')), Boolean(this.busy)),
+      this.#orbActivity.state(this.overlays.some(o => o.key.startsWith('prompt:'))),
       this.overlays.at(-1)?.modal === true
     )
     if (this.#view) {
@@ -223,7 +223,7 @@ export class App implements ChatPorts {
       this.#orbSid = sid
       this.#orbActivity.reset(Boolean(this.busy))
     }
-    const wasActive = this.#orbActivity.state(false, Boolean(this.busy)) !== 'idle'
+    const wasActive = this.#orbActivity.state(false) !== 'idle'
     this.#orbActivity.event(ev)
 
     if (!this.#visible && ev.type === 'message.complete' && wasActive) {

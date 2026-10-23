@@ -20,6 +20,14 @@ export interface Expanded {
 }
 
 /** What an expansion reaches of the app. */
+/** Optional gates for a draft still held by its composer instead of taken for routing. */
+export interface ExpandOptions {
+  /** A busy correction keeps its draft in place on shell failure. */
+  restoreOnFailure?: boolean
+  /** A switched session should receive neither a stale notice nor a restored draft. */
+  current?: () => boolean
+}
+
 export interface ExpandHost {
   readonly gw: Requester
   readonly transcript: { notice(text: string, tone?: NoticeEntry['tone']): void }
@@ -41,7 +49,7 @@ export function hasCommands(prompt: TypedPrompt): boolean {
  * `prompt` with its `{!cmd}`s run in session `sid` (the prompt itself when it has none); undefined
  * when one failed, after the notice says so and the prompt is back in the composer.
  */
-export async function expand(host: ExpandHost, sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
+export async function expand(host: ExpandHost, sid: LiveSessionId, prompt: Prompt, { restoreOnFailure = true, current = () => true }: ExpandOptions = {}): Promise<Expanded | undefined> {
   if (prompt.kind !== 'typed' || !hasCommands(prompt)) {
     return prompt
   }
@@ -49,8 +57,14 @@ export async function expand(host: ExpandHost, sid: LiveSessionId, prompt: Promp
   try {
     return { images: prompt.images, text: await interpolate(host.gw, sid, prompt.text, prompt.pasted) }
   } catch (error) {
+    if (!current()) {
+      return undefined
+    }
+
     host.transcript.notice(`Not sent: a {!…} command failed: ${shellError(error)}.`, 'error')
-    host.restore(prompt)
+    if (restoreOnFailure) {
+      host.restore(prompt)
+    }
     host.changed()
 
     return undefined

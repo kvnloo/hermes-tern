@@ -113,7 +113,16 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
-    this.#busyDraft = new BusyDraft({ composer, gw, session: cx.state, transcript, changed })
+    this.#busyDraft = new BusyDraft({
+      activity: cx.activity,
+      admit: () => !isModal(chat.overlays) && !cx.life.switching && !attachments.any && !attachments.uploading,
+      composer,
+      gw,
+      router: cx.router,
+      session: cx.state,
+      transcript,
+      changed
+    })
 
     this.dock = {
       onAgents: () => openAgents(chat),
@@ -228,6 +237,10 @@ export class AppActions {
 
   /** Sends the composer's draft, with the pastes it holds. */
   submitDraft(alternate = false) {
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+
     const raw = this.#cx.composer.text
 
     if (this.#shouldSteer(raw, alternate)) {
@@ -241,12 +254,18 @@ export class AppActions {
 
   /** Tern native Send obeys the same busy intent as keyboard Enter. */
   submitNative(raw: string) {
+    // Tern may emit native Send even when the host still advertises sendable under a modal.
+    // The modal owns admission; do not touch the hidden draft, selection or caret.
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+
     if (this.#shouldSteer(raw, false)) {
       void this.#busyDraft.steer(raw)
       return
     }
 
-    this.submit(raw, true, 'queue')
+    this.submit(raw, true, 'queue', [...this.#cx.composer.pasted])
   }
 
   /** Never redirect a live turn implicitly. Shell, slash, images and modal answers keep their own paths. */

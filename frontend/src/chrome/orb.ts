@@ -19,7 +19,7 @@ export class OrbActivity {
     this.#tools.clear()
   }
 
-  state(waiting = false, busy = false): OrbState {
+  state(waiting = false): OrbState {
     if (waiting) {
       return 'waiting'
     }
@@ -36,7 +36,8 @@ export class OrbActivity {
       return 'working'
     }
 
-    return this.#phase === 'idle' ? (this.#voice === 'idle' && busy ? 'working' : this.#voice) : this.#phase
+    // App-side shell expansion and prompt admission are not confirmed agent activity.
+    return this.#phase === 'idle' ? this.#voice : this.#phase
   }
 
   event(ev: AnyGatewayEvent) {
