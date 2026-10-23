@@ -14,9 +14,19 @@ import time
 import tty
 from pathlib import Path
 
+# TSP v1 vocabulary from pinned @stencil-hq/tern wire.ts.
+# Advertise and validate prefs and its nested native controls, not col/text/el only.
+KINDS = [
+    "col", "row", "card", "section", "rule", "spacer", "text", "md",
+    "code", "diff", "ansi", "math", "image", "media", "kv", "table",
+    "tree", "badge", "kbd", "icon", "spinner", "shimmer", "elapsed",
+    "progress", "rate", "list", "item", "tabs", "editor", "input",
+    "status", "seg", "overlay", "toast", "rows", "picker", "prefs",
+    "tool", "checklist", "agent", "chart", "meter", "block", "effort", "el",
+]
 HELLO = {
     "r": "hello", "v": 1, "term": "tern", "ver": "0.4.3",
-    "kinds": ["col", "text", "el"],
+    "kinds": KINDS,
     "features": ["flow", "styles", "edit", "undo", "send"],
     "apc": 65536, "credits": 32, "cols": 100,
     "cell": {"w": 8, "h": 17}, "dark": True, "reduceMotion": False
@@ -53,6 +63,8 @@ def run(app_path: str, mode: str) -> dict:
         output = bytearray()
         scanned = 0
         frames = 0
+        native_prefs = 0
+        frame_parts = {}
 
         def read_status() -> dict:
             try:
@@ -60,6 +72,15 @@ def run(app_path: str, mode: str) -> dict:
                 return result if isinstance(result, dict) else {}
             except (FileNotFoundError, json.JSONDecodeError):
                 return {}
+
+        def validate_node(node) -> None:
+            nonlocal native_prefs
+            if not isinstance(node, dict) or node.get("k") not in KINDS:
+                raise AssertionError("Unsupported or malformed TSP node " + repr(node)[:160])
+            if node["k"] == "prefs":
+                native_prefs += 1
+            for child in node.get("c", []):
+                validate_node(child)
 
         def pump(timeout: float = 0.012) -> None:
             nonlocal scanned, frames
@@ -81,15 +102,38 @@ def run(app_path: str, mode: str) -> dict:
                     if not found:
                         break
                     scanned = found.end()
+                    # Reassemble TSP c=..;m=1; frame chunks before validation.
+                    raw = found.group(1)
+                    params = {}
+                    while True:
+                        segment, sep, tail = raw.partition(b";")
+                        if not sep or b"=" not in segment:
+                            break
+                        name, value = segment.split(b"=", 1)
+                        if not re.fullmatch(rb"[a-zA-Z0-9_-]+", name):
+                            break
+                        params[name.decode("ascii")] = value.decode("ascii")
+                        raw = tail
+                    if "c" in params:
+                        identifier = params["c"]
+                        frame_parts.setdefault(identifier, bytearray()).extend(raw)
+                        if params.get("m") == "1":
+                            continue
+                        raw = bytes(frame_parts.pop(identifier))
+                    frame = json.loads(raw)
+                    if not isinstance(frame, dict) or not isinstance(frame.get("sf"), str) \
+                            or not isinstance(frame.get("s"), int) or not isinstance(frame.get("ops"), list):
+                        raise AssertionError("Malformed TSP frame from SDK: " + repr(frame)[:200])
+                    for op in frame["ops"]:
+                        if not isinstance(op, list) or not op or not isinstance(op[0], str):
+                            raise AssertionError("Malformed TSP operation " + repr(op))
+                        if op[0] == "add":
+                            if len(op) != 5:
+                                raise AssertionError("Malformed TSP add op " + repr(op))
+                            validate_node(op[4])
                     frames += 1
-                    try:
-                        frame = json.loads(found.group(1))
-                        if isinstance(frame, dict) and isinstance(frame.get("s"), int):
-                            ack = {"ev": "ack", "sf": frame["sf"], "s": frame["s"]}
-                            os.write(master, b"\x1b_tsp;e;" + json.dumps(ack).encode("utf-8") + b"\x1b\\")
-                    except (ValueError, KeyError):
-                        # A chunked frame has its own envelope; the SDK also has 32 credits.
-                        pass
+                    ack = {"ev": "ack", "sf": frame["sf"], "s": frame["s"]}
+                    os.write(master, b"\x1b_tsp;e;" + json.dumps(ack).encode("utf-8") + b"\x1b\\")
                 readable, _, _ = select.select([master], [], [], 0)
 
         def wait(label: str, predicate, seconds: float = 7.0) -> None:
@@ -118,6 +162,9 @@ def run(app_path: str, mode: str) -> dict:
                     count = os.write(master, view)
                     view = view[count:]
                 pump(0.006)
+
+        def tsp(event: dict) -> bytes:
+            return b"\x1b_tsp;e;" + json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\x1b\\"
 
         def calls(method: str) -> list:
             return [
