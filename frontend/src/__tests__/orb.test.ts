@@ -53,13 +53,18 @@ describe('agent orb lifecycle', () => {
     expect(activity.state()).toBe('working')
   })
 
-  it('uses busy state for queued start-up before the gateway begins its message', () => {
+  it('does not mistake app-side busy work for an agent turn; resumes only confirmed work', () => {
     const activity = new OrbActivity()
-    expect(activity.state(false, true)).toBe('working')
+    expect(activity.state()).toBe('idle')
+    activity.event(event('message.delta', { text: 'late reply before start' }))
     expect(activity.state()).toBe('idle')
     activity.event(event('message.start'))
     activity.event(event('message.delta', { text: 'reply' }))
     expect(activity.state()).toBe('composing')
+    activity.reset(true)
+    expect(activity.state()).toBe('working')
+    activity.reset()
+    expect(activity.state()).toBe('idle')
   })
 
   it('uses voice events without treating an idle composer as microphone capture', () => {
