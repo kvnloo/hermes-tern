@@ -123,6 +123,11 @@ function writableFigure(path: string, source: string, call: ToolCall, mime: stri
     return undefined
   }
 
+  // Prevent multi-megabyte generated source from inflating the transcript tree.
+  if (Buffer.byteLength(source, 'utf8') > 1024 * 1024) {
+    return undefined
+  }
+
   const hash = createHash('sha256').update(JSON.stringify([call.id, path, source, call.result])).digest('hex')
   const tickCount = [...source.matchAll(/`+/g)].reduce((longest, match) => Math.max(longest, match[0].length + 1), 3)
   const ticks = '`'.repeat(tickCount)
