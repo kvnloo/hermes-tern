@@ -107,6 +107,37 @@ const TODAY: Record<string, [string, Outcome][]> = {
     ['message.complete', 'render'],
     ['session.info', 'render']
   ],
+  'agent-wait-tiles': [
+    ['gateway.ready', 'render'],
+    ['message.start', 'render'],
+    ['tool.start', 'render'],
+    ['tool.complete', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['message.complete', 'render']
+  ],
+  'agent-wait-solo': [
+    ['gateway.ready', 'render'],
+    ['message.start', 'render'],
+    ['tool.start', 'render'],
+    ['tool.complete', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.complete', 'render'],
+    ['message.complete', 'render']
+  ],
   'approval-clarify': [
     ['gateway.ready', 'render'],
     ['message.start', 'render'],
