@@ -55,7 +55,7 @@ export function normalizeChord(raw: string): string {
   const name = parts.pop() ?? ''
   const validName = /^(?:[a-z0-9,./;=\-]|f(?:[1-9]|1[0-9]|2[0-4])|enter|escape|tab|space|backspace|delete|home|end|up|down|left|right|page_up|page_down)$/.test(name)
 
-  if (!validName || parts.some(p => !MODIFIERS.includes(p as Modifier)) || new Set(parts).size !== parts.length) {
+  if (!validName || parts.some(p => !MODIFIERS.some(m => m === p)) || new Set(parts).size !== parts.length) {
     throw new Error(`Invalid key chord: ${raw}`)
   }
 
@@ -77,13 +77,15 @@ function exact(chord: string, key: Key): boolean {
 
 /** The selected action's actual matcher, including original legacy shortcuts. */
 export function shortcutMatches(shortcut: Shortcut, key: Key): boolean {
-  if (shortcut.legacy) {
+  const policy = shortcut.legacy
+
+  if (policy) {
     return shortcut.keys.some(chord => {
       const name = chord.split('+').at(-1)
 
       return name === key.name.toLowerCase() &&
-        shortcut.legacy!.must.every(m => key[m]) &&
-        shortcut.legacy!.forbid.every(m => !key[m])
+        policy.must.every(m => key[m]) &&
+        policy.forbid.every(m => !key[m])
     })
   }
 
@@ -99,9 +101,14 @@ function overlap(a: Shortcut, b: Shortcut): boolean {
 
   // All possible modifier states, including the original permissive chords.
   for (let mask = 0; mask < 16; mask++) {
-    const flags = Object.fromEntries(MODIFIERS.map((m, i) => [m, Boolean(mask & (1 << i))]))
     for (const name of names) {
-      const key = { name, ...flags } as Key
+      const key: Key = {
+        name: name ?? '',
+        ctrl: Boolean(mask & 1),
+        alt: Boolean(mask & 2),
+        shift: Boolean(mask & 4),
+        meta: Boolean(mask & 8)
+      }
 
       if (shortcutMatches(a, key) && shortcutMatches(b, key)) {
         return true
@@ -141,7 +148,7 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
       }
 
       const chord = normalizeChord(key)
-      const name = chord.split('+').at(-1)!
+      const name = chord.split('+').at(-1) ?? ''
       const mods = chord.split('+').slice(0, -1)
       const typing = (name.length === 1 || name === 'space') && !mods.includes('ctrl') && !mods.includes('alt')
 
@@ -165,10 +172,10 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
 
   for (let i = 0; i < actions.length; i++) {
     for (let j = i + 1; j < actions.length; j++) {
-      const a = actions[i]!
-      const b = actions[j]!
+      const a = actions[i]
+      const b = actions[j]
 
-      if (overlap(a, b)) {
+      if (a && b && overlap(a, b)) {
         throw new Error(`Overlapping chord: ${a.id} and ${b.id}`)
       }
     }
