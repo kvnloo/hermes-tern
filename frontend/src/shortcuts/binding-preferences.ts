@@ -27,14 +27,18 @@ function displayConfig(result: ConfigGetResult): Record<string, unknown> {
     throw new Error('display must be an object')
   }
 
-  return display
+  // Narrow the raw object to the only display keys this slice reads.
+  return {
+    tern_keybindings: 'tern_keybindings' in display ? display.tern_keybindings : undefined,
+    tern_profile_identity: 'tern_profile_identity' in display ? display.tern_profile_identity : undefined
+  }
 }
 
 function wantsProfile(result: ConfigGetResult): boolean {
   const config = result.config
   const display = config && typeof config === 'object' ? config['display'] : undefined
 
-  return Boolean(display && typeof display === 'object' && !Array.isArray(display) && display['tern_profile_identity'] === true)
+  return Boolean(display && typeof display === 'object' && !Array.isArray(display) && 'tern_profile_identity' in display && display.tern_profile_identity === true)
 }
 
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -72,7 +76,7 @@ export class BindingPreferences {
     return item ? shortcutMatches(item, key) : false
   }
 
-  /** A confirmed native Settings readback may supersede an adoption read. */
+  /** A confirmed owner-scoped config readback supersedes a pending adoption read. */
   accept(result: ConfigGetResult, sid: string, identity?: ConfigGetResult): boolean {
     if (!sid || this.#host.sid() !== sid) {
       return false
