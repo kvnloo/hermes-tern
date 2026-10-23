@@ -19,6 +19,7 @@ import type { WelcomeContext } from '../view/welcome.js'
 /** What a frame reads and the three things it changes: the pills' focus, the completion and the surface. */
 export interface FrameCx extends DockSources {
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
+  readonly retention?: Retention | undefined
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
