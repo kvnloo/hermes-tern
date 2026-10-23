@@ -4,6 +4,7 @@
 Invokes the registered direct JSON-RPC dispatcher and real config.get handlers;
 does not mock the profile resolver or echo request params.
 """
+from contextlib import redirect_stdout
 import json
 import os
 from pathlib import Path
@@ -34,14 +35,16 @@ with TemporaryDirectory(prefix="hermes-tern-keybindings-owner-") as directory:
 
     sys.path.insert(0, str(source))
     os.environ["HERMES_HOME"] = str(home)
-    from tui_gateway import server
-    from tui_gateway.ws_legacy_fallback import _connection_profile_home
+    with redirect_stdout(sys.stderr):
+        from tui_gateway import server
+        from tui_gateway.ws_legacy_fallback import _connection_profile_home
 
     def call(key, params):
-        response = server._handle_admitted_request({
-            "jsonrpc": "2.0", "id": 7, "method": "config.get",
-            "params": {"key": key, **params},
-        })
+        with redirect_stdout(sys.stderr):
+            response = server._handle_admitted_request({
+                "jsonrpc": "2.0", "id": 7, "method": "config.get",
+                "params": {"key": key, **params},
+            })
         if not isinstance(response, dict) or "result" not in response:
             raise AssertionError(f"Actual pinned gateway rejected {key}: {response!r}")
         return response["result"]
