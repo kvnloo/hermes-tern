@@ -24,7 +24,9 @@ export class Notices {
   readonly #items = new Dispatches()
 
   show(p: NoticePayload, now = Date.now(), hidden = false): Notice | undefined {
-    if (!p.text?.trim()) return undefined
+    if (!p.text?.trim()) {
+      return undefined
+    }
     this.#items.show(p, now, hidden)
 
     return this.current(now)
@@ -110,11 +112,19 @@ export class NoticeStrip {
 
   /** Visibility is host-owned; held notifications start their TTL when the pane returns. */
   visible(shown: boolean) {
-    if (shown === this.#visible) return
+    if (shown === this.#visible) {
+      return
+    }
+
     this.#visible = shown
-    if (shown) this.#notices.resume()
+    if (shown) {
+      this.#notices.resume()
+    }
+
     this.#arm()
-    if (shown) this.#host.changed()
+    if (shown) {
+      this.#host.changed()
+    }
   }
 
   /** Stops the expiry render. */
