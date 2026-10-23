@@ -1,7 +1,7 @@
 // The gateway's keyed `notification.show` notices (credits, a slow start) on the status strip.
 // Mirrors Hermes' ui-tui/src/app/createGatewayEventHandler.ts (notification.show/clear) and
-// turnController's keyed notice. Notices is the list; NoticeStrip owns it with the timer that
-// re-renders when a `ttl` one expires, so the strip drops it on time.
+// turnController's keyed notice. Notices projects bounded gateway attention; NoticeStrip owns
+// the single expiry timer and freezes short-lived arrivals while the Tern pane is hidden.
 
 import type { NoticeEntry } from '../model.js'
 
@@ -24,6 +24,7 @@ export class Notices {
   readonly #items = new Dispatches()
 
   show(p: NoticePayload, now = Date.now(), hidden = false): Notice | undefined {
+    if (!p.text?.trim()) return undefined
     this.#items.show(p, now, hidden)
 
     return this.current(now)
@@ -125,6 +126,7 @@ export class NoticeStrip {
   /** Re-renders when the next `ttl` notice expires, so the strip drops it on time. */
   #arm() {
     clearTimeout(this.#timer)
+    this.#timer = undefined
     const at = this.#visible ? this.#notices.nextExpiry(Date.now()) : undefined
 
     if (at !== undefined) {
