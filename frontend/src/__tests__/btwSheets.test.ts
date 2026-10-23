@@ -2,12 +2,13 @@
 import type { NodeJson } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
+import { App } from '../app/chat.js'
 import { BtwThreads } from '../btw.js'
 import { copyToClipboard } from '../clipboard.js'
 import { localCommand } from '../commands/local.js'
 import type { BtwThread } from '../wire/side.js'
 
-import { key, must, stubOverlay, tree } from './fakes.js'
+import { FakeGateway, fakeTern, given, key, must, stubOverlay, tree } from './fakes.js'
 import { sideSetup } from './sideSetup.js'
 
 vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
@@ -161,6 +162,29 @@ describe('native BTW thread history and reader', () => {
     old.onKey(key('enter'))
     expect(f.gw.methods('btw.submit')).toHaveLength(0)
     expect(model.draft.text).toBe('')
+  })
+
+  it('projects backend stream events through the real App subscription, not the main transcript', async () => {
+    const gw = new FakeGateway({ replies: { 'btw.list': () => ({ threads: [thread('app-thread')] }) } })
+    const tern = fakeTern()
+    const app = new App(tern.session, gw.client, 'test')
+    const running = app.run()
+    given.session(app, 's1')
+
+    try {
+      await app.btw.show()
+      const before = app.transcript.entries.length
+      const updated = { ...thread('app-thread', 'running', 2), turns: [{
+        id: 'app-thread-turn', question: 'Question app-thread', answer: 'Streamed outside main', state: 'running' as const
+      }] }
+      gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: updated } })
+      expect(app.btw.thread?.turns[0]?.answer).toBe('Streamed outside main')
+      expect(app.transcript.entries).toHaveLength(before)
+    } finally {
+      app.quit()
+      tern.end()
+      await running
+    }
   })
 
   it('leaves drafts in place on invalid list, submit and malformed update replies', async () => {
