@@ -5,6 +5,10 @@ against independently built Tern and Ink entries. The Node recorder only writes
 lossless JSON argv/environment receipts, then execs the actual Node interpreter.
 Every subprocess owns a new process group; both PTY and pipe captures are bounded
 and clean up the whole owned group, even if the Python driver has already exited.
+Detached gateway cleanup is Linux-only: Python 3.11+, pidfd_open,
+pidfd_send_signal, select.poll and accessible /proc start-time and cmdline
+identity are mandatory. It fails closed without a process handle, never
+falling back to a raw numeric PID signal.
 
 No provider requests, ambient profiles/credentials/panes, mock entrypoint, or
 fabricated exit-75 response. SSH/mux environment probes are markers, NOT real
@@ -193,48 +197,117 @@ def _bounded_capture(
 STOP_ISOLATED_GATEWAY = """
 import json
 import os
+import select
+import signal
 import sys
-import time
 from pathlib import Path
 
-source, home = map(Path, sys.argv[1:3])
-sys.path.insert(0, str(source))
-from hermes_cli.gateway_runtime_replace import _verified_owner, _write_planned_stop
-from gateway.status import _pid_exists, terminate_pid
 
-home = home.resolve(strict=True)
-record_file = home / 'gateway.pid'
-if not record_file.exists():
-    sys.exit(0)
-record = json.loads(record_file.read_text(encoding='utf-8'))
-pid = record.get('pid')
-if type(pid) is not int or pid <= 1:
-    raise RuntimeError('Isolated gateway record lacks a valid PID')
-if not _pid_exists(pid):
-    sys.exit(0)
-verdict = _verified_owner(home, record)
-if isinstance(verdict, str):
-    raise RuntimeError('Refusing to stop an unverified or foreign owner: ' + verdict)
-verified_pid, started_at = verdict
-assert verified_pid == pid
-_write_planned_stop(home, verified_pid, started_at)
-try:
-    terminate_pid(verified_pid, expected_start_time=started_at)
-except ProcessLookupError:
-    sys.exit(0)
-deadline = time.monotonic() + 2
-while time.monotonic() < deadline and _pid_exists(verified_pid):
-    time.sleep(0.05)
-if _pid_exists(verified_pid):
+def _shutdown_owned_gateway(home, verify_owner, write_planned_stop,
+                            matches_live_gateway, read_cmdline, marker_filename):
+    # Pinned gateway.status.terminate_pid checks expected_start_time only
+    # when FORCE is set. Numeric-PID os.kill(SIGTERM) is unsafe.
+    if (sys.platform != 'linux' or sys.version_info < (3, 11)
+            or not callable(getattr(os, 'pidfd_open', None))
+            or not callable(getattr(signal, 'pidfd_send_signal', None))
+            or not callable(getattr(select, 'poll', None))):
+        raise RuntimeError(
+            'Native fallback prerequisite: Linux Python 3.11+, '
+            'os.pidfd_open, signal.pidfd_send_signal, pollable pidfds; '
+            'never fall back to os.kill on a detached PID'
+        )
+    record_file = home / 'gateway.pid'
+    if record_file.is_symlink():
+        raise RuntimeError('Refusing a symlinked isolated gateway PID record')
+    if not record_file.exists():
+        return  # No detached gateway in this isolated HERMES_HOME.
+    original = record_file.read_bytes()
+    record = json.loads(original)
+    if not isinstance(record, dict):
+        raise RuntimeError('Isolated gateway PID record is not an object')
+    pid = record.get('pid')
+    if type(pid) is not int or pid <= 1:
+        raise RuntimeError('Isolated gateway record lacks a valid PID')
+
+    # Kernel process handle acquired BEFORE the final identity checks.
     try:
-        terminate_pid(verified_pid, force=True, expected_start_time=started_at)
+        handle = os.pidfd_open(pid, 0)
     except ProcessLookupError:
-        sys.exit(0)
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and _pid_exists(verified_pid):
-        time.sleep(0.05)
-if _pid_exists(verified_pid):
-    raise RuntimeError('Verified isolated gateway did not terminate')
+        return  # Original is dead; signal nobody.
+    try:
+        verdict = verify_owner(home, record)
+        if isinstance(verdict, str):
+            raise RuntimeError('Refusing an unverified or foreign owner: ' + verdict)
+        verified_pid, started_at = verdict
+        # Pinned matcher allows a two-second tolerance on other platforms;
+        # supported Linux /proc start ticks MUST match exactly.
+        if (type(verified_pid) is not int or verified_pid != pid
+                or type(record.get('start_time')) is not int
+                or type(started_at) is not int
+                or record['start_time'] != started_at):
+            raise RuntimeError('Refusing recycled or unverifiable gateway start-time')
+        if (not read_cmdline(pid)
+                or not matches_live_gateway(record, pid, expected_home=home)):
+            raise RuntimeError('Refusing gateway without live process/profile proof')
+        if record_file.read_bytes() != original:
+            raise RuntimeError('Isolated gateway PID record changed during verification')
+
+        poller = select.poll()
+        poller.register(handle, select.POLLIN | select.POLLHUP |
+                        select.POLLERR | select.POLLNVAL)
+
+        def exited(wait_ms):
+            for event_fd, event_flags in poller.poll(wait_ms):
+                if event_fd != handle or event_flags & (select.POLLERR | select.POLLNVAL):
+                    raise RuntimeError('Invalid isolated gateway pidfd readiness')
+                if event_flags & (select.POLLIN | select.POLLHUP):
+                    return True
+            return False
+
+        if exited(0):
+            return
+        write_planned_stop(home, pid, started_at)
+        marker = json.loads((home / marker_filename).read_text(encoding='utf-8'))
+        if (not isinstance(marker, dict)
+                or marker.get('target_pid') != pid
+                or marker.get('target_start_time') != started_at
+                or marker.get('stopper_pid') != os.getpid()):
+            raise RuntimeError('Isolated planned-stop marker was not verified')
+        if exited(0):
+            return
+        try:
+            signal.pidfd_send_signal(handle, signal.SIGTERM, None, 0)
+        except ProcessLookupError:
+            if exited(0):
+                return
+            raise RuntimeError('SIGTERM reported missing owner without pidfd exit proof')
+        if exited(2000):
+            return
+        try:
+            signal.pidfd_send_signal(handle, signal.SIGKILL, None, 0)
+        except ProcessLookupError:
+            if exited(0):
+                return
+            raise RuntimeError('SIGKILL reported missing owner without pidfd exit proof')
+        if not exited(2000):
+            raise RuntimeError('Verified isolated gateway pidfd did not exit')
+    finally:
+        os.close(handle)
+
+
+if __name__ == '__main__':
+    source, home = map(Path, sys.argv[1:3])
+    sys.path.insert(0, str(source))
+    from hermes_cli.gateway_runtime_replace import _verified_owner, _write_planned_stop
+    from gateway.status import (
+        _record_matches_live_gateway_pid, _read_process_cmdline,
+        _PLANNED_STOP_MARKER_FILENAME,
+    )
+    _shutdown_owned_gateway(
+        home.resolve(strict=True), _verified_owner, _write_planned_stop,
+        _record_matches_live_gateway_pid, _read_process_cmdline,
+        _PLANNED_STOP_MARKER_FILENAME,
+    )
 """
 
 
