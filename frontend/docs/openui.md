@@ -12,7 +12,8 @@ summaries**, not generated executable code, model output or publication receipts
   validator, bundle/scope assertions, byte caps and current-source fingerprints.
 - `frontend/openui/openui-generation/src/`: original bounded
   `@openuidev/lang-core@0.3.1` compiler adapter, catalog and static-program
-  guard. The exact donor package lock and `.npmrc` ship alongside these files;\n  the root Bun workspace lock mirrors their exact npm integrity records.
+  guard. The exact donor package lock and `.npmrc` ship alongside these files;
+  the root Bun workspace lock mirrors their exact npm integrity records.
 - `frontend/openui/openui-preview/tern/`: the reviewed `host.luau`,
   `window.luau`, `visual.css` and `plugin.toml`. Their actual bytes are
   fingerprint inputs. **Files are shipped, not installed into Tern.**
@@ -143,7 +144,10 @@ OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node --test openui/openui-preview/tes
 bun run bundle
 ```
 
-The frozen-workspace regression checks the root/child manifest, donor integrity pins\nand generation-local Zod resolution; the unconditional packaged CLI suite\nexecutes the real parser after the normal install. No nested npm step is\nneeded in CI. The new real-path suite exercises the shipped CLI with both telemetry
+The frozen-workspace regression checks the root/child manifest, donor integrity pins
+and generation-local Zod resolution; the unconditional packaged CLI suite
+executes the real parser after the normal install. No nested npm step is
+needed in CI. The new real-path suite exercises the shipped CLI with both telemetry
 variables absent in its subprocess environment, strict validation, Tern SDK
 native JSX, changed renderer/parser fingerprints, wrong scope, swapped notice
 ID, malformed data/UTF-8, actual file byte bounds and cancellation. The

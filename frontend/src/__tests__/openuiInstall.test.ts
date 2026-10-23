@@ -2,7 +2,7 @@
 // All expected versions and integrity values come from the unchanged donor lock.
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
@@ -23,7 +23,7 @@ describe('OpenUI dependencies in the standard frozen Bun install', () => {
     const frontend = await loadJson<{ workspaces?: { packages?: string[]; selfContained?: string[] } }>(new URL('package.json', root))
     const generation = await loadJson<{ name: string; version: string; dependencies: Record<string, string> }>(new URL('package.json', generator))
     const lockText = await readFile(new URL('bun.lock', root), 'utf8')
-    const lock = JSON.parse(lockText.replace(/,\\s*([}\\]])/g, '$1')) as BunLock
+    const lock = JSON.parse(lockText.replace(/,\s*([}\]])/g, '$1')) as BunLock
     const donor = await loadJson<NpmLock>(new URL('package-lock.json', generator))
 
     expect(frontend.workspaces?.packages).toContain('openui/openui-generation')
@@ -55,7 +55,7 @@ describe('OpenUI dependencies in the standard frozen Bun install', () => {
   })
 
   it('resolves the exact generation-local Zod instead of the frontend Zod', async () => {
-    const manifest = await loadJson<{ version: string }>(new URL('file://' + parserRequire.resolve('zod/package.json')))
+    const manifest = await loadJson<{ version: string }>(pathToFileURL(parserRequire.resolve('zod/package.json')))
     expect(manifest.version).toBe('4.0.0')
   })
 })
