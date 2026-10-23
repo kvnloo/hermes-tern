@@ -75,10 +75,16 @@ describe('the visible live UX in App', () => {
       expect(tern.frame).toBe(before)
       expect(app.stores.notices.current()).toBeUndefined()
 
+      const finished = 'A Hermes turn finished while this pane was hidden.'
+      const dockNotice = () => flattened(topNodes(tern.region('dock'))).find(n => n.props['title'] === finished)
+      expect(dockNotice()).toBeUndefined()
+
       tern.send({ ev: 'visible', sf: 'hermes', raw: {}, visible: true })
-      await settle(gw)
-      expect(app.stores.notices.current()?.text).toContain('turn finished')
-      expect(tern.frame).not.toBe(before)
+      await vi.waitFor(() => {
+        expect(tern.frame).not.toBe(before)
+        expect(dockNotice()?.props['spans']).toEqual([{ t: finished }])
+      })
+      expect(app.stores.notices.current()?.text).toBe(finished)
     } finally {
       app.dispose()
       tern.end()
