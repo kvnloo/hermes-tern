@@ -1,5 +1,5 @@
-// MBP acceptance: actual OS PTY bytes travel through the existing Tern-key / Composer /
-// PromptRouter path. No synthetic editor edits or replacement prompt router.
+// Real OS PTY bytes feed the existing Tern-key adapter, Composer and PromptRouter.
+// This exercises PTY-to-App ownership, not the native Tern SDK input parser.
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,10 +14,15 @@ import { FakeGateway, fakeTern, given, key, settle } from './fakes.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 
+/** Quote a single argument in the shell command required by util-linux script -c. */
+function shellQuote(text: string): string {
+  return "'" + text.replace(/'/g, "'\\''") + "'"
+}
+
 /**
- * macOS script(1) allocates a real PTY for a raw-mode Node child. The child
- * acknowledges exactly the bytes read from its terminal, not pre-decoded
- * strings; fragmented UTF-8 and paste delimiters stay observable here.
+ * util-linux script(1) on Linux and BSD script(1) on Darwin each allocate
+ * an actual PTY for a raw-mode Node child. Its byte acknowledgments expose
+ * split UTF-8 and paste delimiters without pre-decoding the input.
  */
 async function throughPty(payload: string): Promise<string> {
   const code = [
@@ -27,10 +32,26 @@ async function throughPty(payload: string): Promise<string> {
     "process.stdin.on('data', bytes => process.stdout.write('DATA ' + bytes.toString('hex') + '\\n'))",
     "process.stdout.write('READY\\n')"
   ].join('; ')
-  const child = spawn('/usr/bin/script', ['-q', '/dev/null', 'node', '-e', code], {
-    stdio: ['pipe', 'pipe', 'pipe']
-  })
-  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
+  if (process.platform !== 'linux' && process.platform !== 'darwin') {
+    throw new Error(`PTY acceptance requires Linux or macOS script(1), got ${process.platform}`)
+  }
+
+  // util-linux: script -q -c 'node -e ...' /dev/null
+  // BSD:        script -q /dev/null node -e ...
+  const args = process.platform === 'linux'
+    ? ['-q', '-c', `node -e ${shellQuote(code)}`, '/dev/null']
+    : ['-q', '/dev/null', 'node', '-e', code]
+  const child = spawn('script', args, { stdio: ['pipe', 'pipe', 'pipe'] })
+  let spawnError: Error | undefined
+  let stdinError: Error | undefined
+  child.once('error', error => { spawnError = error })
+  child.stdin.on('error', error => { stdinError = error })
+  const exited = new Promise<void>(resolve => child.once('close', () => resolve()))
+  const assertAlive = () => {
+    if (spawnError) throw new Error(`script(1) could not start: ${spawnError.message}`)
+    if (stdinError) throw new Error(`PTY input write failed: ${stdinError.message}`)
+    if (child.exitCode !== null) throw new Error(`script(1) exited before PTY exchange: ${child.exitCode}`)
+  }
   const frames: string[] = []
   let ready = false
   let output = ''
@@ -52,7 +73,10 @@ async function throughPty(payload: string): Promise<string> {
   })
 
   try {
-    await vi.waitFor(() => expect(ready).toBe(true), { timeout: 5000 })
+    await vi.waitFor(() => {
+      assertAlive()
+      expect(ready).toBe(true)
+    }, { timeout: 5000 })
     const bytes = Buffer.from(payload, 'utf8')
     // The first scalar is a four-byte emoji: split at every continuation byte.
     const writes = [
@@ -67,7 +91,10 @@ async function throughPty(payload: string): Promise<string> {
     for (const part of writes) {
       expectedHex += part.toString('hex')
       child.stdin.write(part)
-      await vi.waitFor(() => expect(frames.join('')).toBe(expectedHex), { timeout: 5000 })
+      await vi.waitFor(() => {
+        assertAlive()
+        expect(frames.join('')).toBe(expectedHex)
+      }, { timeout: 5000 })
     }
 
     // Decode the PTY's actual receive frames incrementally, not per write.
@@ -120,8 +147,8 @@ function nativeKeys(input: string): Key[] {
   return keys
 }
 
-describe('BTW and main draft PTY isolation (macOS native acceptance)', () => {
-  it.skipIf(process.platform !== 'darwin')('routes split UTF-8, bracketed paste and Enter without cross-submitting', async () => {
+describe('BTW and main draft PTY-to-App isolation (Linux/macOS)', () => {
+  it('routes split UTF-8, bracketed paste and Enter without cross-submitting', async () => {
     const previousHome = process.env['HERMES_HOME']
     const home = mkdtempSync(join(tmpdir(), 'hermes-tern-btw-pty-'))
     process.env['HERMES_HOME'] = home
@@ -200,5 +227,5 @@ describe('BTW and main draft PTY isolation (macOS native acceptance)', () => {
 
       rmSync(home, { force: true, recursive: true })
     }
-  })
+  }, 20_000)
 })
