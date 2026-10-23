@@ -415,6 +415,7 @@ class SettingsSheet implements Overlay {
     if (this.#confirmation) {
       if (key.name === 'enter' || key.name === 'escape' || (key.ctrl && key.name === 'c')) {
         this.#confirmation = undefined
+        this.#host.changed()
       }
 
       return true
@@ -446,6 +447,7 @@ class SettingsSheet implements Overlay {
         this.#editor.key(key)
       }
 
+      this.#host.changed()
       return true
     }
 
@@ -453,6 +455,7 @@ class SettingsSheet implements Overlay {
       if (this.#searching) {
         this.#searching = false
         this.#search.set('')
+        this.#host.changed()
       } else {
         this.#host.close(this)
       }
@@ -465,8 +468,9 @@ class SettingsSheet implements Overlay {
     if (key.name === 'tab' || (!this.#searching && (key.name === 'left' || key.name === 'right'))) {
       const delta = key.shift || key.name === 'left' ? -1 : 1
       this.#page = pages[(pages.indexOf(this.#page) + delta + pages.length) % pages.length] ?? SESSION_PAGE
-      this.#selected = undefined
-
+      // Enter can precede the next paint: select the real row synchronously.
+      this.#selected = this.#sections().flatMap(section => section.rows)[0]?.id
+      this.#host.changed()
       return true
     }
 
@@ -475,7 +479,7 @@ class SettingsSheet implements Overlay {
 
     if (selected !== undefined) {
       this.#selected = selected
-
+      this.#host.changed()
       return true
     }
 
@@ -484,6 +488,7 @@ class SettingsSheet implements Overlay {
     } else if (key.text || key.name === 'paste' || key.name === 'backspace') {
       this.#searching = true
       this.#search.key(key)
+      this.#host.changed()
     }
 
     return true

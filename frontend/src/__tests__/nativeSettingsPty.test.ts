@@ -58,7 +58,10 @@ describe('real-PTY SDK composer ownership', () => {
       expect(requests(result, 'config.get').some(p => p['key'] === 'full' && p['source'] === 'settings')).toBe(false)
       expect(requests(result, 'settings.get')).toEqual([])
       expect(requests(result, 'model.hub.get')).toEqual([])
-      expect(requests(result, 'config.set')).toEqual([
+      // FakeGateway also records rejected show_reasoning startup traffic;
+      // every actual Settings attempt must match these exact values/owners.
+      const settingsWrites = requests(result, 'config.set').filter(p => p['key'] !== 'show_reasoning')
+      expect(settingsWrites).toEqual([
         { key: 'busy', value: 'steer', profile: 'default', session_id: 'pty-s1' },
         { key: 'theme', value: 'dark', profile: 'default', session_id: 'pty-s1' }
       ])

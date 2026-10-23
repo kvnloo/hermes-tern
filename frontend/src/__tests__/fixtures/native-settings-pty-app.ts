@@ -82,6 +82,7 @@ const status = () => {
     caret: app.stores.composer.cursor,
     settingsRoot: props?.['key'],
     settingsPage: props?.['page'],
+    settingsFocus: props?.['focus'],
     settingsBusy: settingsWords['busy'],
     settingsTheme: settingsWords['theme'],
     canonicalProfile: app.session.info?.profile_name,

@@ -172,6 +172,17 @@ def run(app_path: str, mode: str) -> dict:
                 if isinstance(item, dict) and item.get("method") == method
             ]
 
+        def settings_writes(snapshot: dict | None = None) -> list:
+            # FakeGateway records rejected App startup show_reasoning requests.
+            # Count every other config.set, even unknown keys or malformed params.
+            seen = (read_status() if snapshot is None else snapshot).get("calls", [])
+            return [
+                item for item in seen
+                if isinstance(item, dict) and item.get("method") == "config.set"
+                and (not isinstance(item.get("params"), dict)
+                     or item["params"].get("key") != "show_reasoning")
+            ]
+
         try:
             proc = subprocess.Popen(
                 ["bun", app_path, str(report), mode],
@@ -226,18 +237,43 @@ def run(app_path: str, mode: str) -> dict:
                  and len([c for c in calls("config.get") if c.get("params", {}).get("key") == "skin"]) >= 2
                  and native_prefs >= 2)
             root_b = "layer." + read_status()["settingsRoot"]
+            before_stale = read_status()
+            if before_stale.get("settingsPage") != "session" or before_stale.get("settingsBusy") != "queue":
+                raise AssertionError("Settings B was not at its clean initial page")
+            # Stale A events precede a genuine B select event in the same PTY
+            # stream. Its changed focus is a causal SDK dispatch receipt without
+            # performing a B page action that could conceal an A page mutation.
             send([
                 tsp({"ev": "change", "sf": "hermes", "id": root_a, "item": "busy", "value": "interrupt"}),
                 tsp({"ev": "action", "sf": "hermes", "id": root_a, "act": "page", "value": "profile.Safety"}),
-                tsp({"ev": "action", "sf": "hermes", "id": root_b, "act": "page", "value": "profile.Agent"})
+                tsp({"ev": "select", "sf": "hermes", "id": root_b, "item": "session.effort"})
             ])
+            receipts = []
+
+            def receipt_from_real_b_select():
+                snapshot = read_status()
+                if snapshot.get("settingsFocus") != "session.effort":
+                    return False
+                receipts.append(snapshot)
+                return True
+
+            wait("B native select receipt after stale A events", receipt_from_real_b_select)
+            after_stale = receipts[-1]
+            if (after_stale.get("settingsRoot") != root_b.removeprefix("layer.")
+                    or after_stale.get("settingsPage") != before_stale.get("settingsPage")
+                    or after_stale.get("settingsBusy") != before_stale.get("settingsBusy")
+                    or after_stale.get("settingsTheme") != before_stale.get("settingsTheme")
+                    or after_stale.get("canonicalProfile") != before_stale.get("canonicalProfile")
+                    or settings_writes(after_stale)):
+                raise AssertionError("Stale A native event mutated B before fresh B action: "
+                                     + repr(after_stale))
+            # Fresh B controls are tested only after the stale-event snapshot.
+            send([tsp({"ev": "action", "sf": "hermes", "id": root_b, "act": "page", "value": "profile.Agent"})])
             wait("B page action dispatched through actual SDK", lambda:
                  read_status().get("settingsPage") == "profile.Agent")
-            if calls("config.set") or read_status().get("settingsBusy") != "queue":
-                raise AssertionError("Stale A native event mutated B")
             send([tsp({"ev": "change", "sf": "hermes", "id": root_b, "item": "busy", "value": "steer"})])
             wait("B native prefs change performs scoped write/readback", lambda:
-                 len(calls("config.set")) == 1
+                 len(settings_writes()) == 1
                  and read_status().get("settingsBusy") == "steer"
                  and len([c for c in calls("config.get") if c.get("params", {}).get("key") == "busy"]) >= 4)
             send([b"\x1b"])
@@ -265,7 +301,7 @@ def run(app_path: str, mode: str) -> dict:
             root_c = "layer." + read_status()["settingsRoot"]
             send([tsp({"ev": "change", "sf": "hermes", "id": root_c, "item": "theme", "value": "dark"})])
             wait("native owner-scoped save while raw draft held", lambda:
-                 len(calls("config.set")) == 2 and read_status().get("settingsTheme") == "dark")
+                 len(settings_writes()) == 2 and read_status().get("settingsTheme") == "dark")
             send([b"\x1b"])
             wait("Settings C close keeps text/caret/paste provenance", lambda:
                  "settings" not in read_status().get("overlays", [])
