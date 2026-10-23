@@ -1,6 +1,7 @@
 import { Node } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
+import { INPUT_ID } from '../surface/host.js'
 import { App } from './appSetup.js'
 import { FakeGateway, fakeTern, given, key, settle, stubOverlay, topNodes } from './fakes.js'
 
@@ -20,7 +21,7 @@ function nativeSend(tern: ReturnType<typeof fakeTern>, text: string) {
     throw new Error('native editor Send handler is missing')
   }
 
-  send({ text })
+  send({ ev: 'send', sf: 'hermes', id: INPUT_ID, text, raw: {} })
 }
 
 describe('the visible live UX in App', () => {
