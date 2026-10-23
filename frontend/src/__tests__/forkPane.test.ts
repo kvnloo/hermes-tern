@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { type CommandHost, localCommand } from '../commands/local.js'
 import type { SessionHost } from '../commands/session.js'
 import { liveSessionId } from '../core/ids.js'
+import { type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
 import { type ForkHost, forkSession, shellQuote } from '../fork-session.js'
 import { launchPane } from '../pane-launcher.js'
 import { isUnsupportedFork } from '../wire/fork.js'
 
-import { must, stub } from './fakes.js'
+import { key, must, stub, stubOverlay } from './fakes.js'
 
 function fixture(options: { fallback?: boolean; canonical?: boolean; profile?: string } = {}) {
   const requests: { method: string; params: Record<string, unknown> }[] = []
@@ -190,6 +191,27 @@ describe('fork session in a sibling pane', () => {
       }
     }
     expect(f.requests.map(r => r.method)).toEqual(['session.fork'])
+  })
+})
+
+describe('the fork shortcut', () => {
+  it('Alt+Shift+F forks once, but cannot bypass a modal prompt; Alt+F remains word navigation', () => {
+    const called = vi.fn()
+    const ctx = stub<KeyCx>({
+      completion: { onKey: () => false },
+      fork: called,
+      hud: () => false
+    })
+    const shortcut = key('f', { alt: true, shift: true })
+
+    expect(matches(shortcut, KEYS.fork)).toBe(true)
+    expect(matches(key('f', { alt: true }), KEYS.fork)).toBe(false)
+
+    onKey(shortcut, ctx, undefined)
+    expect(called).toHaveBeenCalledTimes(1)
+
+    onKey(shortcut, ctx, stubOverlay('prompt:approval', { modal: true }))
+    expect(called).toHaveBeenCalledTimes(1)
   })
 })
 
