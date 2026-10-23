@@ -56,7 +56,8 @@ describe('Tern image-paste payloads', () => {
     expect(pastedImageEvent({ ev: 'paste', raw: { path: './local.png' } })).toBeUndefined()
     expect(pastedImageEvent({ ev: 'drop', raw: { path: 'file://remote/other.png' } })).toBeUndefined()
     expect(pastedImageEvent({ ev: 'action', data: url })).toBeUndefined()
-    expect(pastedImageEvent({ ev: 'drop', raw: { data: url, name: 'bad\nname' } })?.name).toBe('Pasted image')
+    expect(pastedImageEvent({ ev: 'drop', raw: { data: url, name: 'bad\nname' } }))
+      .toEqual({ kind: 'data', data: url, name: 'Pasted image' })
   })
 
   it('routes pinned SDK 0.1 unknown-wrapped native image frames, not native text', () => {
