@@ -19,9 +19,11 @@ Ctrl+C, Ctrl+D, Ctrl+V, Esc Esc and the composer's readline keys remain owned by
 
 ## Owning-profile bindings
 
-On adoption the frontend requests the pinned gateway's `config.get` with `{ key: 'full', session_id }`. The gateway scopes this to the **owning session profile**. `config.display.tern_keybindings` maps action IDs from `src/shortcuts/actions.ts` to a chord, array of chords, `null` (default), or empty array (disabled). If `config.display.tern_profile_identity === true`, a second session-scoped `config.get` (`key: 'profile'`) supplies its optional display identity. Failure of that identity read does not discard valid bindings. These RPCs never write settings.
+Every refresh captures the **actual adopted session.ref object** and canonical **SessionInfo.profile_name** after synchronous adoption. Supported pinned `config.get` uses BOTH `session_id` and explicit `profile` on `key: 'full'` and optional `key: 'profile'` reads. Hermes `22063fc` otherwise falls back to the connection profile when the sid is absent or reaped; a sid alone is not owner authority.
 
-Example:
+`config.display.tern_keybindings` maps action IDs in `src/shortcuts/actions.ts` to a chord, array, `null` (default), or `[]` (disabled). When `display.tern_profile_identity === true`, the optional second read returns a **pretty display label**, not canonical authority. Neither that label, HOME basename, nor an ambient profile is an authorized fallback.
+
+Example value of `display.tern_keybindings` in the actual owning profile's config:
 
 ```json
 {
@@ -31,7 +33,7 @@ Example:
 }
 ```
 
-The JSON above is the value of `display.tern_keybindings` in the owning Hermes profile's config, not a plugin settings file. Invalid or overlapping bindings are rejected atomically, with defaults for a new session and the previous valid map preserved for the current session. Tern 0.9.5 reserves Ctrl+Shift+P for its host Command palette and Ctrl+Shift+K for clear screen/scrollback; neither can be used as a profile override. Host-reserved chords and composer-owned keys cannot be rebound. A delayed response from another session is ignored. No profile settings are written by this port.
+If canonical identity is missing, **no preference RPC is made** and built-in shortcuts/composer remain usable. Every reply/readback is fenced by the captured ref's **object identity**, exact canonical profile, and read generation, including A→B→A/reused sid and mid-read profile changes. A new owner never exposes the old map or identity. Invalid, duplicate, overlapping, editor-owned and host-reserved maps are rejected atomically; a current owner retains only its own prior valid map. Ctrl+Shift+P and Ctrl+Shift+K remain Tern host-reserved. No profile settings are written.
 
 ## Command palette
 
@@ -51,9 +53,11 @@ From the repository root, with `HERMES_SRC` set to the existing Hermes checkout 
 cd frontend
 node scripts/hermes-src.mjs
 test "$(git -C .hermes-src rev-parse HEAD)" = "$(cat hermes-src.lock)"
-bun install --frozen-lockfile
+bun install --prefer-offline --frozen-lockfile
 bun run check
-bun run test src/shortcuts/__tests__/actions.test.ts src/shortcuts/__tests__/binding-preferences.test.ts src/shortcuts/__tests__/model-cycle.test.ts src/shortcuts/__tests__/palette.test.ts src/__tests__/keys.test.ts --reporter=verbose
+bun run test src/shortcuts/__tests__/binding-preferences.test.ts src/shortcuts/__tests__/help.test.ts src/shortcuts/__tests__/actions.test.ts src/shortcuts/__tests__/model-cycle.test.ts src/shortcuts/__tests__/palette.test.ts src/__tests__/keys.test.ts src/__tests__/golden.test.ts --reporter=verbose
+bun run bundle
+python3 -m py_compile src/shortcuts/__tests__/fixtures/native-keybindings-profile-core.py
 ```
 
 Also manually verify Tern key input (modified F1, Alt+/ and Alt+K), Enter vs Tab in the palette, model confirmation on both gateway modes, reconnect/session replacement while reads are outstanding, and canonical and private gateway `config.get` full/profile behavior.
