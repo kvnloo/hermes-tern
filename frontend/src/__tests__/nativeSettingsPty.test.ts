@@ -65,7 +65,15 @@ describe('real-PTY SDK composer ownership', () => {
         { key: 'busy', value: 'steer', profile: 'default', session_id: 'pty-s1' },
         { key: 'theme', value: 'dark', profile: 'default', session_id: 'pty-s1' }
       ])
-      const reads = requests(result, 'config.get').filter(p => p['profile'] === 'default')
+      // Binding refresh now also makes an explicitly owner-scoped full read.
+      const ownerReads = requests(result, 'config.get').filter(p => p['profile'] === 'default')
+      expect(ownerReads.every(p => p['session_id'] === 'pty-s1')).toBe(true)
+      const keymapReads = ownerReads.filter(p => p['key'] === 'full')
+      expect(keymapReads.length).toBeGreaterThan(0)
+      for (const read of keymapReads) {
+        expect(read).toEqual({ key: 'full', session_id: 'pty-s1', profile: 'default' })
+      }
+      const reads = ownerReads.filter(p => p['key'] !== 'full')
       expect(reads.length).toBeGreaterThanOrEqual(3 * 8)
       expect(reads.every(p => p['session_id'] === 'pty-s1' && p['key'] !== 'full')).toBe(true)
 
