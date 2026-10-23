@@ -128,7 +128,8 @@ describe('delegation ownership (gateway events → Agents → transcript)', () =
     h.agents.apply('subagent.tool', { ...payload('worker-a'), tool_name: 'read_file' }, 30)
 
     expect(a.subagents?.[0]).toMatchObject({ id: 'worker-a', tool: 'read_file' })
-    expect(b.subagents?.[0]).toMatchObject({ id: 'worker-b', tool: undefined })
+    expect(b.subagents?.[0]?.id).toBe('worker-b')
+    expect(b.subagents?.[0]?.tool).toBeUndefined()
     h.agents.dispose()
   })
 
