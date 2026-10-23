@@ -30,6 +30,11 @@ PASTE = "!echo should-not-run {!touch /tmp/never}\n🧩 literal 😀"
 def run(app_path: str, mode: str) -> dict:
     if mode not in ("plain", "vim"):
         raise ValueError("Unknown PTY test mode")
+    # A timeout/termination from the test runner must still reap the owned child.
+    def interrupted(signum, _frame):
+        raise InterruptedError("PTY runner terminated by signal " + str(signum))
+
+    signal.signal(signal.SIGTERM, interrupted)
     with tempfile.TemporaryDirectory(prefix="hermes-tern-real-pty-") as home:
         report = Path(home) / "gateway.json"
         master, slave = pty.openpty()
@@ -193,11 +198,17 @@ def run(app_path: str, mode: str) -> dict:
             }
         finally:
             if proc is not None and proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     proc.wait(timeout=1)
                 except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     proc.wait(timeout=1)
             if slave >= 0:
                 os.close(slave)

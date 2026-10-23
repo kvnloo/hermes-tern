@@ -57,6 +57,11 @@ describe('real-PTY SDK composer ownership', () => {
       expect(prompts.map(p => p['text'])).toEqual([typed, pasted])
       expect(prompts.map(p => p['session_id'])).toEqual(['pty-s1', 'pty-s1'])
       expect(prompts.every(p => typeof p['submission_id'] === 'string')).toBe(true)
+      expect(prompts.map(p => Object.keys(p).sort())).toEqual([
+        ['session_id', 'submission_id', 'text'],
+        ['session_id', 'submission_id', 'text']
+      ])
+      expect(prompts[0]?.['submission_id']).not.toBe(prompts[1]?.['submission_id'])
 
       // The pasted ! and {!...} are data, never commands for the user's shell.
       expect(requests(result, 'shell.exec')).toEqual([])
