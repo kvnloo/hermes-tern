@@ -233,12 +233,12 @@ export class App implements ChatPorts {
       })
     }
 
-    if (!this.#visible && (ev.type === 'background.complete' || ev.type === 'btw.complete') && ev.payload?.task_id) {
+    if (!this.#visible && ev.type === 'background.complete' && ev.payload?.task_id) {
       s.notices.show({
         key: `task:${ev.payload.task_id}`,
         kind: 'ttl',
         level: 'info',
-        text: ev.type === 'btw.complete' ? 'A side question finished while this pane was hidden.' : 'A background task finished while this pane was hidden.'
+        text: 'A background task finished while this pane was hidden.'
       })
     }
 
