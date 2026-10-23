@@ -115,9 +115,10 @@ export function eventOwner(calls: readonly ToolCall[], event: SubagentEventPaylo
 
     if (matching.length === 1) {
       const owner = matching[0]
+      const existingChild = child[0]?.agent
 
       if (!owner || (known && owner !== known) ||
-        (child[0]?.agent.delegationId && child[0].agent.delegationId !== id)) {
+        (existingChild?.delegationId && existingChild.delegationId !== id)) {
         return undefined
       }
 
@@ -131,8 +132,8 @@ export function eventOwner(calls: readonly ToolCall[], event: SubagentEventPaylo
         )
 
         if (parents.size > 1 || (event.parent_id && parents.size > 0 && !parents.has(event.parent_id)) ||
-          (child[0]?.agent.parentId && parents.size > 0 && !parents.has(child[0].agent.parentId)) ||
-          (child[0]?.agent.parentId && event.parent_id && child[0].agent.parentId !== event.parent_id)) {
+          (existingChild?.parentId && parents.size > 0 && !parents.has(existingChild.parentId)) ||
+          (existingChild?.parentId && event.parent_id && existingChild.parentId !== event.parent_id)) {
           return undefined
         }
       }
