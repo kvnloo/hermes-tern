@@ -102,6 +102,8 @@ export interface KeyCx {
   attachClipboardImage(): void
   /** Sends the composer's draft. */
   submitDraft(): void
+  /** An alternate busy Enter (Alt+Enter) steers or queues the current draft. */
+  steerDraft(): void
 }
 
 /** One step of the chain: true when it handled `key`. `top` is the top overlay when the key came. */
@@ -236,12 +238,20 @@ const dequeue: KeyRule = (key, cx) => {
 
 /** Alt+Enter on an empty prompt: the oldest queued prompt steers the running turn. */
 const steer: KeyRule = (key, cx) => {
-  if (!matches(key, KEYS.steer) || !cx.busy() || !cx.queue.count() || cx.composer.text) {
+  if (!matches(key, KEYS.steer) || !cx.busy()) {
+    return false
+  }
+
+  if (cx.composer.text) {
+    cx.steerDraft()
+    return true
+  }
+
+  if (!cx.queue.count()) {
     return false
   }
 
   cx.queue.steer(0)
-
   return true
 }
 
