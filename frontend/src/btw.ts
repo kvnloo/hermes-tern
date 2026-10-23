@@ -37,6 +37,7 @@ export class BtwThreads {
   /** Typed completions wait for an exact gateway thread/turn ID, never a guessed question match. */
   #pendingCompletions = new Map<string, boolean>()
   #seenCompletions = new Set<string>()
+  /** Key by the owning thread: separate terminal threads can share a legacy task ID. */
   #notices = new Map<string, NoticeRecord>()
   #noticedTurns = new Map<string, string>()
   #dismissedTurns = new Map<string, string>()
@@ -425,7 +426,7 @@ export class BtwThreads {
     }
 
     this.#dropNotices(thread.id)
-    this.#notices.set(taskId, {
+    this.#notices.set(thread.id, {
       id: 'btw:' + thread.id,
       taskId,
       threadId: thread.id,
@@ -444,9 +445,9 @@ export class BtwThreads {
   #dropNotices(threadId: string) {
     let removed = false
 
-    for (const [taskId, notice] of this.#notices) {
+    for (const [key, notice] of this.#notices) {
       if (notice.threadId === threadId) {
-        this.#notices.delete(taskId)
+        this.#notices.delete(key)
         removed = true
       }
     }
@@ -457,10 +458,11 @@ export class BtwThreads {
   }
 
   #ownsNotice(notice: BtwNotice): boolean {
-    const current = this.#notices.get(notice.taskId)
+    const current = this.#notices.get(notice.threadId)
 
     return Boolean(current && current.nonce === notice.nonce &&
       current.id === notice.id && current.threadId === notice.threadId &&
+      current.taskId === notice.taskId &&
       notice.ticket === this.#noticeTicket && notice.sid === this.#sid &&
       notice.sid === this.host.session.ref.live && notice.owner === this.#owner &&
       notice.owner === this.host.session.ref &&
@@ -483,7 +485,7 @@ export class BtwThreads {
       return
     }
 
-    this.#notices.delete(notice.taskId)
+    this.#notices.delete(notice.threadId)
     this.#dismissedTurns.set(notice.threadId, notice.turnId)
     this.#noticeTicket++
     this.host.changed()

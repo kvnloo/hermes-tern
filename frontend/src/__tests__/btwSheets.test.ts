@@ -24,7 +24,7 @@ function thread(id: string, state: BtwThread['turns'][number]['state'] = 'answer
 
 /** Exercise the actual main composer -> Enter -> local /btw -> conversation store path. */
 async function openedBySlash(gw: FakeGateway, question: string) {
-  const tern = fakeTern()
+  const tern = fakeTern({ draws: true })
   const app = new App(tern.session, gw.client, 'test')
   const running = app.run()
   given.session(app, 's1')
@@ -331,8 +331,14 @@ describe('native BTW thread history and reader', () => {
       const transcript = [...f.app.transcript.entries]
       const history = vi.mocked(appendHistory).mock.calls.slice()
       f.app.stores.composer.set('Other main draft', { cursor: 4 })
+      expect(f.app.overlays.map(o => o.key)).toEqual(['btw'])
+      await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       f.tern.press('tab') // reader -> conversation-owned side composer
-      f.tern.press('x')
+      await vi.waitFor(() => expect(f.tern.focused.at(-1)).toBe('layer.btw.body.followup'))
+      await vi.waitFor(() => expect(f.tern.reading).toBe(true))
+      // Fake keys need Tern's printable text as well as the key name.
+      f.tern.press(key('x', { text: 'x' }))
+      await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       await vi.waitFor(() => expect(draft.text).toBe(question + 'x'))
       expect(draft.revision).toBeGreaterThan(seededRevision)
 
@@ -369,6 +375,7 @@ describe('native BTW thread history and reader', () => {
   it('retains earlier unadmitted new-thread text, paste ownership and caret on another slash question', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
+    model.adopt('s1') // seed only after this conversation owns the new-thread slot
     const draft = model.draft
     draft.set('Earlier 🦉', { cursor: 3, pasted: ['Earlier 🦉'] })
     f.gw.handlers.set('btw.list', () => ({ threads: [] }))

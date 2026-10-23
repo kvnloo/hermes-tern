@@ -148,11 +148,16 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       complete(f, 'one-turn')
       await settle(f.gw)
       sdk = await nativeBrowserSurface()
+      const capturedNotice = f.app.btw.notices
+      expect(capturedNotice).toMatchObject([{ threadId: 'one', turnId: 'one-turn', sid: 's1' }])
+      expect(f.app.btw.selected).toBe('two')
       const oldSelection = sdk.capture(sdk.render('main', row(f)), 'main', 'view')
-      f.app.btw.select('two')
+      f.app.btw.select('one') // a different known thread invalidates the rendered action
+      expect(f.app.btw.selected).toBe('one')
       await oldSelection()
       expect(f.app.overlays).toEqual([])
-      f.app.btw.select('one')
+      f.app.btw.select('two') // ABA: restoring the old selection must not revive it
+      expect(f.app.btw.selected).toBe('two')
       await oldSelection()
       expect(f.app.overlays).toEqual([])
 
@@ -209,9 +214,24 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: {
         ...thread('b'), turns: [{ ...must(thread('b').turns[0]), id: 'ambiguous-turn' }]
       } } })
+      await settle(f.gw)
+      // Both terminal updates are legitimate, despite their colliding turn IDs.
+      // Only the legacy typed completion is ambiguous; it must not bind either.
+      const terminalNotices = f.app.btw.notices
+      expect(terminalNotices.map(({ id, taskId, threadId, turnId, failed }) => ({
+        id, taskId, threadId, turnId, failed
+      }))).toEqual([
+        { id: 'btw:later', taskId: 'later-turn', threadId: 'later', turnId: 'later-turn', failed: false },
+        { id: 'btw:a', taskId: 'ambiguous-turn', threadId: 'a', turnId: 'ambiguous-turn', failed: false },
+        { id: 'btw:b', taskId: 'ambiguous-turn', threadId: 'b', turnId: 'ambiguous-turn', failed: false }
+      ])
+      const lists = f.gw.sent('btw.list')
       complete(f, 'ambiguous-turn')
       await settle(f.gw)
-      expect(f.app.btw.notices).toHaveLength(1)
+      expect(f.app.btw.notices).toEqual(terminalNotices) // includes the captured nonces and tickets
+      expect(f.app.overlays).toEqual([]) // no View from an ambiguous task
+      expect(f.gw.sent('btw.list')).toEqual(lists)
+      expect(walk(topNodes(f.tern.region('dock'))).filter(n => n.props['role'] === 'omp.btw.notice')).toHaveLength(3)
 
       sdk = await nativeBrowserSurface()
       const view = sdk.capture(sdk.render('main', row(f)), 'main', 'view')

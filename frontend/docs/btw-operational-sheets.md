@@ -64,7 +64,9 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
   unmatched IDs wait for a real thread snapshot and never choose the
   selected/latest thread or infer identity from question text. Same-turn
   duplicates and dismissal never resurrect a notice; a later terminal
-  follow-up gets its own notice.
+  follow-up gets its own notice. Distinct terminal threads retain distinct
+  notices even when their turn IDs collide; an ambiguous legacy task ID
+  cannot claim either thread.
 - Native View/Dismiss actions capture thread/session/notice identity and a
   presentation ticket, refusing queued actions after selection, adoption,
   dismissal, overlay close/replacement or a new owner; modal approvals keep
