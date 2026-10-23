@@ -92,12 +92,6 @@ export class SurfaceLifecycle {
     return this.#state
   }
 
-  get sdk(): boolean {
-    return typeof this.#surface.seq === 'number' &&
-      typeof this.#surface.send === 'function' &&
-      typeof this.#surface.acknowledge === 'function'
-  }
-
   /** A previously skipped render/control must be rebuilt from live state after real credit. */
   defer() {
     this.#dirty = true
@@ -190,7 +184,7 @@ export class SurfaceLifecycle {
     const id = this.#recoveries ? 'hermes.recovery-' + this.#recoveries : 'hermes'
     const surface = this.#tern.open({ id, mode: 'inline', role: 'omp.session', title: this.#title })
     if (typeof surface.send !== 'function' || typeof surface.acknowledge !== 'function' || typeof surface.seq !== 'number') {
-      return surface // Legacy in-process App fixture, never used as protocol evidence.
+      throw new TypeError('Incompatible @stencil-hq/tern Surface: send, acknowledge and seq are required.')
     }
 
     const send = surface.send.bind(surface)
@@ -249,7 +243,7 @@ export class SurfaceLifecycle {
 
   #watch() {
     if (this.#watchdog || this.#stalled || this.#state !== 'visible' ||
-      !this.sdk || !this.#surface.blocked) {
+      !this.#surface.blocked) {
       return
     }
 

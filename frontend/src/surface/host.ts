@@ -22,10 +22,10 @@ export class SurfaceHost {
   #focus: string | null | undefined = INPUT_ID
   #palette: Palette | undefined
 
-  constructor(tern: Session, title: string, styles: string, events?: SurfaceHostEvents) {
+  constructor(tern: Session, title: string, styles: string, events: SurfaceHostEvents) {
     const host: SurfaceLifecycleHost = {
-      changed: () => events?.changed(),
-      report: message => events?.report(message),
+      changed: () => events.changed(),
+      report: message => events.report(message),
       replaced: surface => {
         this.#writer = new SurfaceView()
         this.#missing.clear()
@@ -35,7 +35,7 @@ export class SurfaceHost {
         if (this.#palette) {
           surface.palette(this.#palette)
         }
-        events?.recovered(surface)
+        events.recovered(surface)
       }
     }
     this.#life = new SurfaceLifecycle(tern, title, host)
@@ -57,9 +57,6 @@ export class SurfaceHost {
 
   /** Only current-epoch SDK handlers may act, including when queued before detach. */
   guardHandlers(retention: boolean) {
-    if (!this.#life.sdk) {
-      return
-    }
     const surface = this.raw
     const route = retention
       ? surface.dispatch.bind(surface)
@@ -79,8 +76,14 @@ export class SurfaceHost {
 
   /** Runs before the existing Retention.gone and unhandled SDK action handling. */
   event(event: TspEvent): boolean {
+    const before = this.raw
     const accepted = this.#life.event(event)
-    if (accepted && event.ev === 'gone') {
+    // Hidden child evictions must be reconciled before the next explicit show.
+    // Whole-document loss is handled by lifecycle, never by the child writer.
+    const childGone = event.ev === 'gone' && !event.ids.includes(before.id) &&
+      (!event.sf || event.sf === before.id) &&
+      this.#life.state !== 'failed' && this.#life.state !== 'disposed'
+    if (childGone) {
       for (const id of event.ids) {
         this.#missing.add(id)
       }
@@ -98,9 +101,7 @@ export class SurfaceHost {
     if (this.closed) {
       return
     }
-    if (!this.#life.sdk) {
-      this.raw.render(view) // Existing App fixture only.
-    } else if (!this.#writer.paint(this.raw, view)) {
+    if (!this.#writer.paint(this.raw, view)) {
       this.#life.defer()
     }
   }
@@ -169,9 +170,6 @@ export class SurfaceHost {
 
   /** A successfully sent add may reestablish a previously evicted focus/handler id. */
   #track(surface: Surface) {
-    if (!this.#life.sdk) {
-      return
-    }
     const send = surface.send.bind(surface)
     surface.send = (ops: readonly Op[]) => {
       if (this.closed || surface !== this.raw || surface.blocked) {
