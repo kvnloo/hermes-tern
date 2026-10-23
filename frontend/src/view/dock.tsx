@@ -525,7 +525,7 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
         ) : null}
         {route.reasons !== false ? effortChip(route, on) : null}
         {draft.vim.enabled ? (
-          <text key="vim" role="omp.composer.vim" text={`${draft.vim.mode.toUpperCase()}${draft.vim.pending ? ` ${draft.vim.pending}` : ''}`} tone="muted" />
+          <text key="vim" role="omp.composer.vim" spans={[{ s: 'muted', t: `${draft.vim.mode.toUpperCase()}${draft.vim.pending ? ` ${draft.vim.pending}` : ''}` }]} />
         ) : null}
         {/* Tern puts its folder chip right before the composer's status node: an empty one keeps
             the chip there and the send key at the end. */}
