@@ -167,7 +167,7 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
   }
 
   const actions = APP_SHORTCUTS.map(action => overrides.has(action.id)
-    ? { ...action, keys: overrides.get(action.id)!, legacy: undefined }
+    ? { ...action, keys: overrides.get(action.id) ?? [], legacy: undefined }
     : action)
 
   for (let i = 0; i < actions.length; i++) {
