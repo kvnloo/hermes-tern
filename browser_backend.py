@@ -263,7 +263,16 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
                 return {"available": False, "blocks": [], "reason": "task_authority_unavailable"}
             owner, ids = resolved
             ready = _native_tools_ready(ctx, profile)
-            if ready and ids.tool_session_id and existing is not None:
+            if existing is not None:
+                # Once a native lease exists, never make even a temporary
+                # second driver/lease on revocation, reload or failed owner
+                # lookup. The original commissioned scope retains ownership.
+                if not ready or not ids.tool_session_id:
+                    return {"available": False, "blocks": [], "reason": (
+                        "operator_consent_or_task_authority_required"
+                        if not _consented(ctx) or not ids.tool_session_id
+                        else "needs_plugin_reload"
+                    )}
                 driver = _driver(request, ctx, require_owner=True)
                 with effect_fence(lambda: _rpc_effect_fence(ctx, request, driver, "blocks")):
                     return {"available": True, "blocks": driver.listing()}

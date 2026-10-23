@@ -187,6 +187,11 @@ def test_granted_consent_adopts_and_revocation_fences_effects(system):
     assert client.calls[0] == {"op": "blocks"}
     ctx.consent = False
     before = list(client.calls)
+    assert request("blocks", actor, ctx) == {
+        "available": False, "blocks": [],
+        "reason": "operator_consent_or_task_authority_required",
+    }
+    assert len(clients) == 1 and client.calls == before
     with pytest.raises(PermissionError, match="explicit"):
         request("release", actor, ctx, target_id="7")
     with pytest.raises(PermissionError, match="explicit"):
