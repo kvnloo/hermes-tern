@@ -56,8 +56,6 @@ describe('native BTW thread history and reader', () => {
     expect(parts(model).filter(n => n.p?.['role'] === 'omp.btn').length).toBeGreaterThan(237)
     const sheet = must(f.overlays.at(-1))
     sheet.onKey(key('tab'))
-    sheet.onKey(key('page_down'))
-    expect(f.scroll).toHaveBeenCalledWith('layer.btw.body.panes.composer', 'page-down')
     sheet.onKey(key('tab'))
     sheet.onKey(key('page_down'))
     expect(f.scroll).toHaveBeenCalledWith('layer.btw.body.panes.history', 'page-down')

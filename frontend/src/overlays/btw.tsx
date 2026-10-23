@@ -141,7 +141,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
             { key: 'send', label: 'Send side question', onClick: () => send() },
             ...(model.thread?.turns.at(-1)?.state === 'running'
               ? [{ key: 'cancel', label: 'Stop side turn', onClick: cancel }] : []),
-            { key: 'copy', label: 'Copy', onClick: copy },
+            ...(model.thread ? [{ key: 'copy', label: 'Copy', onClick: copy }] : []),
             { key: 'close', label: 'Return to main draft', hint: 'escape', onClick: () => model.close() }
           ])}
         </col>
@@ -166,13 +166,21 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
       } else if (key.alt && key.name === 'enter') {
         send()
       } else if (pane === 'composer') {
-        const action = model.draft.key(key)
+        const draft = model.draft
+        // This is not the main prompt history: at an edge, Up/Down stay here
+        // rather than invoking Composer's global prompt-history browser.
+        const top = key.name === 'up' && !key.meta && !draft.text.slice(0, draft.cursor).includes('\n')
+        const bottom = key.name === 'down' && !key.meta && !draft.text.slice(draft.cursor).includes('\n')
 
-        if (action === 'submit') {
-          send()
+        if (!top && !bottom) {
+          const action = draft.key(key)
+
+          if (action === 'submit') {
+            send()
+          }
+
+          host.changed()
         }
-
-        host.changed()
       } else if (!key.ctrl && !key.alt && !key.meta && key.name === 'c') {
         copy()
       } else {

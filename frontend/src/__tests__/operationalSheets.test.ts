@@ -1,6 +1,6 @@
 // MCP/SSH reports are read-only backend snapshots in a modal Tern sheet.
 import type { NodeJson } from '@stencil-hq/tern'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { copyToClipboard } from '../clipboard.js'
 import { localCommand } from '../commands/local.js'
@@ -12,6 +12,8 @@ import { key, must, stubOverlay, tree } from './fakes.js'
 import { sideSetup } from './sideSetup.js'
 
 vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
+
+beforeEach(() => vi.mocked(copyToClipboard).mockClear())
 
 function result(view: OperationalView = 'mcp-list'): OperationalReport {
   return { view, scope: 'owned-profile', state: 'ready', read_only: true, rows: [], message: 'Read-only Hermes inventory.' }
