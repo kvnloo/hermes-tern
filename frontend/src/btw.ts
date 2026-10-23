@@ -315,6 +315,10 @@ export class BtwThreads {
       this.update(answer.thread)
 
       if (this.selected === previous) {
+        if (this.selected !== answer.thread.id) {
+          this.invalidateActions()
+        }
+
         this.selected = answer.thread.id
       }
 
@@ -380,8 +384,9 @@ export class BtwThreads {
         continue
       }
 
-      this.#publish(thread, taskId, failed)
-      this.#pendingCompletions.delete(taskId)
+      if (this.#publish(thread, taskId, failed)) {
+        this.#pendingCompletions.delete(taskId)
+      }
     }
   }
 
@@ -392,13 +397,13 @@ export class BtwThreads {
     // Legacy complete may race the real final snapshot. Keep it pending until
     // a terminal turn supplies the only safe View identity.
     if (!turn || turn.state === 'running' || !this.#sid || !this.#owner) {
-      return
+      return false
     }
 
     this.#noticedTurns.set(thread.id, turn.id)
 
     if (this.#dismissedTurns.get(thread.id) === turn.id) {
-      return
+      return true
     }
 
     this.#dropNotices(thread.id)
@@ -413,6 +418,8 @@ export class BtwThreads {
       failed
     })
     this.#noticeTicket++
+
+    return true
   }
 
   /** Deletes only notices owned by this thread, revoking their already-rendered handlers. */

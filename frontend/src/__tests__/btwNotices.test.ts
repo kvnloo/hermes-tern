@@ -226,6 +226,24 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
     }
   })
 
+  it('waits for an actual terminal turn before binding an already-identified typed completion', async () => {
+    const f = await appFixture([thread('running', 'running')])
+
+    try {
+      const before = [...f.app.transcript.entries]
+      complete(f, 'running-turn', 's1', 'error: real worker failure')
+      await settle(f.gw)
+      expect(f.app.btw.notices).toEqual([])
+
+      f.gw.event({ type: 'btw.update', session_id: 's1', payload: { thread: thread('running', 'answered', 2) } })
+      await settle(f.gw)
+      expect(f.app.btw.notices).toMatchObject([{ threadId: 'running', turnId: 'running-turn', failed: true }])
+      expect(f.app.transcript.entries).toEqual(before)
+    } finally {
+      await f.close()
+    }
+  })
+
   it('projects real terminal btw.update into an exact-thread View, without a legacy completion or duplicate notices', async () => {
     const f = await appFixture([])
     let sdk: Awaited<ReturnType<typeof nativeBrowserSurface>> | undefined
