@@ -45,6 +45,7 @@ describe('real-PTY SDK composer ownership', () => {
       expect(result['closed']).toBe(true)
       expect(result['vim']).toBe(mode === 'vim')
       expect(result['vimInsert']).toBe(mode === 'vim')
+      expect(result['literalProvenance']).toBe(true)
 
       // /ask entered through the raw Tern keyboard must route to the actual slash dispatcher.
       expect(requests(result, 'slash.exec')).toEqual([

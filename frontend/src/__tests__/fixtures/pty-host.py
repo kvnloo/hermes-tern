@@ -146,13 +146,17 @@ def run(app_path: str, mode: str) -> dict:
                 insert_seen = True
 
             # The actual slash command is typed in a terminal; no direct App edits or sends.
-            send([b"/ask status", b"\r"])
+            send([b"/ask status"])
+            wait("raw slash composer draft", lambda: read_status().get("draft") == "/ask status")
+            send([b"\r"])
             wait("slash dispatch via Enter", lambda: len(calls("slash.exec")) == 1)
 
             raw = UNICODE.encode("utf-8")
             e = raw.index("é".encode("utf-8")) + 1
             emoji = raw.index("😀".encode("utf-8")) + 2
-            send([raw[:e], raw[e:emoji], raw[emoji:], b"\r"])
+            send([raw[:e], raw[e:emoji], raw[emoji:]])
+            wait("split UTF-8 composer draft", lambda: read_status().get("draft") == UNICODE)
+            send([b"\r"])
             wait("split UTF-8 prompt via Enter", lambda:
                  len(calls("prompt.submit")) == 1 and read_status().get("idle") is True)
 
@@ -160,7 +164,10 @@ def run(app_path: str, mode: str) -> dict:
             # reinterpret its contents as Normal commands or shell instructions.
             data = PASTE.encode("utf-8")
             cut = data.index("🧩".encode("utf-8")) + 2
-            send([b"\x1b[20", b"0~", data[:cut], data[cut:], b"\x1b[20", b"1~", b"\r"])
+            send([b"\x1b[20", b"0~", data[:cut], data[cut:], b"\x1b[20", b"1~"])
+            wait("paste remains literal with command provenance", lambda:
+                 read_status().get("draft") == PASTE and read_status().get("pasted") == [PASTE])
+            send([b"\r"])
             wait("literal bracketed paste via Enter", lambda:
                  len(calls("prompt.submit")) == 2 and read_status().get("idle") is True)
             send([b"\x04"])  # Ctrl+D with an empty draft goes through App's quit key rule.
@@ -181,6 +188,7 @@ def run(app_path: str, mode: str) -> dict:
                 "closed": result["closed"],
                 "vim": result["vim"],
                 "vimInsert": insert_seen,
+                "literalProvenance": True,
                 "calls": result["calls"]
             }
         finally:

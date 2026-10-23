@@ -51,6 +51,8 @@ const app = new App(tern, gw.client, 'pty-acceptance')
 let closed = false
 const status = () => writeFileSync(report, JSON.stringify({
   calls: gw.calls,
+  draft: app.stores.composer.text,
+  pasted: [...app.stores.composer.pasted],
   ready: app.session.ref.live === 'pty-s1',
   idle: app.stores.activity.busy === null,
   vim: app.stores.composer.vim.enabled,
