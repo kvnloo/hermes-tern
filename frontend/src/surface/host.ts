@@ -21,6 +21,11 @@ export class SurfaceHost {
     this.#surface.stylesheet('hermes-tern', styles)
   }
 
+  /** Raw SDK surface for lifecycle-aware image updates; the host still owns frames. */
+  get motion(): Surface {
+    return this.#surface
+  }
+
   /** Whether Tern dropped the surface or it was closed: it draws nothing more. */
   get closed(): boolean {
     return this.#surface.closed
