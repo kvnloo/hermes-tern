@@ -177,7 +177,8 @@ describe('the session-owned image controller', () => {
     app.session.ref = { live: liveSessionId('s2'), stored: storedSessionId('canonical-b') }
     await type('only B')
     await press(key('enter'))
-    expect(sent('prompt.submit')).toMatchObject([{ text: 'only B', session_id: 's2', attachments: [] }])
+    expect(sent('prompt.submit')).toMatchObject([{ text: 'only B', session_id: 's2' }])
+    expect(sent('prompt.submit')[0]).not.toHaveProperty('attachments')
     app.stores.attachments.restore(original)
     expect(app.stores.attachments.items).toEqual([])
   })
