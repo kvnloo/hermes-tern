@@ -45,10 +45,19 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
   newlines. Loading, close, replacement, approval and session fences prevent
   late reports from resurrecting private state; scroll is overlay-scoped.
   The main draft/caret, transcript and main scroll are unchanged.
-- Real `background.complete` and `btw.complete` completion-notice View
-  actions remain a separate shared gateway/dock slice, serialized with other
-  owners; their existing transcript behavior is not changed by this PR.
-  No synthetic completion RPC or event is introduced.
+- Real typed `btw.complete` events produce dismissible notices in the dock,
+  not Q/A panels in main Transcript. A View action opens only the matching
+  gateway-owned side thread; the event's `task_id` must uniquely match a
+  known thread ID or turn ID. Completions can precede `btw.update`; unmatched
+  IDs wait for a real thread snapshot and never choose the selected/latest
+  thread or infer identity from question text. Dismissal and same-session replay
+  remain scoped to the owning conversation.
+- Native View/Dismiss actions capture thread/session/notice identity and a
+  presentation ticket, refusing queued actions after selection, adoption,
+  dismissal, overlay close/replacement or a new owner; modal approvals keep
+  precedence. Main text, caret, images, transcript and side drafts are not
+  used as completion storage. `background.complete` keeps its prior main
+  transcript panel. No new RPC, synthetic event, polling or timer is added.
 
 ## Backend compatibility
 

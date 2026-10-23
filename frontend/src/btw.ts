@@ -1,12 +1,27 @@
 // Gateway-owned side threads, rendered independently of the main transcript.
 // Only the selected thread, unsent drafts and UI lifetime live in this pane.
 import type { ChatPorts } from './app/ports.js'
+import type { EventOf } from './gateway/dispatch.js'
 import { Composer } from './draft/composer.js'
 import { openBtwOverlay } from './overlays/btw.js'
 import type { Overlay } from './overlays/overlay.js'
 import { btwEvent, cancelBtw, listBtw, submitBtw, type BtwThread } from './wire/side.js'
 
 type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'scroll' | 'session'>
+
+/** A rendered completion action captures its exact session, task, thread and presentation revision. */
+export interface BtwNotice {
+  readonly id: string
+  readonly taskId: string
+  readonly threadId: string
+  readonly sid: string
+  readonly owner: object
+  readonly nonce: number
+  readonly ticket: number
+  readonly failed: boolean
+}
+
+type NoticeRecord = Omit<BtwNotice, 'ticket'>
 
 export class BtwThreads {
   readonly host: Host
@@ -18,13 +33,36 @@ export class BtwThreads {
   #epoch = 0
   #sheet: Overlay | undefined
   #drafts = new Map<string, Composer>()
+  /** Typed completions wait for an exact gateway thread/turn ID, never a guessed question match. */
+  #pendingCompletions = new Map<string, boolean>()
+  #seenCompletions = new Set<string>()
+  #notices = new Map<string, NoticeRecord>()
+  #owner: object | undefined
+  #noticeTicket = 0
+  #noticeNonce = 0
 
   constructor(host: Host) {
     this.host = host
   }
 
   adopt(sid: string | null) {
-    if (this.#sid === sid) {
+    const owner = this.host.session.ref
+
+    if (this.#sid === sid && this.#owner === owner) {
+      return
+    }
+
+    const switched = this.#sid !== sid
+    this.#owner = owner
+    this.#noticeTicket++
+    this.#pendingCompletions.clear()
+    this.#seenCompletions.clear()
+    this.#notices.clear()
+
+    // Reattaching the same live ID revokes queued notice handlers without losing side drafts.
+    if (!switched) {
+      this.host.changed()
+
       return
     }
 
@@ -42,6 +80,11 @@ export class BtwThreads {
     this.error = ''
     this.#drafts.clear()
     this.host.changed()
+  }
+
+  /** A fresh render ticket prevents a queued SDK action from following later selection or ownership. */
+  get notices(): BtwNotice[] {
+    return [...this.#notices.values()].map(notice => ({ ...notice, ticket: this.#noticeTicket }))
   }
 
   get thread(): BtwThread | undefined {
@@ -62,6 +105,10 @@ export class BtwThreads {
 
   select(id: string | null) {
     if (id === null || this.threads.some(item => item.id === id)) {
+      if (this.selected !== id) {
+        this.#noticeTicket++
+      }
+
       this.selected = id
       this.host.changed()
     }
@@ -78,6 +125,7 @@ export class BtwThreads {
     if (this.#sheet === sheet) {
       this.#sheet = undefined
       this.#epoch++
+      this.#noticeTicket++
       this.state = 'idle'
     }
   }
@@ -104,7 +152,32 @@ export class BtwThreads {
       return
     }
 
+    this.#matchCompletions()
     this.host.changed()
+  }
+
+  /**
+   * The typed legacy completion carries task_id, not thread_id. Only a unique exact
+   * thread/turn ID from the session-owned BTW snapshot can authorize a View action.
+   * A completion that arrives before its BTW update stays pending, without a fake thread.
+   */
+  completed(ev: EventOf<'btw.complete'>): boolean {
+    const payload = ev.payload
+    const taskId = payload?.task_id
+    const text = payload?.text
+
+    if (typeof taskId !== 'string' || !taskId.trim() || typeof text !== 'string' || !text.trim() ||
+        !this.#sid || ev.session_id !== this.#sid || this.host.session.ref.live !== this.#sid ||
+        this.#owner !== this.host.session.ref || this.#seenCompletions.has(taskId)) {
+      return false
+    }
+
+    this.#seenCompletions.add(taskId)
+    this.#pendingCompletions.set(taskId, /^error:/i.test(text.trimStart()))
+    this.#matchCompletions()
+    this.host.changed()
+
+    return true
   }
 
   /** The gateway event is already tagged to a conversation; never append it to main history. */
@@ -119,7 +192,7 @@ export class BtwThreads {
     this.update(parsed.data.payload.thread)
   }
 
-  async show(question = '') {
+  async show(question = '', selectedThread?: string) {
     const sid = this.host.session.ref.live
 
     if (!sid) {
@@ -134,12 +207,19 @@ export class BtwThreads {
     }
 
     this.adopt(sid)
-    // If the user supplied a question, it starts a fresh side thread, never an
-    // accidental follow-up to the last selected history item.
-    if (question.trim()) {
+    if (selectedThread && !this.threads.some(thread => thread.id === selectedThread)) {
+      return
+    }
+
+    // A notice View is pinned to its own thread, not the history's latest selection.
+    // An explicit question, by contrast, always opens a new side thread.
+    if (selectedThread) {
+      this.selected = selectedThread
+    } else if (question.trim()) {
       this.selected = null
     }
 
+    this.#noticeTicket++
     const sheet = openBtwOverlay(this)
     this.#sheet = sheet
     const epoch = ++this.#epoch
@@ -247,6 +327,72 @@ export class BtwThreads {
         this.host.changed()
       }
     }
+  }
+
+  /** Never resolve a task ID via its question, index, or the currently selected thread. */
+  #matchCompletions() {
+    if (!this.#sid || !this.#owner || this.#owner !== this.host.session.ref) {
+      return
+    }
+
+    for (const [taskId, failed] of this.#pendingCompletions) {
+      const matches = this.threads.filter(thread =>
+        thread.id === taskId || thread.turns.some(turn => turn.id === taskId)
+      )
+
+      if (matches.length !== 1) {
+        continue
+      }
+
+      const thread = matches[0]
+
+      if (!thread) {
+        continue
+      }
+
+      this.#notices.set(taskId, {
+        id: 'btw:' + taskId,
+        taskId,
+        threadId: thread.id,
+        sid: this.#sid,
+        owner: this.#owner,
+        nonce: ++this.#noticeNonce,
+        failed
+      })
+      this.#pendingCompletions.delete(taskId)
+      this.#noticeTicket++
+    }
+  }
+
+  #ownsNotice(notice: BtwNotice): boolean {
+    const current = this.#notices.get(notice.taskId)
+
+    return Boolean(current && current.nonce === notice.nonce &&
+      current.id === notice.id && current.threadId === notice.threadId &&
+      notice.ticket === this.#noticeTicket && notice.sid === this.#sid &&
+      notice.sid === this.host.session.ref.live && notice.owner === this.#owner &&
+      notice.owner === this.host.session.ref &&
+      this.threads.some(thread => thread.id === notice.threadId))
+  }
+
+  /** Opens only the captured completed thread, refusing modal precedence and stale SDK actions. */
+  viewNotice(notice: BtwNotice) {
+    if (!this.#ownsNotice(notice) || this.host.overlays.at(-1)?.modal) {
+      return
+    }
+
+    void this.show('', notice.threadId)
+  }
+
+  /** Dismissal revokes both the removed notice and any previously rendered action tickets. */
+  dismissNotice(notice: BtwNotice) {
+    if (!this.#ownsNotice(notice)) {
+      return
+    }
+
+    this.#notices.delete(notice.taskId)
+    this.#noticeTicket++
+    this.host.changed()
   }
 
   #current(sid: string, epoch: number, sheet: Overlay): boolean {

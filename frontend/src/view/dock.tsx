@@ -6,6 +6,7 @@
 
 import type { EditEvent, JSX, SendEvent, Tone } from '@stencil-hq/tern'
 
+import type { BtwNotice } from '../btw.js'
 import type { Pill } from '../chrome/hud.js'
 import type { Reconnecting } from '../chrome/reconnect.js'
 import { assertNever, optional } from '../core/assert.js'
@@ -21,6 +22,7 @@ import type { QueuedRow } from '../turn/queue.js'
 
 import { type AutomationLine, automationNode, reconnectNode } from './automation.js'
 import { queuedNode } from './queued.js'
+import { button } from './ui/button.js'
 import { compact } from './time.js'
 import { checklistNode } from './todos.js'
 import { workingRow } from './ui/live.js'
@@ -32,6 +34,8 @@ export interface DockContext {
   /** What holds the session: the working row's state. */
   readonly activity: DockActivity
   readonly composer: DockComposer
+  /** Session- and thread-bound BTW completion notices, above the unchanged main composer. */
+  readonly btwNotices: readonly BtwNotice[]
   /** The model and reasoning effort on the composer's bar. */
   readonly route: DockRoute
   /** The lines and pills between the queue and the composer. */
@@ -102,6 +106,8 @@ export interface DockQueue {
 
 /** What the dock's buttons and fields do. Bound once: none of them depends on the frame. */
 export interface DockActions {
+  onBtwView(notice: BtwNotice): void
+  onBtwDismiss(notice: BtwNotice): void
   /** Native editing: Tern replaced a range of the composer's text. */
   onEdit(ev: EditEvent): void
   /** Tern submitted text into the composer (`send` feature). */
@@ -183,6 +189,26 @@ export function dockNodes(cx: DockContext, on: DockActions): JSX.Element[] {
 
   if (cx.queue.rows.length) {
     nodes.push(queuedNode(cx.queue.rows, { edit: on.onQueueEdit, steer: cx.queue.canSteer ? on.onQueueSteer : undefined }))
+  }
+
+  if (cx.btwNotices.length) {
+    nodes.push(
+      <col gap="xs" key="btw-notices" role="omp.btw.notices">
+        {cx.btwNotices.map(notice => (
+          <row align="center" gap="sm" key={notice.id} role="omp.btw.notice">
+            <text
+              grow={1}
+              key="label"
+              role="omp.btw.notice.message"
+              text={notice.failed ? 'Side question failed' : 'Side question answered'}
+              tone={notice.failed ? 'error' : 'muted'}
+            />
+            {button({ key: 'view', label: 'View', onClick: () => on.onBtwView(notice) })}
+            {button({ key: 'dismiss', label: 'Dismiss', onClick: () => on.onBtwDismiss(notice) })}
+          </row>
+        ))}
+      </col>
+    )
   }
 
   if (p.todos?.open) {
