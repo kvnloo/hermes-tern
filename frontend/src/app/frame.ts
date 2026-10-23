@@ -23,7 +23,7 @@ export interface FrameCx extends DockSources {
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
-  readonly transcript: Pick<Transcript, 'currentTodos' | 'entries'>
+  readonly transcript: Pick<Transcript, 'changedEntries' | 'currentTodos' | 'entries'>
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
   /** Tern has the aside feature: the PR aside or the session sidebar docks at the right edge. */
@@ -63,7 +63,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
   }
 
   if (cx.retention) {
-    cx.retention.paint(chrome, cx.transcript.entries, entries, modal)
+    cx.retention.paint(chrome, cx.transcript.entries, entries, modal, cx.transcript.changedEntries)
   } else {
     cx.surface.render({ ...chrome, main: cx.transcript.entries.map(e => entryNode(e, `main.${e.id}`, entries)) })
   }
