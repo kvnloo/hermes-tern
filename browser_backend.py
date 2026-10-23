@@ -200,6 +200,8 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
         try:
             if _cdp_selected():
                 return {"available": False, "blocks": [], "reason": "explicit_cdp"}
+            if not callable(getattr(request, "capture_scope", None)):
+                return {"available": False, "blocks": [], "reason": "caller_binding_unsupported"}
             owner = _legacy_owner(sid, profile)
             ready = _native_tools_ready(ctx, profile)
             existing = get_driver(profile, sid)

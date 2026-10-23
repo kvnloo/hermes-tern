@@ -266,6 +266,16 @@ def test_old_gateway_lease_without_public_caller_api_is_read_only(system, monkey
     assert clients[0].calls == [{"op": "blocks"}]
 
 
+def test_old_gateway_without_capture_scope_refuses_before_native_read(system, monkeypatch):
+    ctx, actor, _, clients = system
+    ctx.consent = True
+    ctx.native_installed = True
+    monkeypatch.setattr(actor, "capture_scope", None)
+    result = request("blocks", actor, ctx)
+    assert result == {"available": False, "blocks": [], "reason": "caller_binding_unsupported"}
+    assert clients == [] and not native._DRIVERS
+
+
 def test_busy_turn_rejects_mutation_without_native_effect(system):
     ctx, actor, owner, clients = system
     ctx.consent = True
