@@ -43,11 +43,12 @@ Model cycling reads authorized inventory through the pinned `model.options` with
 
 ## OMP verification (not run by this worker)
 
-From the repository root:
+From the repository root, with `HERMES_SRC` set to the existing Hermes checkout or `.hermes-src` already linked. The pin assertion must pass before running the tests:
 
 ```sh
 cd frontend
 node scripts/hermes-src.mjs
+test "$(git -C .hermes-src rev-parse HEAD)" = "$(cat hermes-src.lock)"
 bun install --frozen-lockfile
 bun run check
 bun run test src/shortcuts/__tests__/actions.test.ts src/shortcuts/__tests__/binding-preferences.test.ts src/shortcuts/__tests__/model-cycle.test.ts src/shortcuts/__tests__/palette.test.ts src/__tests__/keys.test.ts --reporter=verbose
