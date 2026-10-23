@@ -124,6 +124,7 @@ describe('the key rules', () => {
       'modal',
       'hud',
       'completion',
+      'vim',
       'doubleEsc',
       'effort',
       'sheets',
