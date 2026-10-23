@@ -289,6 +289,31 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.decide')).toEqual([])
     expect(f.send).not.toHaveBeenCalled()
     expect(f.overlays).toHaveLength(2)
+    f.host.close(must(f.overlays.at(-1)))
+    expect(f.element('note')).toBeUndefined()
+  })
+
+  it('drops captured native editor events and keyboard input under preemption', async () => {
+    const f = fixture({ 'plan.status': initial })
+    openPlanReview(f.host)
+    await paint()
+    f.click('refine')
+    const planSheet = must(f.overlays.at(-1))
+    const onEdit = f.element('note')?.handlers?.onEdit
+    const onUndo = f.element('note')?.handlers?.onUndo
+
+    expect(onEdit).toBeDefined()
+    f.host.open(stubOverlay('clarify', { modal: true }))
+    if (onEdit) {
+      onEdit(stub<Parameters<typeof onEdit>[0]>({ from: 0, to: 0, text: 'unwanted', cursor: 8, len: 0, raw: {} }))
+    }
+    onUndo?.()
+    planSheet.onKey(key('text', { text: 'unwanted' }))
+    f.host.close(must(f.overlays.at(-1)))
+
+    expect(f.element('note')?.props.text).toBe('')
+    expect(f.gw.sent('plan.decide')).toEqual([])
+    expect(f.send).not.toHaveBeenCalled()
   })
 
   it('rejects late external-editor completion after a modal preemption without any RPC', async () => {
