@@ -41,7 +41,7 @@ describe('table chart Python auxiliary transport (fixture provider)', () => {
     expect(() => readTableChartReply('{"kind":"line","svg":"<script />"}')).toThrow()
     expect(() => readTableChartReply('{"kind":"scatter"}')).toThrow()
     expect(() => readTableChartReply('not JSON')).toThrow()
-    expect(readTableChartReply('helper diagnostics\\n{"kind":"line"}')).toBe('line')
+    expect(readTableChartReply('helper diagnostics\n{"kind":"line"}')).toBe('line')
   })
 
   it('never starts Python in off or always mode', () => {
