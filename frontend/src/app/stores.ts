@@ -20,6 +20,7 @@ import { Disposables } from '../core/disposables.js'
 import { durable } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
 import { Composer } from '../draft/composer.js'
+import { VimPreference } from '../draft/vim-preference.js'
 import type { Presses } from '../draft/keys.js'
 import type { Warned } from '../gateway/handlers/chrome.js'
 import { PullRequests } from '../github/store.js'
@@ -123,6 +124,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     scroll: (id, to) => chat.scroll(id, to)
   })
   const composer = new Composer()
+  const vimPreference = new VimPreference({ gw, composer, sid: () => session.ref.live, changed })
   /** The open overlays; a modal one takes the keys from the completion list. */
   const stack = new OverlayStack({
     changed,
@@ -192,6 +194,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     automation,
     changed,
     composer,
+    vimPreference,
     connect,
     hud,
     media,
@@ -237,6 +240,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       markPane: id => markPane(launch, id),
       markViewer,
       readBusyMode: () => void act().readBusyMode(),
+      readVimPreference: () => void vimPreference.refresh(),
       reportCwd: () => act().reportCwd(),
       showThoughts: sid => showThoughts({ gw, notice: (text, tone) => chat.notice(text, tone), settings }, sid),
       writeActiveSession: writeActiveSessionFile
