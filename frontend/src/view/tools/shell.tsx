@@ -42,7 +42,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
     return solo
   }
 
-  const card = view.card(now)
+  const card = view.card(now, media)
   const status = card.status ?? call.outcome.kind
   const running = status === 'running'
   const native = toolMediaNode(call, media)
@@ -94,7 +94,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 
 /** What `call`'s step opens to, as `view` draws it. */
 function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, media?: MediaDelivery): JSX.Element[] {
-  const card = view.card(now)
+  const card = view.card(now, media)
   const native = toolMediaNode(call, media)
   const body = [...(native ? [native] : []), ...card.body]
   // What the card's head held and its body lacks (a short command).
