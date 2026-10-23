@@ -189,6 +189,7 @@ function frame(over: Partial<FrameCx> = {}) {
     actions: dockActions(),
     aside: () => false,
     hostLocal: false,
+    nativeMedia: false,
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },
     copies: { copied: undefined, copy: () => undefined },
     overlays: [],
