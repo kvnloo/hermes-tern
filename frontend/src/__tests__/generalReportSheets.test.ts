@@ -13,7 +13,7 @@ vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
 beforeEach(() => {
   delete process.env['HERMES_TUI_QUERY']
   delete process.env['HERMES_TUI_IMAGE']
-  vi.mocked(copyToClipboard).mockClear()
+  vi.mocked(copyToClipboard).mockReset()
 })
 
 function sheetView(app: ReturnType<typeof setup>['app']) {
@@ -78,15 +78,26 @@ describe('native general report sheets', () => {
     const before = [...f.app.transcript.entries]
     await command(f, '/usage')
     const sheet = must(f.app.overlays.at(-1))
-    sheet.onKey(key('page_down'))
     sheet.onKey(key('c'))
     expect(copyToClipboard).toHaveBeenCalledWith(body)
     expect(f.app.transcript.entries).toEqual(before)
   })
 
+  it('shows a clipboard failure only inside the native report and never alters the transcript', () => {
+    const f = setup()
+    const before = [...f.app.transcript.entries]
+    f.app.operations.showText('/history', 'Unicode 🦉 report-only')
+    vi.mocked(copyToClipboard).mockImplementationOnce(() => { throw new Error('terminal clipboard unavailable') })
+    must(f.app.overlays.at(-1)).onKey(key('c'))
+    const report = f.app.overlays.at(-1)
+    const root = tree(must(report).node('layer.operational'))
+    expect(JSON.stringify(root)).toContain('Could not copy the report to the clipboard.')
+    expect(f.app.transcript.entries).toEqual(before)
+  })
+
   it('closes with the exact main draft and caret intact; stale copy is refused', () => {
     const f = setup()
-    f.app.stores.composer.set('  Unicode 🦉 unsent  ', 5)
+    f.app.stores.composer.set('  Unicode 🦉 unsent  ', { cursor: 5 })
     const before = [...f.app.transcript.entries]
     f.app.operations.showText('/history', 'Report only')
     const sheet = must(f.app.overlays.at(-1))
@@ -124,6 +135,18 @@ describe('native general report sheets', () => {
     await settle()
     expect(f.app.overlays).toEqual([])
     expect(JSON.stringify(f.app.transcript.entries)).not.toContain('PRIVATE late')
+  })
+
+  it('rejects an in-flight report after session adoption instead of showing private output', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const f = setup({ 'slash.exec': () => pending.promise })
+    await command(f, '/usage')
+    given.session(f.app, 's2')
+    f.app.operations.adopt('s2')
+    pending.resolve({ output: 'OTHER SESSION PRIVATE' })
+    await settle()
+    expect(f.app.overlays).toEqual([])
+    expect(JSON.stringify(f.app.transcript.entries)).not.toContain('OTHER SESSION PRIVATE')
   })
 
   it('a later approval remains topmost and blocks stale copy', async () => {

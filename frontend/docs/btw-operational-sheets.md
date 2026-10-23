@@ -55,10 +55,12 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
 The plugin currently pins Hermes source at
 22063fc099ec9ad8357d7f8f6e6248a0400680d3 in frontend/hermes-src.lock.
 That generated gateway contract predates btw.list / submit / cancel / update
-and operations.report. This PR intentionally does not change the pin or
-pretend those methods exist. To activate the surfaces, coordinate a separate
-pinned-Hermes update that includes those real backend contracts and services
-then rerun the full frontend check and integration smoke test on that gateway.
+and operations.report. This PR intentionally changes neither the pin nor
+Hermes core. The held backend slice must implement these plugin-owned,
+namespaced methods through the existing generic gateway-method seam (with
+real authorization and profile/session ownership). Once available, validate
+the real backend, generated frontend contract and native Tern in isolation;
+do not treat the mocked fixture replies as persisted-thread or inventory proof.
 
 OMP validation (not run by the implementation worker):
 
