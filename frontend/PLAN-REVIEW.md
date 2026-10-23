@@ -7,7 +7,7 @@ frontend/src/ command, overlay, gateway and dock architecture.
 
 ## Plan review
 
-Bare /plan opens a modal read-only review of the most recent *completed*
+Bare /plan opens a modal review of the most recent *completed*
 heading-structured assistant answer. Markdown from user messages, tool
 results, fenced code and incomplete turns cannot establish a plan. A
 backend plan without headings is still reviewable.
@@ -54,9 +54,11 @@ explicit failure-recovery policy in the shared prompt ports
 OMP. This slice does not work around that by calling `prompt.submit`
 directly, mutating the composer or bypassing PromptRouter.
 
-This plugin does not implement the gateway's planning-only tool policy. It
-relies on the *actual* Hermes gateway to enforce it. Plan review must not be
-advertised as authoritative on a Hermes checkout lacking those RPCs.
+The real plan backend/policy prerequisite is separately held as
+`TRN2-HERMES-PLAN-BACKEND`. This frontend correction does not implement
+the gateway's planning-only tool policy. It relies on the *actual* Hermes
+gateway to enforce it; plan review must not be advertised as authoritative
+on a Hermes checkout lacking those RPCs.
 
 ## Todo HUD
 
