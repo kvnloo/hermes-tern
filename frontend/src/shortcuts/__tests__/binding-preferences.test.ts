@@ -230,7 +230,10 @@ describe('owning-session binding preferences on pinned config.get', () => {
     expect(f.gw.sent('config.get')).toHaveLength(count)
     f.sid = 's2'
     await f.prefs.refresh()
-    expect(f.gw.sent('config.get').at(-1)).toEqual({ key: 'full', session_id: 's2', profile: 'b' })
+    expect(f.gw.sent('config.get').slice(count)).toEqual([
+      { key: 'full', session_id: 's2', profile: 'b' },
+      { key: 'profile', session_id: 's2', profile: 'b' }
+    ])
   })
 
   it('runs actual pinned two-profile gateway direct-dispatch full and identity reads', async () => {

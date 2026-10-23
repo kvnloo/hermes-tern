@@ -60,9 +60,12 @@ with TemporaryDirectory(prefix="hermes-tern-keybindings-owner-") as directory:
         fallback_help = help_chord(call("full", fallback))
         own_identity = call("profile", owner)
         fallback_identity = call("profile", fallback)
+        # The pinned home field is launch metadata; only display is owner-scoped.
+        assert Path(own_identity["home"]).resolve() == home.resolve()
+        assert Path(fallback_identity["home"]).resolve() == home.resolve()
         identity_scoped = (
-            Path(own_identity["home"]).resolve() == a.resolve()
-            and Path(fallback_identity["home"]).resolve() == b.resolve()
+            Path(own_identity["display"]).expanduser().resolve() == a.resolve()
+            and Path(fallback_identity["display"]).expanduser().resolve() == b.resolve()
         )
         b_unchanged = help_chord(call("full", {"session_id": sid, "profile": "b"})) == "alt+y"
         assert owner_help == "alt+h" and fallback_help == "alt+y"
