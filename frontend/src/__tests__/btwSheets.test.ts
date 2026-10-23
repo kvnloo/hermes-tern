@@ -73,7 +73,7 @@ describe('native BTW thread history and reader', () => {
     const earlier = thread('prior')
     f.gw.handlers.set('btw.list', () => ({ threads: [earlier] }))
     await model.show()
-    model.draft.set('Follow up 🦉', 3)
+    model.draft.set('Follow up 🦉', { cursor: 3 })
     const reply = Promise.withResolvers<unknown>()
     f.gw.handlers.set('btw.submit', () => reply.promise)
     const pending = model.submit()
@@ -92,6 +92,52 @@ describe('native BTW thread history and reader', () => {
     expect(textFor(model, 'omp.btw.answer')).toContain('Real delta')
     expect(f.gw.sent('btw.submit')).toEqual([{ session_id: 's1', thread_id: 'prior', text: 'Follow up 🦉' }])
     expect(model.draft.text).toBe('')
+  })
+
+
+  it('preserves an edited BTW draft after a late submit succeeds', async () => {
+    const f = sideSetup()
+    const model = new BtwThreads(f.host)
+    f.gw.handlers.set('btw.list', () => ({ threads: [thread('prior')] }))
+    await model.show()
+    const draft = model.draft
+    draft.set('Initial question')
+    const reply = Promise.withResolvers<unknown>()
+    f.gw.handlers.set('btw.submit', () => reply.promise)
+    const pending = model.submit()
+    const submittedRevision = draft.revision
+    draft.set('Newer unsent question', { cursor: 5 })
+    expect(draft.revision).toBeGreaterThan(submittedRevision)
+    reply.resolve({ thread: thread('prior', 'answered', 2), turn_id: 'prior-turn' })
+    await pending
+    expect(draft.text).toBe('Newer unsent question')
+    expect(draft.cursor).toBe(5)
+    expect(model.state).toBe('idle')
+    expect(f.gw.methods('prompt.submit')).toEqual([])
+  })
+
+  it('protects an ABA/undo draft from a late BTW reply, even when the original text returns', async () => {
+    const f = sideSetup()
+    const model = new BtwThreads(f.host)
+    f.gw.handlers.set('btw.list', () => ({ threads: [thread('prior')] }))
+    await model.show()
+    const draft = model.draft
+    draft.set('Same 🦉', { cursor: 2 })
+    const reply = Promise.withResolvers<unknown>()
+    f.gw.handlers.set('btw.submit', () => reply.promise)
+    const pending = model.submit()
+    const submittedRevision = draft.revision
+    draft.edit({ cursor: 3, from: 2, len: draft.text.length, text: 'x', to: 2 })
+    expect(draft.text).toBe('Saxme 🦉')
+    draft.undo()
+    expect(draft.text).toBe('Same 🦉')
+    expect(draft.cursor).toBe(2)
+    expect(draft.revision).toBeGreaterThan(submittedRevision)
+    reply.resolve({ thread: thread('prior', 'answered', 2), turn_id: 'prior-turn' })
+    await pending
+    expect(draft.text).toBe('Same 🦉')
+    expect(draft.cursor).toBe(2)
+    expect(f.gw.methods('prompt.submit')).toEqual([])
   })
 
   it('starts a new side question with canonical IDs; cancellation scopes the selected turn', async () => {
@@ -116,9 +162,9 @@ describe('native BTW thread history and reader', () => {
     f.gw.handlers.set('btw.list', () => ({ threads: [thread('a'), thread('b')] }))
     await model.show()
     model.select('a')
-    model.draft.set('A 🦉', 1)
+    model.draft.set('A 🦉', { cursor: 1 })
     model.select('b')
-    model.draft.set('B 🦉', 2)
+    model.draft.set('B 🦉', { cursor: 2 })
     model.select('a')
     expect(model.draft.text).toBe('A 🦉')
     expect(model.draft.cursor).toBe(1)

@@ -29,10 +29,17 @@ export class Composer {
   #decor: { text: string; decor: Decor[] } = { decor: [], text: '' }
   /** Pasted text that holds `{!…}` or starts with `!`: what it says is not the user's command. */
   #pasted: string[] = []
+  /** A monotonic identity for draft state, including edit/undo/redo ABA. */
+  #revision = 0n
 
   /** The draft; only the composer's own edits change it. */
   get text(): string {
     return this.#text
+  }
+
+  /** Draft mutation ticket; never infer identity from text, which may return to its old value. */
+  get revision(): bigint {
+    return this.#revision
   }
 
   /** The caret's offset in the draft. */
@@ -86,6 +93,7 @@ export class Composer {
   /** Clears the draft after a submit, remembering it in the prompt history. */
   take(): string {
     const text = this.text
+    this.#revision++
     appendHistory(text)
     this.#pasted = []
     this.#steps.clear()
@@ -126,9 +134,16 @@ export class Composer {
     }
 
     if (ev.from === ev.to && !ev.text) {
-      this.#cursor = clamp(ev.cursor, this.text.length)
+      const cursor = clamp(ev.cursor, this.text.length)
       const anchor = ev.raw?.['anchor']
-      this.#anchor = typeof anchor === 'number' && anchor !== this.cursor ? clamp(anchor, this.text.length) : undefined
+      const nextAnchor = typeof anchor === 'number' && anchor !== cursor ? clamp(anchor, this.text.length) : undefined
+
+      if (cursor !== this.#cursor || nextAnchor !== this.#anchor) {
+        this.#revision++
+      }
+
+      this.#cursor = cursor
+      this.#anchor = nextAnchor
 
       return
     }
@@ -162,6 +177,7 @@ export class Composer {
   /** Puts back the draft an undo or redo step held, if there was one, with the pastes it held. */
   #restore(step: Snapshot | undefined) {
     if (step) {
+      this.#revision++
       this.#text = step.text
       this.#cursor = step.cursor
       this.#pasted = [...step.pasted]
@@ -439,6 +455,7 @@ export class Composer {
     }
 
     this.#browse = at
+    this.#revision++
     const text = at === items.length ? this.#draft : (items[at] ?? '')
 
     if (at === items.length) {
@@ -454,6 +471,7 @@ export class Composer {
 
   #move(to: number): true {
     if (to !== this.cursor || this.anchor !== undefined) {
+      this.#revision++
       this.#cursor = clamp(to, this.text.length)
       this.#anchor = undefined
       this.#steps.breakBurst()
@@ -487,6 +505,7 @@ export class Composer {
 
   /** Saves an undo step; typing bursts merge into one. Every edit runs it, so it also ends a history walk. */
   #record({ merge }: { merge: boolean }) {
+    this.#revision++
     // An edited history entry is the draft now: the next Up saves it and starts from the newest entry.
     this.#browse = -1
     this.#anchor = undefined

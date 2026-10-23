@@ -190,7 +190,7 @@ export class BtwThreads {
     }
 
     const epoch = this.#epoch
-    const rev = draft.rev
+    const revision = draft.revision
     this.state = 'submitting'
     this.error = ''
     this.host.changed()
@@ -208,7 +208,7 @@ export class BtwThreads {
         this.selected = answer.thread.id
       }
 
-      if (draft.rev === rev) {
+      if (draft.revision === revision) {
         draft.set('')
       }
     } catch {
