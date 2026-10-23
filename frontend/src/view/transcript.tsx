@@ -32,6 +32,13 @@ export interface TranscriptContext {
 
 const kNode = Symbol('tsp.node')
 
+/** Release a cold entry's JSX and handler closures without changing Hermes history. */
+export function forgetEntryNode(entry: Entry): void {
+  const holder: object = entry
+  const built: Built = holder
+  delete built[kNode]
+}
+
 /** An entry carrying its last built node and the revision it was built at. */
 interface Built {
   [kNode]?: { rev: string; node: JSX.Element }

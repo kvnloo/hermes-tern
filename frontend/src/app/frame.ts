@@ -12,16 +12,18 @@ import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
+import type { Retention } from '../view/retention.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
 
 /** What a frame reads and the three things it changes: the pills' focus, the completion and the surface. */
 export interface FrameCx extends DockSources {
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
+  readonly retention?: Retention | undefined
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
-  readonly transcript: Pick<Transcript, 'currentTodos' | 'entries'>
+  readonly transcript: Pick<Transcript, 'changedEntries' | 'currentTodos' | 'entries'>
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
   /** Tern has the aside feature: the PR aside or the session sidebar docks at the right edge. */
@@ -51,21 +53,26 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
     cx.completion.update(cx.composer)
   }
 
-  cx.surface.render({
+  const chrome = {
     dock: dockNodes(dockModel(cx, now), cx.actions),
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
       ...cx.overlays.map(o => o.node(`layer.${o.key}`)),
       ...(modal ? [] : cx.completion.nodes(COMPOSER_ID))
-    ],
-    main: cx.transcript.entries.map(e => entryNode(e, `main.${e.id}`, entries))
-  })
+    ]
+  }
+
+  if (cx.retention) {
+    cx.retention.paint(chrome, cx.transcript.entries, entries, modal, cx.transcript.changedEntries)
+  } else {
+    cx.surface.render({ ...chrome, main: cx.transcript.entries.map(e => entryNode(e, `main.${e.id}`, entries)) })
+  }
 
   cx.surface.follow(focusOf(cx))
 }
 
 /** What the transcript's entries draw with this frame. */
-function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome'>, now: number): TranscriptContext {
   const info = cx.session.info
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
