@@ -128,7 +128,7 @@ describe('Hermes composer: optional Vim', () => {
   })
 
   it('registers modal bindings without modifier collisions', () => {
-    const names = new Set(VIM_ACTIONS.flatMap(action => action.keys.map(k => k.split('+').at(-1)!)))
+    const names = new Set(VIM_ACTIONS.flatMap(action => action.keys.map(k => k.split('+').at(-1) ?? '')))
     for (const name of names) for (let mask = 0; mask < 16; mask++) {
       const k = key(name, { ctrl: Boolean(mask & 1), alt: Boolean(mask & 2), shift: Boolean(mask & 4), meta: Boolean(mask & 8) })
       const matches = VIM_ACTIONS.filter(action => action.keys.some(chord => {
