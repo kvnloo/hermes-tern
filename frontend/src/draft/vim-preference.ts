@@ -33,8 +33,10 @@ export class VimPreference {
     try {
       const result = await this.host.gw.request<ConfigGetResult>('config.get', { key: 'full', session_id: sid })
       if (this.host.sid() !== sid || this.#read !== read) return
-      const config = result.config as { display?: { vim_mode?: unknown } } | undefined
-      this.host.composer.vim.setEnabled(config?.display?.vim_mode === true)
+      const config: unknown = result.config
+      const display = config !== null && typeof config === 'object' && 'display' in config ? config.display : undefined
+      const enabled = display !== null && typeof display === 'object' && 'vim_mode' in display && display.vim_mode === true
+      this.host.composer.vim.setEnabled(enabled)
       this.host.changed()
     } catch {
       // An unavailable profile never enables Vim, and never discards the draft.
