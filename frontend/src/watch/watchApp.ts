@@ -427,5 +427,7 @@ export class WatchApp {
         ...this.transcript.entries.map(e => entryNode(e, `main.${e.id}`, cx))
       ]
     })
+    // Reapply the editor caret only after the current document has rebuilt it.
+    this.#surface.follow(INPUT_ID)
   }
 }
