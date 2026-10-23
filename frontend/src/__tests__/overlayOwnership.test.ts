@@ -251,7 +251,8 @@ undefined  })
 
       h.app.open(reused)
       await painted()
-undefined
+      const first = root(h)
+      const saved = h.surface.dispatch(click(h, first))
       expect(saved).toBeTypeOf('function')
 
       h.app.open(reused)

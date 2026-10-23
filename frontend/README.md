@@ -87,6 +87,10 @@ never a shared prefix. Factory and focus/scroll ids use the assigned root,
 not a logical-key alias. This guard does not intercept main/dock input,
 SDK ACK/gone/visibility lifecycle events, or unrelated image events.
 
+Frame fixtures use a real `OverlayStack` and a complete `Overlay` contract.
+The same-object regression captures the original root and bound callback before replacement.
+It checks old native IDs and already-bound callbacks independently.
+
 Verify from `frontend/` with `bun install --prefer-offline --frozen-lockfile`,
 then `bun run test -- src/__tests__/overlayOwnership.test.ts src/__tests__/prompts.test.ts
 src/__tests__/surfaceRecovery.test.ts src/__tests__/watchRecovery.test.ts
