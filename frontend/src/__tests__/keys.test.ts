@@ -11,7 +11,7 @@ import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
 import { INPUT_ID } from '../surface/host.js'
-import { effectiveShortcuts, shortcutMatches } from '../shortcuts/actions.js'
+import { APP_SHORTCUTS, effectiveShortcuts, shortcutGroups, shortcutMatches } from '../shortcuts/actions.js'
 import type { Busy } from '../turn/activity.js'
 
 import { FakeGateway, key } from './fakes.js'
@@ -140,7 +140,7 @@ describe('the key rules', () => {
 
   it('routes rebindable keys only after modal, HUD, and completion ownership', () => {
     const p = pane()
-    const actions = effectiveShortcuts({ 'app.model.select': 'alt+k' })
+    const actions = effectiveShortcuts({ 'app.model.select': 'alt+i' })
     p.cx.shortcut = (id, pressed) => {
       const action = actions.find(item => item.id === id)
 
@@ -152,20 +152,20 @@ describe('the key rules', () => {
     p.cx.cycleModel = dir => p.log.push(`cycle ${dir}`)
 
     onKey(alt('m'), p.cx, undefined)
-    onKey(alt('k'), p.cx, undefined)
+    onKey(alt('i'), p.cx, undefined)
     onKey(key('p', { ctrl: true }), p.cx, undefined)
-    onKey(key('p', { ctrl: true, shift: true }), p.cx, undefined)
-    onKey(key('k', { ctrl: true, shift: true }), p.cx, undefined)
+    onKey(key('p', { ctrl: true, alt: true }), p.cx, undefined)
+    onKey(alt('k'), p.cx, undefined)
     expect(p.log).toEqual(['composer', 'models', 'cycle 1', 'cycle -1', 'palette'])
 
-    onKey(alt('k'), p.cx, sheet({ modal: true }))
+    onKey(alt('i'), p.cx, sheet({ modal: true }))
     expect(p.log).toHaveLength(5)
     p.state.hud = true
-    onKey(alt('k'), p.cx, undefined)
+    onKey(alt('i'), p.cx, undefined)
     expect(p.log).toHaveLength(5)
     p.state.hud = false
     p.state.completion = true
-    onKey(alt('k'), p.cx, undefined)
+    onKey(alt('i'), p.cx, undefined)
     expect(p.log).toHaveLength(5)
   })
 
@@ -404,7 +404,7 @@ describe('KEYS', () => {
   })
 
   it('are the shortcuts the help sheet lists', () => {
-    const listed = HOTKEYS.flatMap(g => g.rows.flatMap(([keys]) => keys))
+    const listed = [...HOTKEYS, ...shortcutGroups(APP_SHORTCUTS)].flatMap(g => g.rows.flatMap(([keys]) => keys))
 
     for (const match of Object.values(KEYS)) {
       expect(listed).toContain(match.label)
