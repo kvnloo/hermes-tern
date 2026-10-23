@@ -32,6 +32,8 @@ export type CommandHost = Pick<
   | 'attachClipboardImage'
   | 'attachImagePath'
   | 'busy'
+  | 'btw'
+  | 'operations'
   | 'control'
   | 'gw'
   | 'newSession'
@@ -251,6 +253,10 @@ const COMMANDS: readonly LocalCommand[] = [
     name: 'help',
     run: (host, arg) => (arg ? false : host.openHelp())
   },
+  // The history-capable sheet supersedes CONTROL_COMMANDS' legacy one-shot /btw route.
+  { name: 'btw', run: (host, arg) => host.btw.show(arg) },
+  { name: 'mcp', run: (host, arg) => host.operations.show('mcp', arg) },
+  { name: 'ssh', run: (host, arg) => host.operations.show('ssh', arg) },
   ...CONTROL_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
   ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
   ...REFUSED_COMMANDS
