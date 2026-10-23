@@ -10,6 +10,13 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
   Tab cycles panes, Ctrl+N/P moves between threads, Alt+Enter or Enter from
   the editor sends, Ctrl+X cancels the selected running side turn, Esc closes,
   and Copy sends only the selected side thread through the existing clipboard.
+- Clicking the native side editor acquires composer focus through its public
+  Tern click action even at unchanged caret, without a synthetic edit.
+  Reader/history navigation still starts in the reader; Tab remains unchanged.
+  Real typing, Unicode, bracketed paste and Enter use the existing Composer key path.
+- Native editor click/edit/send/undo callbacks capture the exact rendered sheet,
+  session ref, live ID, selection, draft and existing action ticket. Old actions
+  fail closed after same-ID adoption, selection ABA, close or replacement.
 - The main draft and main transcript are untouched. Each thread, including the
   new-thread slot, keeps its unsent text and cursor while the same live session
   is shown; adopting another session drops every side draft and closes its sheet.
@@ -98,6 +105,14 @@ Tern-key adapter, App, Composer and PromptRouter. The test **fails** if
 `script(1)` cannot start; it is not Linux-skipped. It checks the BTW side
 draft, main draft, gateway submit payloads and transcript isolation.
 
+The `btwNativeInput.test.ts` regression constructs the pinned real Tern
+Session/Surface with a TSP handshake; it uses native SDK editor action
+dispatch at unchanged caret, raw typed Unicode, bracketed paste/Enter,
+serialized focus and stale-action rejection. This in-process SDK test is not
+a GUI mouse or compositor test. OMP must repeat the actual isolated Sway
+Tern 0.9.5 click at unchanged caret, raw paste of ` paste 🦉 café 漢字`,
+Enter, Tab and Esc/reopen, checking that main draft stays untouched.
+
 This is **PTY-to-App adapter integration**, not real Tern SDK parser, terminal
 framing or native window acceptance. OMP owns separate native Tern proof with
 the installed SDK and an isolated Hermes profile. No backend support or native
@@ -109,7 +124,7 @@ OMP validation (not run by this connector-only implementation worker):
     node scripts/hermes-src.mjs
     bun install --frozen-lockfile --prefer-offline
     bun run check
-    bun run test src/__tests__/btwSheets.test.ts src/__tests__/btwNotices.test.ts src/__tests__/dockModel.test.ts src/__tests__/dispatch.test.ts src/__tests__/chrome.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
+    bun run test src/__tests__/btwSheets.test.ts src/__tests__/btwNotices.test.ts src/__tests__/dockModel.test.ts src/__tests__/dispatch.test.ts src/__tests__/chrome.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts src/__tests__/watch.test.ts src/__tests__/btwNativeInput.test.ts
     bun run bundle
 
 On a compatible Hermes gateway, smoke /btw (list, start, follow up, cancel,

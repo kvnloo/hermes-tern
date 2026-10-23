@@ -125,10 +125,32 @@ export class BtwThreads {
     }
   }
 
+  /**
+   * Bind native editor controls to one rendered sheet, session owner and
+   * selection generation. The existing notice ticket revokes held actions
+   * on selection ABA, same-ID adoption and sheet replacement.
+   */
+  captureEditor(sheet: Overlay): { readonly draft: Composer; current(): boolean } {
+    const draft = this.draft
+    const selected = this.selected
+    const owner = this.#owner
+    const sid = this.#sid
+    const ticket = this.#noticeTicket
+
+    return {
+      draft,
+      current: () => Boolean(owner && sid && this.owns(sheet) &&
+        this.#owner === owner && this.host.session.ref === owner &&
+        this.#sid === sid && this.selected === selected &&
+        this.#noticeTicket === ticket && this.draft === draft)
+    }
+  }
+
   owns(sheet: Overlay): boolean {
     return this.#sheet === sheet &&
       this.host.overlays.includes(sheet) &&
       this.host.overlays.at(-1) === sheet &&
+      this.#owner === this.host.session.ref &&
       this.host.session.ref.live === this.#sid
   }
 

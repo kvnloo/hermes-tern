@@ -81,7 +81,11 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
     focus: id => pane === 'composer' ? id + '.body.followup' : null,
     cancel: () => model.close(),
     onClose: () => model.closed(sheet),
-    node: (): JSX.Element => (
+    node: (): JSX.Element => {
+      // Each SDK callback captures this render's live side editor ownership.
+      const editor = model.captureEditor(sheet)
+
+      return (
       <overlay anchor="bottom" head="/btw" key="btw" modal role="omp.overlay.report" size="lg">
         <col gap="sm" key="body">
           <text key="hint" text="Tab: history / reader / composer · Ctrl+N/P: select · Alt+Enter: send · Ctrl+X: stop side turn" wrap="word" />
@@ -115,26 +119,38 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
             : null}
           {model.error ? <text key="error" role="omp.btw.error" text={model.error} wrap="word" /> : null}
           <editor
-            cursor={model.draft.cursor}
+            cursor={editor.draft.cursor}
             key="followup"
             maxLines={8}
-            onEdit={ev => {
-              if (valid()) {
-                model.draft.edit(ev)
+            onClick={() => {
+              // Native click at an unchanged caret emits no edit. Acquire focus
+              // through the real SDK editor action, not an edit/send shortcut.
+              if (editor.current()) {
                 pane = 'composer'
                 host.changed()
               }
             }}
-            onSend={ev => send(ev.text)}
+            onEdit={ev => {
+              if (editor.current()) {
+                editor.draft.edit(ev)
+                pane = 'composer'
+                host.changed()
+              }
+            }}
+            onSend={ev => {
+              if (editor.current()) {
+                send(ev.text)
+              }
+            }}
             onUndo={() => {
-              if (valid()) {
-                model.draft.undo()
+              if (editor.current()) {
+                editor.draft.undo()
                 host.changed()
               }
             }}
             placeholder={model.selected ? 'Follow up in this side thread' : 'New side question'}
             sendable={model.state === 'idle' && model.thread?.turns.at(-1)?.state !== 'running'}
-            text={model.draft.text}
+            text={editor.draft.text}
           />
           {message ? <text key="notice" role="omp.report.notice" text={message} wrap="word" /> : null}
           {actionsRow([
@@ -146,7 +162,8 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
           ])}
         </col>
       </overlay>
-    ),
+      )
+    },
     onKey: (key: Key) => {
       if (!valid()) {
         return true
