@@ -5,6 +5,7 @@
 
 import type { JSX } from '@stencil-hq/tern'
 
+import { displayMarkdown, type FileContext } from '../artifacts/links.js'
 import { optional } from '../core/assert.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
@@ -23,6 +24,7 @@ import { parts, pieces } from './workLogModel.js'
 /** What entry views need from the app. */
 export interface TranscriptContext {
   now: number
+  links: FileContext
   welcome: WelcomeContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
@@ -50,7 +52,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}`
+  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}|${cx.links.cwd}|${cx.links.hostLocal}|${cx.links.media}`
   const cached = built[kNode]
 
   if (cached?.rev === rev) {
@@ -230,7 +232,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.links)
     }
 
     const b = p.block
@@ -239,12 +241,12 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {b.text}
+            {cx.links.hostLocal && !live ? displayMarkdown(b.text, cx.links.cwd) : b.text}
           </md>
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now)
+        return toolNode(b.call, cx.now, cx.links)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

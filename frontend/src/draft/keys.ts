@@ -35,6 +35,7 @@ export type KeyAction =
   | 'cancel'
   | 'clearOrStop'
   | 'clipboardImage'
+  | 'copyDraft'
   | 'dequeue'
   | 'effort'
   | 'prs'
@@ -55,6 +56,7 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   // Pressed twice: a single Esc never cancels work.
   clearOrStop: { label: 'escape escape', name: 'escape', with: [] },
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
+  copyDraft: { label: 'alt+c', name: 'c', with: ['alt'], without: ['ctrl', 'meta'] },
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
   prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta'] },
@@ -100,6 +102,8 @@ export interface KeyCx {
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
+  /** Alt+C copies the draft; Alt+Shift+C copies its current line. */
+  copyDraft(currentLine: boolean): void
   /** Sends the composer's draft. */
   submitDraft(): void
 }
@@ -270,6 +274,17 @@ const clipboardImage: KeyRule = (key, cx) => {
   return true
 }
 
+/** Copy the draft or its current line without editing or sending it. */
+const copyDraft: KeyRule = (key, cx) => {
+  if (!matches(key, KEYS.copyDraft)) {
+    return false
+  }
+
+  cx.copyDraft(key.shift)
+
+  return true
+}
+
 /** The composer's keys; Enter sends the draft. */
 const composer: KeyRule = (key, cx) => {
   if (cx.composer.key(key) === 'submit') {
@@ -294,6 +309,7 @@ export const KEY_RULES: readonly KeyRule[] = [
   quit,
   pasteImage,
   clipboardImage,
+  copyDraft,
   composer
 ]
 

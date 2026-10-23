@@ -38,6 +38,7 @@ function pane(over: Partial<Pane> = {}) {
 
   const cx: KeyCx = {
     attachClipboardImage: did('clipboard'),
+    copyDraft: currentLine => void log.push(currentLine ? 'copy line' : 'copy draft'),
     attachments: {
       get any() {
         return state.images
@@ -132,6 +133,7 @@ describe('the key rules', () => {
       'quit',
       'pasteImage',
       'clipboardImage',
+      'copyDraft',
       'composer'
     ])
   })
@@ -388,6 +390,7 @@ describe('the Tern actions', () => {
   function actions(modal = false) {
     const log: string[] = []
     const cx: ActionCx = {
+      attachImageData: (data, name) => void log.push('attach ' + name + ' ' + data),
       connect: {
         continue: ref => void log.push(`continue ${ref}`),
         open: (ref, name) => void log.push(`open ${ref} ${name}`)

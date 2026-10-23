@@ -8,6 +8,7 @@ import { basename } from 'node:path'
 
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
+import { decodePastedImage } from '../artifacts/attachments.js'
 import { errorText } from '../core/errors.js'
 import { imagePathOf, withClipboardImage } from '../hermes/clipboardImage.js'
 import { type Attachment, imageSize, uploadImage } from '../hermes/images.js'
@@ -102,6 +103,12 @@ export class Attachments {
 
   /** A paste that is an image (no text: the clipboard's; one image path: that file); false for text. */
   paste(text: string): boolean {
+    if (text.startsWith('data:image/')) {
+      void this.fromDataUrl(text)
+
+      return true
+    }
+
     if (!text.trim()) {
       void this.fromClipboard(true)
 
@@ -136,6 +143,41 @@ export class Attachments {
       }
     } catch (error) {
       this.#host.note(`Could not read the clipboard image: ${errorText(error)}`, 'error')
+    } finally {
+      this.#end(slot)
+      this.#host.changed()
+    }
+  }
+
+  /** A native paste/drop image travels as bytes, not as a possibly remote filesystem path. */
+  async fromDataUrl(data: string, name = 'Pasted image') {
+    const slot = this.#start(name)
+    const sid = this.#host.sid()
+
+    try {
+      if (!sid) {
+        this.#host.note('Wait for the session to start before attaching an image.', 'warning')
+
+        return
+      }
+
+      const { bytes, mime, ext } = decodePastedImage(data)
+      const result = await rpc(this.#host.gw, 'image.attach_bytes', {
+        session_id: sid,
+        filename: 'image' + ext,
+        content_base64: bytes.toString('base64')
+      })
+
+      if (!result?.path) {
+        throw new Error('the gateway did not store the image')
+      }
+
+      // Removed chips and cleared drafts must never take a late upload.
+      if (this.#pending.includes(slot)) {
+        this.#items.push(this.#image({ bytes, mime, path: result.path }, name))
+      }
+    } catch (error) {
+      this.#host.note('Could not attach ' + name + ': ' + errorText(error), 'error')
     } finally {
       this.#end(slot)
       this.#host.changed()

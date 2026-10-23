@@ -11,6 +11,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 import { agentName } from '../agents/rows.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
+import { clipboardDraft } from '../artifacts/clipboard.js'
 import { copyToClipboard } from '../clipboard.js'
 import type { SessionHostCx } from '../commands/host.js'
 import { CommandCatalog } from '../commands/resolve.js'
@@ -149,6 +150,16 @@ export class AppActions {
     this.keys = {
       attachClipboardImage: () => void attachments.fromClipboard(false),
       attachments,
+      copyDraft: currentLine => {
+        const text = clipboardDraft(composer.text, composer.cursor, currentLine)
+
+        try {
+          copyToClipboard(text)
+          chat.notice('Composer text sent to the terminal clipboard (OSC 52).')
+        } catch {
+          chat.notice('Could not copy the composer text to the clipboard.', 'warning')
+        }
+      },
       busy: () => cx.activity.busy !== null,
       close: overlay => chat.close(overlay),
       completion: cx.completion,
@@ -168,6 +179,7 @@ export class AppActions {
       transcript
     }
     this.events = {
+      attachImageData: (data, name) => void attachments.fromDataUrl(data, name),
       connect: cx.connect,
       focusComposer: () => {
         cx.hud.release()
