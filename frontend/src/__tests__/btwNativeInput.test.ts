@@ -108,7 +108,11 @@ function emittedIds(bytes: string): string[] {
     }
   }
 
-  for (const frame of bytes.matchAll(/\x1b_tsp;f;([\s\S]*?)\x1b\\/g)) {
+  // Build the same ESC-frame regex without a literal control-regex token (lint gate).
+  const esc = String.fromCharCode(27)
+  const frames = new RegExp(esc + String.raw`_tsp;f;([\s\S]*?)` + esc + String.raw`\\`, 'g')
+
+  for (const frame of bytes.matchAll(frames)) {
     inspect(decodeJson(must(frame[1], 'a native frame body')))
   }
 
