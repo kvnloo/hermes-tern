@@ -24,6 +24,8 @@ export interface MediaPath {
   readonly mime?: string
   /** Exact completed gateway read; the gateway enforces session/path authorization. */
   readonly toolCallId?: string
+  /** A persisted @image: reference; gateway authorizes the session-owned attachment. */
+  readonly scope?: 'attachment'
 }
 
 export type PreviewState =
@@ -132,7 +134,12 @@ export class MediaDelivery {
   }
 
   preview(source: MediaPath): PreviewState {
+    const host = this.context()
     const cached = this.#cache.get(this.#key(source))
+
+    if (host.local || source.host !== host.remoteHost) {
+      return { label: 'Image path does not belong to the active host.', status: 'unsupported' }
+    }
 
     if (cached?.status === 'ready' && cached.blob) {
       return { blob: cached.blob, status: 'ready' }
@@ -140,7 +147,7 @@ export class MediaDelivery {
 
     if (this.#closed || !this.deps.session() || !this.deps.tern.caps.features.includes('blobs') ||
         source.host === 'tern' || source.host === 'compute' ||
-        (source.host === 'gateway' && !source.toolCallId)) {
+        (source.host === 'gateway' && !source.toolCallId && source.scope !== 'attachment')) {
       return { label: 'Remote image preview unavailable on this host or SDK.', status: 'unsupported' }
     }
 
@@ -207,7 +214,7 @@ export class MediaDelivery {
         }>('media.image', {
           session_id: session,
           path: source.path,
-          tool_call_id: source.toolCallId
+          ...(source.toolCallId ? { tool_call_id: source.toolCallId } : {})
         })
 
         const raw = response?.content_base64
@@ -274,7 +281,7 @@ export class MediaDelivery {
   }
 
   #key(source: MediaPath): string {
-    return JSON.stringify([this.#scope(), source.host, source.id, source.path, source.mime, source.toolCallId])
+    return JSON.stringify([this.#scope(), source.host, source.id, source.path, source.mime, source.toolCallId, source.scope])
   }
 
   #scope(): string {
