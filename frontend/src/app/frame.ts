@@ -12,6 +12,7 @@ import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
+import type { Retention } from '../view/retention.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
 
