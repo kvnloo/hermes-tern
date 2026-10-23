@@ -75,6 +75,7 @@ function pane(over: Partial<Pane> = {}) {
       }
     },
     cycleEffort: did('effort'),
+    fork: did('fork'),
     hud: () => state.hud,
     interrupt: did('interrupt'),
     now: () => state.clock,
