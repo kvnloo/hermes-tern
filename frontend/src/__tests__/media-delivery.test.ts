@@ -13,7 +13,11 @@ import {
   readImageBytes,
   ternSharesFrontendHost
 } from '../media-delivery.js'
+import { entryId } from '../core/ids.js'
+import type { UserEntry } from '../model.js'
 import { projectToolMedia } from '../read-media.js'
+import { attachmentImagePath } from '../view/media.js'
+import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import { toolNode } from '../view/tools/shell.js'
 
 import { FakeGateway, fakeTern, tree } from './fakes.js'
@@ -116,6 +120,58 @@ describe('cross-host previews', () => {
       expect(blob).toHaveBeenCalledOnce()
       expect(blob).toHaveBeenCalledWith(png, 'image/png')
     }
+  })
+
+  it('keeps resumed attachment identity and requests the session-owned reference, not a guessed tool id', async () => {
+    const { delivery, gw } = setup()
+    const entry: UserEntry = {
+      at: 0, id: entryId('u1'), kind: 'user', text: 'See attachment',
+      attachments: [{ kind: 'image', name: 'archive.png', refPath: '/gateway/archive.png' }]
+    }
+    const view = (): TranscriptContext => ({
+      copy: () => undefined,
+      media: delivery, mediaRev: delivery.token(), now: 0, welcome: { tip: '', version: '' }
+    })
+
+    expect(JSON.stringify(tree(entryNode(entry, 'main.u1', view())))).toContain('Load image preview')
+    expect(gw.sent('media.image')).toHaveLength(0)
+
+    const path = attachmentImagePath('/gateway/archive.png', delivery)
+
+    if (!path) {
+      throw new Error('expected an authorized attachment preview path')
+    }
+
+    await delivery.load(path)
+    expect(gw.sent('media.image')).toEqual([{ session_id: 'session-1', path: '/gateway/archive.png' }])
+    expect(nodes(tree(entryNode(entry, 'main.u1', view()))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+  })
+
+  it('routes browser screenshots through a completed tool call, never a local image path', async () => {
+    const { delivery, gw } = setup()
+    const tool = call('browser_vision', {}, { result: { success: true, screenshot_path: '/gateway/screenshot.png' } })
+    const before = tree(toolNode(tool, 0, delivery))
+
+    expect(JSON.stringify(before)).toContain('Load image preview')
+    expect(nodes(before).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
+
+    await delivery.load({
+      host: 'gateway', id: String(tool.id), kind: 'path', path: '/gateway/screenshot.png', toolCallId: String(tool.id)
+    })
+
+    expect(gw.sent('media.image')).toEqual([{
+      session_id: 'session-1', path: '/gateway/screenshot.png', tool_call_id: String(tool.id)
+    }])
+    expect(nodes(tree(toolNode(tool, 0, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+  })
+
+  it('keeps remote image_generation paths inert without backend tool authorization', () => {
+    const { delivery, gw } = setup()
+    const tool = call('image_generate', { prompt: 'Sunrise' }, { result: { image: '/gateway/model.png', success: true } })
+    const shown = JSON.stringify(tree(toolNode(tool, 0, delivery)))
+
+    expect(shown).toContain('cannot authorize its file path')
+    expect(gw.sent('media.image')).toHaveLength(0)
   })
 
   it('does not offer remote previews without blob negotiation, source host, or session', async () => {
