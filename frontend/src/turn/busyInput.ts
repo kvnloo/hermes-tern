@@ -68,7 +68,12 @@ export class BusyDraft {
       const ready = await router.expanded(
         ticket.sid,
         { images: [], kind: 'typed', pasted, text },
-        { restoreOnFailure: false, current: () => !ticket.signal.aborted && ticket.isCurrent() }
+        {
+          restoreOnFailure: false,
+          current: () =>
+            !ticket.signal.aborted && ticket.isCurrent() && this.#host.admit() &&
+            composer.revision === revision && composer.cursor === cursor && composer.text === raw
+        }
       )
       const running = activity.busy
 

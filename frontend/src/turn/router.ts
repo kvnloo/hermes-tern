@@ -219,7 +219,7 @@ export class PromptRouter {
     void host.queue.admit(gate.sid, prompt)
   }
 
-  /** `prompt` with its `{!cmd}`s run (a typed prompt's); undefined when one failed (the prompt is back in the composer). */
+  /** `prompt` with its `{!cmd}`s run; undefined on failure (a retained busy draft needs no restoration). */
   expanded(sid: LiveSessionId, prompt: Prompt, options: ExpandOptions = {}): Promise<Expanded | undefined> {
     return expand(this.#host, sid, prompt, options)
   }

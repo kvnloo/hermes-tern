@@ -47,7 +47,7 @@ export function hasCommands(prompt: TypedPrompt): boolean {
 
 /**
  * `prompt` with its `{!cmd}`s run in session `sid` (the prompt itself when it has none); undefined
- * when one failed, after the notice says so and the prompt is back in the composer.
+ * on failure. The caller may keep its original draft instead of asking this helper to restore it.
  */
 export async function expand(host: ExpandHost, sid: LiveSessionId, prompt: Prompt, { restoreOnFailure = true, current = () => true }: ExpandOptions = {}): Promise<Expanded | undefined> {
   if (prompt.kind !== 'typed' || !hasCommands(prompt)) {

@@ -253,7 +253,7 @@ export class AppActions {
       return
     }
 
-    this.submit(raw, true, 'queue', [...this.#cx.composer.pasted])
+    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
   }
 
   /** Never redirect a live turn implicitly. Shell, slash, images and modal answers keep their own paths. */
