@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { OrbActivity, ThinkingOrb } from '../chrome/orb.js'
 
-const event = (type: string, payload: object = {}) => ({ type, payload }) as AnyGatewayEvent
+import { stub } from './fakes.js'
+
+const event = (type: string, payload: object = {}) => stub<AnyGatewayEvent>({ type, payload })
 
 describe('agent orb lifecycle', () => {
   it('keeps active tools visible through concurrent reasoning and response chunks', () => {
@@ -82,8 +84,8 @@ describe('orb animation boundaries', () => {
     const surface = { send, blocked: false, closed: false }
 
     const orb = new ThinkingOrb(
-      { blob, caps: { dark: true, reduceMotion: false } } as unknown as Session,
-      surface as unknown as Surface
+      stub<Session>({ blob, caps: { dark: true, reduceMotion: false } }),
+      stub<Surface>(surface)
     )
 
     try {
@@ -130,7 +132,7 @@ describe('orb animation boundaries', () => {
 
     const orb = new ThinkingOrb(
       { blob, caps: { dark: true, reduceMotion: false } } as unknown as Session,
-      { send, blocked: false, closed: false } as unknown as Surface
+      stub<Surface>({ send, blocked: false, closed: false })
     )
 
     try {
