@@ -117,7 +117,7 @@ function fixture(replies: Record<string, Reply> = {}, { busy = false, queued = 0
 
     return overlay ? walk([overlay.node('layer.' + overlay.key)]) : []
   }
-  const element = (name: string) => nodes().find(node => node.props.key === name)
+  const element = (name: string) => nodes().find(node => node.props['key'] === name)
   const click = (name: string) => {
     const found = element(name)
     const action = found?.handlers?.onClick
@@ -182,14 +182,14 @@ describe('native plan review', () => {
     await paint()
 
     expect(f.gw.sent('plan.status')).toEqual([{ session_id: 'runtime-a' }])
-    expect(f.element('authority')?.props.text).toContain('Plan authority unavailable')
-    expect(f.element('markdown')?.props.text).toContain('# Assistant plan')
-    expect(f.element('approve')?.props.title).toBe('Continue (ordinary prompt)')
+    expect(f.element('authority')?.props['text']).toContain('Plan authority unavailable')
+    expect(f.element('markdown')?.props['text']).toContain('# Assistant plan')
+    expect(f.element('approve')?.props['title']).toBe('Continue (ordinary prompt)')
     expect(f.element('refine')).toBeDefined()
     expect(f.element('mode')).toBeUndefined()
     f.click('section-1')
     expect(f.scroll).toHaveBeenCalledWith('layer.plan.body.markdown', 'start')
-    expect(f.element('markdown')?.props.text).toContain('## Phase one')
+    expect(f.element('markdown')?.props['text']).toContain('## Phase one')
     f.click('close')
     expect(f.overlays).toHaveLength(0)
     expect(f.gw.sent('prompt.submit')).toEqual([])
@@ -222,7 +222,7 @@ describe('native plan review', () => {
     openPlanReview(f.host)
     await paint()
 
-    expect(f.element('approve')?.props.title).toBe('Continue (ordinary prompt)')
+    expect(f.element('approve')?.props['title']).toBe('Continue (ordinary prompt)')
     f.click('refine')
     const empty = f.capture('save')
     empty()
@@ -330,7 +330,7 @@ describe('native plan review', () => {
     planSheet.onKey(key('text', { text: 'unwanted' }))
     f.host.close(must(f.overlays.at(-1)))
 
-    expect(f.element('note')?.props.text).toBe('')
+    expect(f.element('note')?.props['text']).toBe('')
     expect(f.gw.sent('plan.decide')).toEqual([])
     expect(f.send).not.toHaveBeenCalled()
   })
@@ -410,8 +410,8 @@ describe('native plan review', () => {
     openPlanReview(f.host)
     await paint()
 
-    expect(f.element('authority')?.props.text).toContain('plan-1 · revision 3')
-    expect(f.element('markdown')?.props.text).toContain('# Implement')
+    expect(f.element('authority')?.props['text']).toContain('plan-1 · revision 3')
+    expect(f.element('markdown')?.props['text']).toContain('# Implement')
     const first = f.capture('approve')
     first()
     first()
@@ -465,8 +465,8 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.annotate')).toEqual([{
       plan_id: 'plan-1', revision: 3, section: 1, session_id: 'runtime-a', text: 'Add rollback test'
     }])
-    expect(f.element('authority')?.props.text).toContain('revision 4')
-    expect(f.nodes().some(node => node.props.role === 'omp.plan.annotation')).toBe(true)
+    expect(f.element('authority')?.props['text']).toContain('revision 4')
+    expect(f.nodes().some(node => node.props['role'] === 'omp.plan.annotation')).toBe(true)
     stale()
     expect(f.gw.sent('plan.decide')).toEqual([])
 
@@ -481,7 +481,7 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.edit')[0]).toEqual({
       plan_id: 'plan-1', revision: 4, session_id: 'runtime-a', text: '# Smaller\nOnly one change'
     })
-    expect(f.element('authority')?.props.text).toContain('revision 5')
+    expect(f.element('authority')?.props['text']).toContain('revision 5')
     expect(f.gw.sent('prompt.submit')).toEqual([])
   })
 
@@ -520,6 +520,6 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.status')).toEqual([])
     await cmd.run(stub<CommandHost>(f.host), '')
     await paint()
-    expect(f.element('authority')?.props.text).toContain('revision 3')
+    expect(f.element('authority')?.props['text']).toContain('revision 3')
   })
 })
