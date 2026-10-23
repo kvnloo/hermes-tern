@@ -62,14 +62,28 @@ real authorization and profile/session ownership). Once available, validate
 the real backend, generated frontend contract and native Tern in isolation;
 do not treat the mocked fixture replies as persisted-thread or inventory proof.
 
-OMP validation (not run by the implementation worker):
+## Verification and PTY scope
+
+The BTW PTY regression uses actual OS PTY bytes and raw-mode Node. On Linux it
+uses util-linux `script -q -c ... /dev/null`; on macOS it uses BSD
+`script -q /dev/null node -e ...`. It verifies split four-byte UTF-8,
+Unicode, bracketed multiline paste and Enter through the existing test
+Tern-key adapter, App, Composer and PromptRouter. The test **fails** if
+`script(1)` cannot start; it is not Linux-skipped. It checks the BTW side
+draft, main draft, gateway submit payloads and transcript isolation.
+
+This is **PTY-to-App adapter integration**, not real Tern SDK parser, terminal
+framing or native window acceptance. OMP owns separate native Tern proof with
+the installed SDK and an isolated Hermes profile. No backend support or native
+Tern acceptance is inferred from mock gateway replies.
+
+OMP validation (not run by this connector-only implementation worker):
 
     cd frontend
     node scripts/hermes-src.mjs
-    bun install --frozen-lockfile
-    bun run typecheck
-    bun run test -- src/__tests__/btwSheets.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts
+    bun install --frozen-lockfile --prefer-offline
     bun run check
+    bun run test src/__tests__/btwSheets.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
     bun run bundle
 
 On a compatible Hermes gateway, smoke /btw (list, start, follow up, cancel,
