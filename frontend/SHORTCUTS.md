@@ -47,9 +47,9 @@ From the repository root:
 
 ```sh
 cd frontend
-bun install
+bun run setup
 bun run typecheck
-bun run test -- src/shortcuts/actions.test.ts src/shortcuts/binding-preferences.test.ts src/shortcuts/model-cycle.test.ts src/shortcuts/palette.test.ts src/__tests__/keys.test.ts
+bun run test src/shortcuts/actions.test.ts src/shortcuts/binding-preferences.test.ts src/shortcuts/model-cycle.test.ts src/shortcuts/palette.test.ts src/__tests__/keys.test.ts
 bun run lint
 bun run check
 ```
