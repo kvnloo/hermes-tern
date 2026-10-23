@@ -62,6 +62,8 @@ export class VimComposer {
     }
 
     this.enabled = enabled
+    // Native selection cannot remain hidden under Vim's independent Visual anchor.
+    this.composer.move(this.composer.cursor)
     this.reset()
   }
 
