@@ -31,7 +31,7 @@ export async function nativeBrowserSurface() {
 
   const capture = (view: View, region: 'layer' | 'main', key: string, block?: string) => {
     const roots = view.regions.find(item => item?.id === region)?.children ?? []
-    const match = descendants(roots).find(node => node.props.key === key && (!block || node.id.includes(`block-${block}`)))
+    const match = descendants(roots).find(node => node.props['key'] === key && (!block || node.id.includes(`block-${block}`)))
 
     if (!match) {
       throw new Error(`Missing native Tern handler node: ${region}/${key}/${block ?? 'any'}`)
