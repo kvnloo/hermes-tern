@@ -32,6 +32,7 @@ interface Harness {
   readonly running: Promise<number>
   surface(): Surface
   event(body: Record<string, unknown>): Promise<void>
+  key(bytes: string): Promise<void>
   ack(sf: string, sequence: number): Promise<void>
 }
 
@@ -74,6 +75,10 @@ async function withWatch(check: (h: Harness) => Promise<void>, credits = 64) {
         input.emit('data', '\x1b_tsp;e;' + JSON.stringify(body) + '\x1b\\')
         await painted()
       },
+      key: async bytes => {
+        input.emit('data', bytes)
+        await painted()
+      },
       ack: async (sf, s) => {
         input.emit('data', '\x1b_tsp;e;' + JSON.stringify({ ev: 'ack', sf, s }) + '\x1b\\')
         await painted()
@@ -94,9 +99,9 @@ async function withWatch(check: (h: Harness) => Promise<void>, credits = 64) {
   }
 }
 
-function sendButton(peer: Peer, sf: string): string {
+function stopButton(peer: Peer, sf: string): string {
   const nodes = must(peer.documents.get(sf), 'current TSP document')
-  return must([...nodes.keys()].find(id => id.endsWith('.composer.bar.send')), 'native Send action')
+  return must([...nodes.keys()].find(id => id.endsWith('.composer.bar.stop')), 'native Stop action')
 }
 
 afterEach(() => {
@@ -109,13 +114,13 @@ describe('WatchApp public SDK document and gesture recovery', () => {
     await withWatch(async h => {
       const old = h.surface()
       expect(h.peer.documents.get(old.id)?.has(INPUT_ID)).toBe(true)
-      const nativeSend = sendButton(h.peer, old.id)
+      const nativeStop = stopButton(h.peer, old.id)
       await h.event({ ev: 'edit', sf: old.id, id: INPUT_ID, from: 0, to: 0, text: 'α', cursor: 1, len: 0 })
       expect(h.watch.composer.text).toBe('α')
       expect(h.watch.composer.cursor).toBe(1)
       await h.event({ ev: 'send', sf: old.id, id: INPUT_ID, text: 'native steer' })
       expect(h.gw.sent('subagent.steer')).toMatchObject([{ text: 'native steer', subagent_id: 'agent-1', session_id: 'parent-1' }])
-      const oldAction = old.dispatch({ ev: 'action', sf: old.id, id: nativeSend, act: 'click', raw: {} })
+      const oldAction = old.dispatch({ ev: 'action', sf: old.id, id: nativeStop, act: 'click', raw: {} })
       expect(oldAction).toBeTypeOf('function')
       h.watch.composer.set('draft kept', { cursor: 5 })
       const before = h.gw.sent('subagent.steer').length
@@ -130,14 +135,17 @@ describe('WatchApp public SDK document and gesture recovery', () => {
       expect(h.watch.composer.text).toBe('draft kept')
       expect(h.watch.composer.cursor).toBe(5)
       await oldAction?.()
-      await h.event({ ev: 'action', sf: old.id, id: nativeSend, act: 'click' })
+      await h.event({ ev: 'action', sf: old.id, id: nativeStop, act: 'click' })
       await h.ack(old.id, old.seq)
       expect(h.gw.sent('subagent.steer')).toHaveLength(before)
       expect(h.gw.sent('subagent.interrupt')).toHaveLength(other)
-      await h.event({ ev: 'action', sf: next.id, id: sendButton(h.peer, next.id), act: 'click' })
+      await h.key('\r')
       expect(h.gw.sent('subagent.steer')).toHaveLength(before + 1)
       expect(h.gw.sent('subagent.steer').at(-1)).toMatchObject({ text: 'draft kept' })
       expect(h.watch.composer.text).toBe('')
+      await h.event({ ev: 'action', sf: next.id, id: stopButton(h.peer, next.id), act: 'click' })
+      expect(h.gw.sent('subagent.interrupt')).toHaveLength(other + 1)
+      expect(h.gw.sent('subagent.interrupt').at(-1)).toMatchObject({ session_id: 'parent-1', subagent_id: 'agent-1' })
       expect(h.peer.opened).toEqual(['hermes', 'hermes.recovery-1'])
     })
   })
@@ -147,15 +155,18 @@ describe('WatchApp public SDK document and gesture recovery', () => {
       const sf = h.surface().id
       const before = new Set(h.peer.documents.get(sf)?.keys())
       const sent = h.gw.sent('subagent.steer').length
+      const interrupts = h.gw.sent('subagent.interrupt').length
       h.watch.composer.set('saved draft', { cursor: 3 })
       await h.event({ ev: 'visible', sf, visible: false })
       const frames = h.peer.frames.length
-      await h.event({ ev: 'action', sf, id: sendButton(h.peer, sf), act: 'click' })
+      await h.event({ ev: 'action', sf, id: stopButton(h.peer, sf), act: 'click' })
+      await h.event({ ev: 'send', sf, id: INPUT_ID, text: 'hidden steer' })
       h.peer.remove(sf, INPUT_ID)
       await h.event({ ev: 'gone', sf, ids: [INPUT_ID] })
       expect(h.peer.frames).toHaveLength(frames)
       expect(h.peer.documents.get(sf)?.has(INPUT_ID)).toBe(false)
       expect(h.gw.sent('subagent.steer')).toHaveLength(sent)
+      expect(h.gw.sent('subagent.interrupt')).toHaveLength(interrupts)
       await h.event({ ev: 'visible', sf, visible: true })
       expect(h.peer.documents.get(sf)?.has(INPUT_ID)).toBe(true)
       expect(h.watch.composer.text).toBe('saved draft')
@@ -209,19 +220,20 @@ describe('WatchApp public SDK document and gesture recovery', () => {
     const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     await withWatch(async h => {
       const old = h.surface()
-      const nativeSend = sendButton(h.peer, old.id)
+      const nativeStop = stopButton(h.peer, old.id)
       h.watch.composer.set('do not send')
-      const held = old.dispatch({ ev: 'action', sf: old.id, id: nativeSend, act: 'click', raw: {} })
+      const held = old.dispatch({ ev: 'action', sf: old.id, id: nativeStop, act: 'click', raw: {} })
       expect(held).toBeTypeOf('function')
       await h.event({ ev: 'ack', sf: old.id, s: 'malformed' })
       expect(h.tern.surfaces).toHaveLength(0)
       const frames = h.peer.frames.length
       await held?.()
-      await h.event({ ev: 'action', sf: old.id, id: nativeSend, act: 'click' })
+      await h.event({ ev: 'action', sf: old.id, id: nativeStop, act: 'click' })
       h.watch.changed()
       await painted()
       expect(h.peer.frames).toHaveLength(frames)
       expect(h.gw.sent('subagent.steer')).toHaveLength(0)
+      expect(h.gw.sent('subagent.interrupt')).toHaveLength(0)
       expect(diagnostic).toHaveBeenCalledTimes(1)
       expect(diagnostic).toHaveBeenCalledWith(expect.stringContaining('malformed ack'))
       expect(await h.running).toBe(1)
@@ -233,15 +245,17 @@ describe('WatchApp public SDK document and gesture recovery', () => {
     await withWatch(async h => {
       const live = h.surface()
       const held = live.dispatch({
-        ev: 'action', sf: live.id, id: sendButton(h.peer, live.id), act: 'click', raw: {}
+        ev: 'action', sf: live.id, id: stopButton(h.peer, live.id), act: 'click', raw: {}
       })
       expect(held).toBeTypeOf('function')
       h.watch.composer.set('stay local')
       await h.tern.close()
       expect(await h.running).toBe(0)
       const count = h.gw.sent('subagent.steer').length
+      const interrupts = h.gw.sent('subagent.interrupt').length
       await held?.()
       expect(h.gw.sent('subagent.steer')).toHaveLength(count)
+      expect(h.gw.sent('subagent.interrupt')).toHaveLength(interrupts)
       expect(live.closed).toBe(true)
     })
   })

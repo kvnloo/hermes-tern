@@ -229,7 +229,9 @@ describe('runInput', () => {
 describe('SurfaceHost', () => {
   it('opens the chat surface, as the chat and the subagent pane both draw it', () => {
     const tern = fakeTern({ draws: true })
-    const host = new SurfaceHost(tern.session, 'agent 1', STYLES)
+    const host = new SurfaceHost(tern.session, 'agent 1', STYLES, {
+      changed: vi.fn(), recovered: vi.fn(), report: vi.fn()
+    })
 
     expect(tern.opened).toEqual([{ id: 'hermes', mode: 'inline', role: 'omp.session', title: 'agent 1' }])
     expect(host.closed).toBe(false)
@@ -237,7 +239,9 @@ describe('SurfaceHost', () => {
 
   it('sends the caret when it moves, and always when asked outright', () => {
     const tern = fakeTern({ draws: true })
-    const host = new SurfaceHost(tern.session, 'hermes', STYLES)
+    const host = new SurfaceHost(tern.session, 'hermes', STYLES, {
+      changed: vi.fn(), recovered: vi.fn(), report: vi.fn()
+    })
 
     host.follow(INPUT_ID)
     expect(tern.focused).toEqual([])
