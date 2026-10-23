@@ -289,7 +289,7 @@ def test_public_context_consent_grant_revoke_reload_and_registry_identity(green,
 
 
 def test_real_legacy_original_caller_survives_mirror_denial_then_detach(green, monkeypatch):
-    """The native effect fence and lease reuse run inside the true stdio RPC dispatcher."""
+    """Original lease and effects through the real registered legacy dispatcher."""
     from tui_gateway.transport import FanoutTransport
 
     server, manager, plugins, home = green
@@ -327,9 +327,17 @@ def test_real_legacy_original_caller_survives_mirror_denial_then_detach(green, m
                session_id="s1", target_id="7")["error"]["code"] == -32000
     assert driver.scope.cli.calls == calls
 
+    # The legacy session record is no longer active. Neither a stale peer
+    # nor another viewer may issue an RPC effect after the slot disappears.
+    server._sessions.pop("s1")
+    assert rpc(server, b, "hermes-tern.browser.focus",
+               session_id="s1", target_id="7")["error"]["code"] == 4001
+    assert driver.scope.cli.calls == calls
 
+
+@pytest.mark.parametrize("revocation", ["generation", "real_rewind"])
 @pytest.mark.asyncio
-async def test_real_canonical_original_caller_and_generation(green, monkeypatch):
+async def test_real_canonical_original_caller_and_generation(green, monkeypatch, revocation):
     """Real canonical router; the temporary task/busy witness is fixture-only.
 
     Production canonical sessions without a trusted task accessor stay read-only.
@@ -343,9 +351,6 @@ async def test_real_canonical_original_caller_and_generation(green, monkeypatch)
 
     _, manager, plugins, home = green
     _reload_granted(manager, plugins, home, monkeypatch)
-    monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: (
-        {"session_key": "canon", "running": False} if sid == "canon" and profile == "default" else None
-    ))
     db = SessionDB(db_path=home / "state.db")
     db.create_session("canon", source="test")
     runner = SimpleNamespace(_draining=False, config=SimpleNamespace(multiplex_profiles=False))
@@ -386,6 +391,18 @@ async def test_real_canonical_original_caller_and_generation(green, monkeypatch)
     try:
         for peer in (a, b):
             assert "result" in await call(peer, "session.resume", session_id="canon")
+        # The unmodified production canonical path has no trustworthy task
+        # projection, so genuine attached discovery cannot claim a controller.
+        initial = await call(a, "hermes-tern.browser.blocks", session_id="canon")
+        assert initial["result"]["available"] is False, initial
+        assert initial["result"]["reason"] == "operator_consent_or_task_authority_required"
+        assert native.get_driver("default", "canon") is None
+        # Only the orthogonal task/busy authority is supplied by this fixture;
+        # caller and admission are enforced by the real core dispatcher.
+        monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: (
+            {"session_key": "canon", "running": False}
+            if sid == "canon" and profile == "default" else None
+        ))
         first = await call(a, "hermes-tern.browser.blocks", session_id="canon")
         assert first["result"]["available"] is True, first
         driver = native.get_driver("default", "canon")
@@ -405,10 +422,27 @@ async def test_real_canonical_original_caller_and_generation(green, monkeypatch)
         assert owned["result"]["target_id"] == "7", owned
         assert driver.scope.lease is lease
 
-        db._execute_write(lambda conn: conn.execute(
-            "UPDATE sessions SET runtime_generation=runtime_generation+1 WHERE id=?",
-            ("canon",),
-        ))
+        if revocation == "generation":
+            db._execute_write(lambda conn: conn.execute(
+                "UPDATE sessions SET runtime_generation=runtime_generation+1 WHERE id=?",
+                ("canon",),
+            ))
+        else:
+            runner._evict_cached_agent = lambda route: None
+            target_id = await asyncio.to_thread(
+                db.append_message, "canon", "user", "browser rewind target")
+            snapshot = await asyncio.to_thread(db.get_session, "canon")
+            rewind = await call(
+                a, "session.mutate", session_id="canon",
+                request_id="browser-caller-rewind",
+                expected_revision=snapshot["runtime_revision"],
+                expected_generation=snapshot["runtime_generation"],
+                operation="rewind", payload={"target_message_id": target_id},
+            )
+            assert "result" in rewind, rewind
+            assert rewind["result"]["execution_generation"] == (
+                snapshot["runtime_generation"] + 1
+            )
         calls = list(driver.scope.cli.calls)
         stale = await call(a, "hermes-tern.browser.focus", session_id="canon", target_id="7")
         assert stale["error"]["code"] in {4001, -32000}, stale

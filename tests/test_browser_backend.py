@@ -315,12 +315,14 @@ def test_original_transport_or_generation_detach_not_redirected(system):
     assert native.get_driver("work", "s1") is not None
 
 
-def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system):
+def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system, monkeypatch):
     ctx, actor, owner, clients = system
     ctx.consent = True
     ctx.native_installed = True
     owner.clear()
-    backend._legacy_owner = lambda sid, profile: None
+    # Scope this temporary canonical simulation to its own fixture. Leaving
+    # the real legacy accessor overwritten contaminates later dispatcher tests.
+    monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: None)
     listing = request("blocks", actor, ctx)
     assert not listing["available"]
     assert [b["target_id"] for b in listing["blocks"]] == ["7", "8"]

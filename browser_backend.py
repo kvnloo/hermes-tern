@@ -251,11 +251,11 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
 
     if not _consented(ctx):
         raise PermissionError("native browser drive requires explicit tools.override consent")
-    if not _native_tools_ready(ctx, profile):
-        raise PermissionError("native browser tool handlers absent; reload plugin after consent")
     owner = _legacy_owner(sid, profile)
     if owner is None:
         raise PermissionError("original task and busy-turn authority unavailable")
+    if not _native_tools_ready(ctx, profile):
+        raise PermissionError("native browser tool handlers absent; reload plugin after consent")
     if action in {"adopt", "release", "frame"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
     if _cdp_selected():
