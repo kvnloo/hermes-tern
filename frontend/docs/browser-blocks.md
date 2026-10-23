@@ -104,6 +104,16 @@ available; discovery remains read-only until the actual native tool handlers
 are registered. No native claim is created with the original browser handlers
 still selected. Explicit CDP wins initially; once native ownership is claimed,
 a failed effect never switches to CDP or another page/backend.
+Each model-tool CLI operation checks the original commissioned lease/profile/viewer,
+live operator consent, actual selected native registry handlers and explicit CDP.
+An open already dispatched cannot be cancelled, but a revocation or handler/CDP
+change before its next snapshot/goto refuses that next CLI effect. Unload is
+also fenced: known agent-created page claims and pending/unknown-open quarantine
+remain with the original driver when cleanup is no longer authorized, without
+forced close, guessed page IDs, or a fallback browser. Later cleanup requires
+restored native selection/consent and the original caller-bound RPC; model
+handlers do not fabricate an active RPC or borrow an inactive caller.
+
 
 **Known canonical prerequisite:** the green registered-method request
 context exposes profile, session and captured lease, but does not expose
@@ -141,6 +151,7 @@ Test the Python plugin against the separate green Hermes source checkout:
 
 ```sh
 PYTHONPATH=/path/to/core-0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5 python -m pytest -q -ra tests
+PYTHONPATH=/path/to/core-0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5 python -m pytest -q -ra tests/test_browser_gateway_dispatch.py tests/test_browser_backend.py tests/test_browser_native.py tests/test_plugin_registration.py
 ```
 
 Run OMP's three independent review-only regressions for the distinct

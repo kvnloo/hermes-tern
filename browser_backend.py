@@ -500,6 +500,20 @@ def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
     })
 
 
+def _native_effect_authorized(ctx, profile: str) -> None:
+    """Recheck live grant, actual selected browser handlers and CDP before each CLI effect."""
+    if not _native_tools_ready(ctx, profile):
+        raise NativeBrowserError("unsupported")
+    if _cdp_selected():
+        raise NativeBrowserError("ownership")
+
+
+def _model_effect_fence(ctx, driver: BrowserDriver) -> None:
+    """Background model calls have no live RPC: preserve the original scope lease."""
+    driver.scope.require_current()
+    _native_effect_authorized(ctx, driver.scope.profile)
+
+
 def _tool_handler(ctx, name: str, original: Callable) -> Callable:
     def handle(args, **kw):
         if not isinstance(args, dict):
@@ -521,7 +535,8 @@ def _tool_handler(ctx, name: str, original: Callable) -> Callable:
                     return _error("unsupported")
                 if _cdp_selected():
                     return _error("ownership")
-                return _model_action(name, args, driver)
+                with effect_fence(lambda: _model_effect_fence(ctx, driver)):
+                    return _model_action(name, args, driver)
         except NativeBrowserError as exc:
             return _error(exc.kind)
         except (PermissionError, OSError, ValueError, TypeError, RuntimeError):
@@ -570,7 +585,14 @@ def register(ctx) -> None:
         register_method(f"{PLUGIN}.browser.{action}", _rpc_handler(ctx, action), schema=schema)
 
     profile = ctx.profile_name
-    ctx.on_unload(lambda: unload_profile(profile))
+
+    def unload_owned_pages() -> None:
+        # Teardown is not an active RPC. Never force a CLI cleanup after
+        # consent revocation, selected-handler replacement, or CDP selection.
+        with effect_fence(lambda: _native_effect_authorized(ctx, profile)):
+            unload_profile(profile)
+
+    ctx.on_unload(unload_owned_pages)
     if not _consented(ctx):
         logger.info("Native browser drive disabled; grant tools.override in this profile explicitly")
         return
