@@ -31,7 +31,7 @@ describe('real-PTY SDK composer ownership', () => {
   it('preserves the raw SDK/App composer path after opening native Settings in plain mode', async () => {
       const { stdout } = await exec('python3', [driver, child, 'plain'], {
         cwd: process.cwd(),
-        timeout: 30_000,
+        timeout: 50_000,
         maxBuffer: 1024 * 1024
       })
       const result = record(stdout.trim())
@@ -41,6 +41,12 @@ describe('real-PTY SDK composer ownership', () => {
       expect(result['opened']).toBe(true)
       expect(result['bracketed']).toBe(true)
       expect(result['frames']).toBeGreaterThan(0)
+      expect(result['nativePrefsFrames']).toBeGreaterThanOrEqual(3)
+      expect(result['rootA']).not.toBe(result['rootB'])
+      expect(result['rootB']).not.toBe(result['rootC'])
+      expect(result['staleRejected']).toBe(true)
+      expect(result['undoProved']).toBe(true)
+      expect(result['composerPreserved']).toBe(true)
       expect(result['closed']).toBe(true)
       expect(result['vim']).toBe(false)
       expect(result['vimInsert']).toBe(false)
@@ -52,6 +58,13 @@ describe('real-PTY SDK composer ownership', () => {
       expect(requests(result, 'config.get').some(p => p['key'] === 'full' && p['source'] === 'settings')).toBe(false)
       expect(requests(result, 'settings.get')).toEqual([])
       expect(requests(result, 'model.hub.get')).toEqual([])
+      expect(requests(result, 'config.set')).toEqual([
+        { key: 'busy', value: 'steer', profile: 'default', session_id: 'pty-s1' },
+        { key: 'theme', value: 'dark', profile: 'default', session_id: 'pty-s1' }
+      ])
+      const reads = requests(result, 'config.get').filter(p => p['key'] !== 'full')
+      expect(reads.length).toBeGreaterThanOrEqual(3 * 8)
+      expect(reads.every(p => p['session_id'] === 'pty-s1' && p['profile'] === 'default')).toBe(true)
 
       // /ask entered through the raw Tern keyboard must route to the actual slash dispatcher.
       expect(requests(result, 'slash.exec')).toEqual([
@@ -71,5 +84,5 @@ describe('real-PTY SDK composer ownership', () => {
 
       // The pasted ! and {!...} are data, never commands for the user's shell.
       expect(requests(result, 'shell.exec')).toEqual([])
-    }, 35_000)
+    }, 55_000)
 })
