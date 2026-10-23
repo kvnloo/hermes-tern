@@ -6,6 +6,7 @@ import type { PreviewRow, TranscriptReader } from '../hermes/sessionTranscript.j
 import type { Overlay } from '../overlays/overlay.js'
 
 import { FakeGateway, key, must, stub, tree } from './fakes.js'
+import { assignedRoot } from './overlayRoots.js'
 
 const copied: string[] = []
 
@@ -58,7 +59,8 @@ function setup() {
   openSessionPicker(stub(host), reader)
 
   const sheet = must(overlay, 'the picker')
-  const draw = (): NodeJson => tree(sheet.node('layer.overlay-1'))
+  const root = assignedRoot(sheet)
+  const draw = (): NodeJson => tree(sheet.node(root))
   const press = (name: string, mods = {}) => {
     sheet.onKey(key(name, mods))
 

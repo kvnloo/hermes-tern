@@ -392,14 +392,20 @@ undefined  })
       expect(nextRoot).not.toBe(oldRoot)
       expect(View.from({ layer: [h.app.overlays.at(-1)?.node(nextRoot)] }).find(nextRoot)).toBeDefined()
       expect(h.surface.dispatch(oldNative)).toBeUndefined()
+      // Session setup can set show_reasoning; only model writes test picker ownership.
+      const beforeStale = h.gw.sent('config.set')
+      expect(beforeStale.filter(params => params['key'] === 'model')).toEqual([])
       await oldBound?.()
-      expect(h.gw.methods('config.set')).toHaveLength(0)
+      await painted()
+      expect(h.gw.sent('config.set')).toEqual(beforeStale)
 
       const current = h.surface.dispatch(activate(nextRoot))
       expect(current).toBeTypeOf('function')
       await current?.()
       await painted()
-      expect(h.gw.methods('config.set')).toHaveLength(1)
+      expect(h.gw.sent('config.set').filter(params => params['key'] === 'model')).toEqual([
+        { confirm_expensive_model: false, key: 'model', session_id: 's1', value: 'two --provider p --session' }
+      ])
       expect(h.gw.methods('prompt.submit')).toHaveLength(0)
     })
   })

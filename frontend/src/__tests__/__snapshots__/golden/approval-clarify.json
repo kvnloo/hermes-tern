@@ -3119,7 +3119,7 @@
           "k": "list",
           "p": {
            "role": "omp.ask.options",
-           "selected": "layer.prompt:shared:p2.body.q0.option:0",
+           "selected": "layer.overlay-2.body.q0.option:0",
            "key": "q0"
           },
           "c": [
@@ -3849,7 +3849,7 @@
           "k": "list",
           "p": {
            "role": "omp.ask.options",
-           "selected": "layer.prompt:shared:p2.body.q0.option:1",
+           "selected": "layer.overlay-2.body.q0.option:1",
            "key": "q0"
           },
           "c": [
