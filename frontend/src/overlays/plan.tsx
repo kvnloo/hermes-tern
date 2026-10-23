@@ -96,7 +96,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     submitted = true
     host.close(overlay)
 
-    if (control.busy || host.busy) {
+    if (control.busy || host.busy || control.queued > 0) {
       control.enqueue(text)
     } else {
       control.send(text)
@@ -317,7 +317,11 @@ export function openPlanReview(host: PlanReviewHost): void {
       actions.push({ key: 'refine', label: 'Refine', onClick: () => startEdit('refine', stamp, revision) })
     }
 
-    actions.push({ hint: 'escape', key: 'close', label: 'Close', onClick: close })
+    actions.push({ hint: 'escape', key: 'close', label: 'Close', onClick: () => {
+      if (current(stamp, revision)) {
+        close()
+      }
+    } })
 
     const authority = loading
       ? 'Checking gateway plan authority…'
