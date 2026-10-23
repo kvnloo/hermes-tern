@@ -373,7 +373,7 @@ class SettingsSheet implements Overlay {
           ...GROUPS.map(group => ({ group: 'Hermes profile', id: `profile.${group}`, label: group }))
         ]}
         sections={sections}
-        focus={this.#selected}
+        {...(this.#selected !== undefined ? { focus: this.#selected } : {})}
         cursor={this.#search.cursor}
         {...(this.#editing ? { editing: { cursor: this.#editor.cursor, draft: this.#editor.text, option: this.#choice, row: this.#editing } } : {})}
         {...(this.#searching ? { query: this.#search.text } : {})}
