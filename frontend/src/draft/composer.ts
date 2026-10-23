@@ -7,14 +7,12 @@ import type { Decor, Key } from '@stencil-hq/tern'
 
 import { append as appendHistory, load as loadHistory } from '../hermes/history.js'
 
+import { boundaryAt, lineEnd, lineStart, nextGrapheme, nextWord, prevGrapheme, prevWord } from './keys.js'
 import { listNewline, markdownDecor, type Splice, toggleMark } from './markdown.js'
 import { type Snapshot, UndoHistory } from './undo.js'
 
 /** What a key asked the app to do beyond editing. */
 export type ComposerAction = 'submit' | null
-
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-const WORD = /[\p{L}\p{N}_]/u
 
 /** The prompt editor: text, caret, undo/redo, prompt history and kill ring, driven by keys and native edits. */
 export class Composer {
@@ -515,88 +513,6 @@ export class Composer {
 
 function clamp(n: number, max: number): number {
   return Math.max(0, Math.min(max, n))
-}
-
-function lineStart(text: string, at: number): number {
-  // lastIndexOf clamps a negative start to 0, so it would find a newline at 0 from offset 0.
-  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1
-}
-
-function lineEnd(text: string, at: number): number {
-  const i = text.indexOf('\n', at)
-
-  return i < 0 ? text.length : i
-}
-
-/** `at` when it is a grapheme boundary of `text`, else the boundary before it. */
-function boundaryAt(text: string, at: number): number {
-  if (at >= text.length) {
-    return text.length
-  }
-
-  let floor = 0
-
-  for (const { index } of graphemes.segment(text)) {
-    if (index > at) {
-      break
-    }
-
-    floor = index
-  }
-
-  return floor
-}
-
-function prevGrapheme(text: string, at: number): number {
-  let prev = 0
-
-  for (const { index } of graphemes.segment(text)) {
-    if (index >= at) {
-      break
-    }
-
-    prev = index
-  }
-
-  return prev
-}
-
-function nextGrapheme(text: string, at: number): number {
-  for (const { index, segment } of graphemes.segment(text)) {
-    if (index >= at) {
-      return index + segment.length
-    }
-  }
-
-  return text.length
-}
-
-function prevWord(text: string, at: number): number {
-  let i = at
-
-  while (i > 0 && !WORD.test(text[i - 1] ?? '')) {
-    i--
-  }
-
-  while (i > 0 && WORD.test(text[i - 1] ?? '')) {
-    i--
-  }
-
-  return i
-}
-
-function nextWord(text: string, at: number): number {
-  let i = at
-
-  while (i < text.length && !WORD.test(text[i] ?? '')) {
-    i++
-  }
-
-  while (i < text.length && WORD.test(text[i] ?? '')) {
-    i++
-  }
-
-  return i
 }
 
 /** Text that would run a command if typed: a `{!cmd}`, or a leading `!`. */

@@ -301,3 +301,90 @@ export const KEY_RULES: readonly KeyRule[] = [
 export function onKey(key: Key, cx: KeyCx, top: Overlay | undefined) {
   KEY_RULES.some(rule => rule(key, cx, top))
 }
+
+/** The composer's UTF-16 caret and word boundaries for editing keys. */
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const WORD = /[\p{L}\p{N}_]/u
+
+export function lineStart(text: string, at: number): number {
+  // lastIndexOf clamps a negative start to 0, so it would find a newline at 0 from offset 0.
+  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1
+}
+
+export function lineEnd(text: string, at: number): number {
+  const i = text.indexOf('\n', at)
+
+  return i < 0 ? text.length : i
+}
+
+/** `at` when it is a grapheme boundary of `text`, else the boundary before it. */
+export function boundaryAt(text: string, at: number): number {
+  if (at >= text.length) {
+    return text.length
+  }
+
+  let floor = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index > at) {
+      break
+    }
+
+    floor = index
+  }
+
+  return floor
+}
+
+export function prevGrapheme(text: string, at: number): number {
+  let prev = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index >= at) {
+      break
+    }
+
+    prev = index
+  }
+
+  return prev
+}
+
+export function nextGrapheme(text: string, at: number): number {
+  for (const { index, segment } of graphemes.segment(text)) {
+    if (index >= at) {
+      return index + segment.length
+    }
+  }
+
+  return text.length
+}
+
+export function prevWord(text: string, at: number): number {
+  let i = at
+
+  while (i > 0 && !WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  while (i > 0 && WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  return i
+}
+
+export function nextWord(text: string, at: number): number {
+  let i = at
+
+  while (i < text.length && !WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  while (i < text.length && WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  return i
+}
+

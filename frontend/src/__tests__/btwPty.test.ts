@@ -25,35 +25,59 @@ function shellQuote(text: string): string {
  * split UTF-8 and paste delimiters without pre-decoding the input.
  */
 async function throughPty(payload: string): Promise<string> {
-  const code = [
-    "if (!process.stdin.isTTY) process.exit(40)",
-    "process.stdin.setRawMode(true)",
-    "process.stdin.resume()",
-    "process.stdin.on('data', bytes => process.stdout.write('DATA ' + bytes.toString('hex') + '\\n'))",
-    "process.stdout.write('READY\\n')"
-  ].join('; ')
-  if (process.platform !== 'linux' && process.platform !== 'darwin') {
-    throw new Error(`PTY acceptance requires Linux or macOS script(1), got ${process.platform}`)
+  const byteCount = Buffer.byteLength(payload, 'utf8')
+  if (byteCount <= 0) {
+    throw new Error('PTY payload requires a positive byte count')
   }
 
-  // util-linux: script -q -c 'node -e ...' /dev/null
-  // BSD:        script -q /dev/null node -e ...
+  // The PTY child owns its exit: it acknowledges exactly this many native bytes,
+  // flushes DONE and exits, rather than awaiting a kill after the Vitest deadline.
+  const code = [
+    "const expected = Number(process.argv[1])",
+    "if (!Number.isSafeInteger(expected) || expected <= 0 || !process.stdin.isTTY) process.exit(40)",
+    "process.stdin.setRawMode(true)",
+    "let seen = 0",
+    "process.stdin.on('data', bytes => {",
+    "  seen += bytes.length",
+    "  process.stdout.write('DATA ' + bytes.toString('hex') + '\\n')",
+    "  if (seen > expected) process.exit(41)",
+    "  if (seen === expected) {",
+    "    process.stdin.pause()",
+    "    process.stdout.write('DONE ' + seen + '\\n', () => process.exit(0))",
+    "  }",
+    "})",
+    "process.stdin.resume()",
+    "process.stdout.write('READY ' + expected + ' ' + process.pid + '\\n')"
+  ].join('\n')
+
+  if (process.platform !== 'linux' && process.platform !== 'darwin') {
+    throw new Error('PTY acceptance requires Linux or macOS script(1), got ' + process.platform)
+  }
+
+  // util-linux: script -q -c 'node -e ... <count>' /dev/null
+  // BSD:        script -q /dev/null node -e ... <count>
   const args = process.platform === 'linux'
-    ? ['-q', '-c', `node -e ${shellQuote(code)}`, '/dev/null']
-    : ['-q', '/dev/null', 'node', '-e', code]
+    ? ['-q', '-c', 'node -e ' + shellQuote(code) + ' ' + byteCount, '/dev/null']
+    : ['-q', '/dev/null', 'node', '-e', code, String(byteCount)]
   const child = spawn('script', args, { stdio: ['pipe', 'pipe', 'pipe'] })
   let spawnError: Error | undefined
   let stdinError: Error | undefined
+  let closed: { code: number | null; signal: NodeJS.Signals | null } | undefined
   child.once('error', error => { spawnError = error })
   child.stdin.on('error', error => { stdinError = error })
-  const exited = new Promise<void>(resolve => child.once('close', () => resolve()))
+  const exited = new Promise<void>(resolve => child.once('close', (code, signal) => {
+    closed = { code, signal }
+    resolve()
+  }))
   const assertAlive = () => {
-    if (spawnError) throw new Error(`script(1) could not start: ${spawnError.message}`)
-    if (stdinError) throw new Error(`PTY input write failed: ${stdinError.message}`)
-    if (child.exitCode !== null) throw new Error(`script(1) exited before PTY exchange: ${child.exitCode}`)
+    if (spawnError) throw new Error('script(1) could not start: ' + spawnError.message)
+    if (stdinError) throw new Error('PTY input write failed: ' + stdinError.message)
+    if (closed) throw new Error('script(1) closed before complete byte exchange: ' + closed.code)
   }
   const frames: string[] = []
-  let ready = false
+  let readyCount: number | undefined
+  let nativePid: number | undefined
+  let doneCount: number | undefined
   let output = ''
 
   child.stdout.on('data', (bytes: Buffer) => {
@@ -64,18 +88,24 @@ async function throughPty(payload: string): Promise<string> {
       const line = output.slice(0, end).replace(/\r$/, '')
       output = output.slice(end + 1)
 
-      if (line === 'READY') {
-        ready = true
+      if (line.startsWith('READY ')) {
+        const parts = line.split(' ')
+        readyCount = Number(parts[1])
+        nativePid = Number(parts[2])
       } else if (line.startsWith('DATA ')) {
         frames.push(line.slice(5))
+      } else if (line.startsWith('DONE ')) {
+        doneCount = Number(line.slice(5))
       }
     }
   })
 
+  let completed = false
   try {
     await vi.waitFor(() => {
       assertAlive()
-      expect(ready).toBe(true)
+      expect(readyCount).toBe(byteCount)
+      expect(Number.isSafeInteger(nativePid) && (nativePid ?? 0) > 0).toBe(true)
     }, { timeout: 5000 })
     const bytes = Buffer.from(payload, 'utf8')
     // The first scalar is a four-byte emoji: split at every continuation byte.
@@ -92,20 +122,46 @@ async function throughPty(payload: string): Promise<string> {
       expectedHex += part.toString('hex')
       child.stdin.write(part)
       await vi.waitFor(() => {
-        assertAlive()
+        if (frames.join('') !== expectedHex) {
+          assertAlive()
+        }
+
         expect(frames.join('')).toBe(expectedHex)
       }, { timeout: 5000 })
     }
+
+    await vi.waitFor(() => {
+      if (doneCount !== byteCount && closed) {
+        throw new Error('script(1) closed without its finite byte acknowledgment')
+      }
+
+      expect(doneCount).toBe(byteCount)
+    }, { timeout: 5000 })
+    await vi.waitFor(() => expect(closed).toEqual({ code: 0, signal: null }), { timeout: 5000 })
 
     // Decode the PTY's actual receive frames incrementally, not per write.
     const utf8 = new TextDecoder('utf-8', { fatal: true })
     const received = frames.map(hex => utf8.decode(Buffer.from(hex, 'hex'), { stream: true })).join('') + utf8.decode()
     expect(received).toBe(payload)
 
+    completed = true
     return received
   } finally {
+    // A failed assertion kills only this test's acknowledged native child and script wrapper.
+    // Success is child-driven; neither process survives the return from throughPty().
+    if (!completed) {
+      if (nativePid !== undefined && Number.isSafeInteger(nativePid) && nativePid > 0) {
+        try {
+          process.kill(nativePid, 'SIGKILL')
+        } catch {
+          // The owned native child may already have exited.
+        }
+      }
+
+      child.kill('SIGKILL')
+    }
+
     child.stdin.end()
-    child.kill()
     await exited
   }
 }
