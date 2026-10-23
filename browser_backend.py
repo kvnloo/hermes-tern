@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
-from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import tern_env
 from .browser_native import (
     BrowserDriver, BrowserScope, NativeBrowserError, TernBrowserCLI,
-    get_driver, register_driver, unload_profile,
+    effect_fence, get_driver, register_driver, unload_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -192,21 +190,34 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
         raise PermissionError("original task and busy-turn authority unavailable")
     if action in {"adopt", "release", "frame"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
-    driver = _driver(request, ctx, require_owner=True)
     if _cdp_selected():
-        # CDP may have been selected after the page was claimed; never switch.
-        raise NativeBrowserError("ownership" if driver.target else "unsupported")
+        # Do not create even an idle native claim while CDP is explicit.
+        existing = get_driver(profile, sid)
+        raise NativeBrowserError("ownership" if existing is not None else "unsupported")
+    driver = _driver(request, ctx, require_owner=True)
     target = params["target_id"]
-    if action == "adopt":
-        result = driver.adopt(target)
-    elif action == "focus":
-        result = driver.focus(target)
-    elif action == "release":
-        result = driver.release(target)
-    elif action == "frame":
-        result = driver.select_frame(target, params["frame"])
-    else:
-        raise NativeBrowserError("invalid")
+
+    def original_task_fence() -> None:
+        request.assert_attached()
+        driver.scope.require_current()
+        current = _legacy_owner(sid, profile)
+        if current is None or current.get("session_key") != driver.scope.task_id:
+            raise PermissionError("original browser task authority was replaced")
+        if action != "focus" and current.get("running") is not False:
+            raise NativeBrowserError("busy")
+
+    with effect_fence(original_task_fence):
+        original_task_fence()
+        if action == "adopt":
+            result = driver.adopt(target)
+        elif action == "focus":
+            result = driver.focus(target)
+        elif action == "release":
+            result = driver.release(target)
+        elif action == "frame":
+            result = driver.select_frame(target, params["frame"])
+        else:
+            raise NativeBrowserError("invalid")
     request.assert_attached()
     driver.scope.require_current()
     return result
