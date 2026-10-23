@@ -524,11 +524,11 @@ describe('sessionHost', () => {
 
 
 describe('artifact copy shortcuts', () => {
-  it('Alt+C copies the draft and Alt+Shift+C its current line, not the editor or Ctrl+C', () => {
+  it('Alt+C copies the draft and Alt+Shift+C its current line, without stealing Meta+C', () => {
     const p = pane({ text: 'A\\nB' })
     onKey(key('c', { alt: true }), p.cx, undefined)
     onKey(key('c', { alt: true, shift: true }), p.cx, undefined)
-    onKey(key('c', { alt: true, ctrl: true }), p.cx, undefined)
+    onKey(key('c', { alt: true, meta: true }), p.cx, undefined)
     expect(p.log).toEqual(['copy draft', 'copy line', 'composer'])
     expect(p.state.text).toBe('A\\nB')
   })
