@@ -618,8 +618,8 @@ def _node_shim(tmp_path: Path, node: str, env: dict[str, str]) -> Path:
     return shim
 
 
-def _calls(path: Path) -> list[dict]:
-    assert path.exists(), "Hermes never launched a real compiled Node entry"
+def _calls(path: Path, outcome: tuple[object, ...]) -> list[dict]:
+    assert path.exists(), ("Missing actual Node argv receipt", *outcome)
     records = []
     for line in path.read_text(encoding="utf-8").splitlines():
         call = json.loads(line)
@@ -708,7 +708,7 @@ def test_actual_launcher_retries_ink_once_without_tty(native_source, tmp_path):
     resume_id = _owned_resume_fixture(tmp_path, env)
     _node_shim(tmp_path, node, env)
     code, stdout, stderr = _capture_driver(source, env)
-    calls = _calls(tmp_path / "calls.jsonl")
+    calls = _calls(tmp_path / "calls.jsonl", (code, stdout[-1200:], stderr[-1500:]))
     _assert_real_entries(calls, source, env, retry=True, resume=resume_id)
     assert stderr.count(BANNER) == 1, (code, stderr[-1500:])
     assert code == 0, (code, stdout[-1200:], stderr[-1500:])
@@ -721,7 +721,7 @@ def test_actual_launcher_ink_paints_and_quits_cleanly_in_real_pty(native_source,
     env = _environment(tmp_path, source, node)
     _node_shim(tmp_path, node, env)
     code, output = _pty_driver(source, env)
-    _assert_real_entries(_calls(tmp_path / "calls.jsonl"), source, env, retry=True)
+    _assert_real_entries(_calls(tmp_path / "calls.jsonl", (code, output[-2000:])), source, env, retry=True)
     assert output.count(BANNER) == 1, (code, output[-1500:])
     after_ink = output.split(BANNER, 1)[1]
     assert INK_HELP_MARKER in after_ink, (
@@ -743,7 +743,7 @@ def test_explicit_ordinary_tui_uses_real_ink_without_a_tern_attempt(native_sourc
     env["HERMES_TERN"] = "0"
     _node_shim(tmp_path, node, env)
     code, stdout, stderr = _capture_driver(source, env)
-    calls = _calls(tmp_path / "calls.jsonl")
+    calls = _calls(tmp_path / "calls.jsonl", (code, stdout[-1200:], stderr[-1500:]))
     _assert_real_entries(calls, source, env, retry=False)
     assert BANNER not in stderr, stderr[-1500:]
     assert code == 0, (code, stdout[-1200:], stderr[-1200:])
