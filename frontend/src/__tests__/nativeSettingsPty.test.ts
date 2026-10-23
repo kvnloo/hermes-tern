@@ -71,5 +71,5 @@ describe('real-PTY SDK composer ownership', () => {
 
       // The pasted ! and {!...} are data, never commands for the user's shell.
       expect(requests(result, 'shell.exec')).toEqual([])
-  }, 35_000)
+    }, 35_000)
 })

@@ -11,7 +11,7 @@ import { openModelPicker } from './models.js'
 import type { Overlay } from './overlay.js'
 import { moveSelection } from './search.js'
 
-export type ModelHubHost = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'session' | 'transcript'>
+export type ModelHubHost = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'session' | 'setEffort' | 'transcript'>
 
 interface Provider {
   slug: string
@@ -37,7 +37,7 @@ export function openModelHub(host: ModelHubHost): void {
   let providers: Provider[] = []
   let selected: string | undefined
 
-  const live = () => alive && host.session.ref.live === sid && host.session.info?.profile_name === profile && host.overlays.includes(overlay)
+  const live = () => alive && host.session.ref.live === sid && host.session.info?.profile_name === profile && host.overlays.filter(item => item.key === overlay.key).at(-1) === overlay
   const interactive = () => live() && host.overlays.at(-1) === overlay
 
   const load = async () => {
@@ -56,7 +56,7 @@ export function openModelHub(host: ModelHubHost): void {
       // Intentionally project only public inventory metadata. Never pass
       // API URLs, auth material, capability blobs or full config into Tern.
       providers = (result.providers ?? []).map(item => ({
-        authenticated: item.authenticated,
+        authenticated: item.authenticated === true ? true : item.authenticated === false ? false : undefined,
         count: item.models?.length ?? 0,
         name: item.name,
         slug: item.slug

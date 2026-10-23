@@ -58,7 +58,7 @@ class SettingsSheet implements Overlay {
   #live(): boolean {
     return this.#alive && this.#host.session.ref.live === this.#sid &&
       (this.#host.session.info?.profile_name ?? undefined) === this.#profileName &&
-      this.#host.overlays.includes(this)
+      this.#host.overlays.filter(item => item.key === this.key).at(-1) === this
   }
 
   #interactive(): boolean {
@@ -330,8 +330,9 @@ class SettingsSheet implements Overlay {
 
     if (ask) {
       return (
-        <overlay anchor="center" head="Confirm Hermes profile change" key={id.slice('layer.'.length)} modal size="md">
+        <overlay anchor="center" key={id.slice('layer.'.length)} modal size="md">
           <col gap="md" key="confirm">
+            <text key="heading" text="Confirm Hermes profile change" />
             <text key="scope" text={`Profile setting: ${ask.field.label}. This is persistent, not a live session pin.`} wrap="word" />
             <text key="value" text={`Change from ${ask.expected} to ${ask.value}?`} wrap="word" />
             <text key="warning" text="This changes the tool-approval policy for the profile. Enter and Escape cancel by default." wrap="word" />

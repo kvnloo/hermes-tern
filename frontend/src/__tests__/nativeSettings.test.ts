@@ -2,7 +2,7 @@ import type { NodeJson } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
 import { localCommand } from '../commands/local.js'
-import { preference, PROFILE_PREFERENCES } from '../preferences/contracts.js'
+import { preference, preferenceValue, PROFILE_PREFERENCES } from '../preferences/contracts.js'
 import { readProfile, writeProfile } from '../preferences/transactions.js'
 import { openSettings } from '../overlays/settings.js'
 import { openModelHub } from '../overlays/modelHub.js'
@@ -81,6 +81,7 @@ describe('native Settings registrations and real App rendering', () => {
     await press(key('enter'))
     await vi.waitFor(() => expect(config()).toHaveLength(PROFILE_PREFERENCES.length))
     expect(sent('config.get').some(p => p['key'] === 'full' && p['source'] === 'settings')).toBe(false)
+    await settle()
     expect(sent('settings.get')).toEqual([])
     expect(sent('settings.set')).toEqual([])
 
@@ -168,7 +169,7 @@ describe('native Settings registrations and real App rendering', () => {
     })
 
     openSettings(app)
-    expect(sent('config.get').filter(p => p['key'] === 'busy')).toHaveLength(1)
+    await vi.waitFor(() => expect(sent('config.get').filter(p => p['key'] === 'busy')).toHaveLength(1))
     const old = must(app.overlays.find(o => o.key === 'settings'))
     await press(key('escape'))
     expect(app.overlays.includes(old)).toBe(false)
