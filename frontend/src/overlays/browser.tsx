@@ -16,7 +16,8 @@ export type BrowserHost = Pick<ChatPorts, 'busy' | 'changed' | 'close' | 'gw' | 
 const KEY = 'browser-blocks'
 
 export function openBrowserBlocks(host: BrowserHost): void {
-  const sid = host.session.ref.live
+  const sessionRef = host.session.ref
+  const sid = sessionRef.live
 
   if (!sid) {
     return
@@ -33,7 +34,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
   frame.set('main')
 
   // Closing, replacement, or a switched session invalidates all late answers.
-  const live = () => host.session.ref.live === sid && host.overlays.at(-1) === overlay
+  const live = () => host.session.ref === sessionRef && host.session.ref.live === sid && host.overlays.at(-1) === overlay
 
   const refresh = async () => {
     if (!live() || working || loading) {
@@ -79,14 +80,17 @@ export function openBrowserBlocks(host: BrowserHost): void {
   }
 
   const current = () => blocks.find(block => block.target_id === selected)
+  // A rendered handler owns this exact listing instance. A refresh revokes old handlers,
+  // even when the native target id is reused; selection alone never redirects an intent.
+  const present = (block: BrowserBlock) => blocks.find(item => item.target_id === block.target_id) === block
   const mayChoose = (block: BrowserBlock) => available && !working && !loading &&
     (block.owned || (block.available && !host.busy))
   const mayModify = (block: BrowserBlock) => available && block.owned && !working && !loading && !host.busy
 
-  const choose = async (intent: 'use' | 'release' | 'frame') => {
-    const block = current()
-
-    if (!live() || !block || !available || working ||
+  /** Pointer actions capture a rendered block; keyboard actions resolve a live block at the key press. */
+  const choose = async (block: BrowserBlock | undefined, intent: 'use' | 'release' | 'frame') => {
+    if (!live() || !block || !present(block) || !available || working ||
+      (intent === 'frame' && editing !== block.target_id) ||
       (intent === 'use' ? !mayChoose(block) : !mayModify(block))) {
       return
     }
@@ -99,7 +103,10 @@ export function openBrowserBlocks(host: BrowserHost): void {
         await releaseBrowserBlock(host.gw, sid, block.target_id)
 
         if (live()) {
-          editing = undefined
+          if (editing === block.target_id) {
+            editing = undefined
+          }
+
           working = false
           await refresh()
         }
@@ -108,7 +115,9 @@ export function openBrowserBlocks(host: BrowserHost): void {
 
         if (live()) {
           message = `Block ${result.target_id} · evaluation frame ${result.frame ?? 'main'}`
-          editing = undefined
+          if (editing === block.target_id) {
+            editing = undefined
+          }
         }
       } else {
         await browserTarget(host.gw, block.owned ? 'browser.focus' : 'browser.adopt', sid, block.target_id)
@@ -129,10 +138,8 @@ export function openBrowserBlocks(host: BrowserHost): void {
     }
   }
 
-  const beginFrame = () => {
-    const block = current()
-
-    if (!block || !mayModify(block)) {
+  const beginFrame = (block: BrowserBlock) => {
+    if (!live() || !present(block) || !mayModify(block)) {
       return
     }
 
@@ -175,13 +182,13 @@ export function openBrowserBlocks(host: BrowserHost): void {
                           key: 'choose',
                           label: working ? 'Working…' : block.owned ? 'Focus' : 'Hand over to agent',
                           hint: 'enter',
-                          onClick: () => void choose('use')
+                          onClick: () => void choose(block, 'use')
                         })
                       : <text key="unavailable" text={block.owned ? 'Busy' : !block.available ? 'Unavailable / already driven' : 'Wait for turn to finish'} />}
                     {mayModify(block)
                       ? [
-                          button({ key: 'release', label: 'Release / close owned block', hint: 'r', onClick: () => void choose('release') }),
-                          button({ key: 'frame', label: 'Evaluation frame…', hint: 'f', onClick: beginFrame })
+                          button({ key: 'release', label: 'Release / close owned block', hint: 'r', onClick: () => void choose(block, 'release') }),
+                          button({ key: 'frame', label: 'Evaluation frame…', hint: 'f', onClick: () => beginFrame(block) })
                         ]
                       : null}
                   </row>
@@ -195,7 +202,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
                     cursor={frame.cursor}
                     key="frame-path"
                     onEdit={ev => {
-                      if (live() && !working) {
+                      if (live() && present(block) && editing === block.target_id && !working) {
                         frame.edit(ev)
                         host.changed()
                       }
@@ -204,8 +211,8 @@ export function openBrowserBlocks(host: BrowserHost): void {
                     text={frame.text}
                   />
                   {actionsRow([
-                    { key: 'apply-frame', label: 'Verify and select frame', onClick: () => void choose('frame') },
-                    { key: 'cancel-frame', label: 'Cancel', onClick: () => { editing = undefined; host.changed() } }
+                    { key: 'apply-frame', label: 'Verify and select frame', onClick: () => void choose(block, 'frame') },
+                    { key: 'cancel-frame', label: 'Cancel', onClick: () => { if (live() && present(block) && editing === block.target_id && !working) { editing = undefined; host.changed() } } }
                   ])}
                 </col>
               ) : null}
@@ -222,8 +229,11 @@ export function openBrowserBlocks(host: BrowserHost): void {
       if (editing) {
         if (key.name === 'escape') {
           editing = undefined
+        } else if (key.name === 'up' || key.name === 'down') {
+          // Moving the keyboard selection leaves the frame form bound to its original block.
+          selected = moveSelection(key, blocks.map(block => block.target_id), selected) ?? selected
         } else if (frame.key(key) === 'submit') {
-          void choose('frame')
+          void choose(blocks.find(block => block.target_id === editing), 'frame')
         }
 
         host.changed()
@@ -236,11 +246,14 @@ export function openBrowserBlocks(host: BrowserHost): void {
       } else if (key.name === 'r' && key.shift) {
         void refresh()
       } else if (key.name === 'enter') {
-        void choose('use')
+        void choose(current(), 'use')
       } else if (key.name === 'r' && !key.ctrl && !key.alt && !key.meta) {
-        void choose('release')
+        void choose(current(), 'release')
       } else if (key.name === 'f' && !key.ctrl && !key.alt && !key.meta) {
-        beginFrame()
+        const block = current()
+        if (block) {
+          beginFrame(block)
+        }
       } else {
         selected = moveSelection(key, blocks.map(block => block.target_id), selected) ?? selected
       }
