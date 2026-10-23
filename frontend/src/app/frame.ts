@@ -10,6 +10,7 @@ import type { Overlay } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
 import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
+import type { LiveVoice } from '../voice/live.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -17,6 +18,7 @@ import type { WelcomeContext } from '../view/welcome.js'
 
 /** What a frame reads and the three things it changes: the pills' focus, the completion and the surface. */
 export interface FrameCx extends DockSources {
+  readonly liveVoice: Pick<LiveVoice, 'node' | 'blocked'>
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
@@ -52,7 +54,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
   }
 
   cx.surface.render({
-    dock: dockNodes(dockModel(cx, now), cx.actions),
+    dock: [cx.liveVoice.node(), ...dockNodes(dockModel(cx, now), cx.actions)],
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
       ...cx.overlays.map(o => o.node(`layer.${o.key}`)),

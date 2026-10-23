@@ -25,6 +25,7 @@ import type { SessionTitle } from '../session/title.js'
 import type { Transcript } from '../transcript/store.js'
 import type { Activity } from '../turn/activity.js'
 import type { PromptQueue } from '../turn/queue.js'
+import type { LiveVoice } from '../voice/live.js'
 
 import type { DockActivity, DockContext, ShellsPill } from './dock.js'
 
@@ -36,6 +37,7 @@ export interface DockSources {
   readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null }
   readonly activity: Pick<Activity, 'busy' | 'compacting'>
   readonly composer: Composer
+  readonly liveVoice: Pick<LiveVoice, 'blocked'>
   readonly completion: Pick<Completion, 'ghost'>
   /** The open overlays, bottom first: a modal one on top takes the keys and the completion. */
   readonly overlays: readonly Pick<Overlay, 'modal'>[]
@@ -106,7 +108,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
       draft: src.composer,
       ghost: modal ? '' : src.completion.ghost,
       placeholder: PLACEHOLDER,
-      ready: src.session.ref.live !== null
+      ready: src.session.ref.live !== null && !src.liveVoice.blocked
     },
     now,
     pills: {
