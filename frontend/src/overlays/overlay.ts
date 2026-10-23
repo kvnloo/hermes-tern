@@ -130,7 +130,7 @@ export class OverlayStack implements Pick<OverlayHost, 'close' | 'open'> {
 
     return top !== undefined && this.#roots.get(top) === receipt.root
   }
-  
+
   close(overlay: Overlay) {
     // By identity: a stale callback of a replaced overlay must not close its same-key successor.
     const at = this.items.indexOf(overlay)

@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
-import { node, Session, type Surface, type TspEvent, View } from '@stencil-hq/tern'
-import { describe, expect, it, vi } from 'vitest'
+import { node, Session, Surface, type TspEvent, View } from '@stencil-hq/tern'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from '../app/chat.js'
 import { readLaunchEnv } from '../config/env.js'
@@ -149,7 +149,41 @@ function checkedView(h: Harness, rootId: string, actionId: string) {
   expect(h.peer.documents.get(h.surface.id)?.has(actionId)).toBe(true)
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
 describe('overlay open-instance native ownership', () => {
+  it('uses the real SDK latest view before native paint without reusing an old root', async () => {
+    const sent: number[] = []
+    let old = 0
+    let current = 0
+    const surface = new Surface({
+      send: message => {
+        if (message.verb === 'f') {
+          sent.push(message.body.s)
+        }
+      },
+      credits: () => 1,
+      dropped: () => undefined
+    }, 'pending-frame', { listen: true })
+
+    surface.render({ layer: [node('row', { key: 'overlay-1', onClick: () => { old++ } })] })
+    expect(sent).toHaveLength(1)
+    surface.render({ layer: [node('row', { key: 'overlay-2', onClick: () => { current++ } })] })
+    expect(sent).toHaveLength(1) // the second view is only queued; the native peer has not painted it
+
+    const former = { ev: 'action', sf: surface.id, id: 'layer.overlay-1', act: 'click', raw: {} } as const
+    const latest = { ...former, id: 'layer.overlay-2' }
+    expect(surface.dispatch(former)).toBeUndefined() // SDK #latest already changed before paint
+    await surface.dispatch(latest)?.()
+    expect(old).toBe(0)
+    expect(current).toBe(1)
+    surface.acknowledge(1)
+    expect(sent).toHaveLength(2) // genuine SDK frame after actual credit
+  })
+
   it.each([true, false])('rejects a painted old ID after same-key replacement, including the non-retention SDK writer (settle=%s)', async retention => {
     await withApp(async h => {
       const first = approval('same')
@@ -370,6 +404,49 @@ describe('overlay open-instance native ownership', () => {
       await painted()
       expect(h.gw.methods('config.set')).toHaveLength(1)
       expect(h.gw.methods('prompt.submit')).toHaveLength(0)
+    })
+  })
+
+
+  it('does not submit a same-request clarify question through a stale native button', async () => {
+    await withApp(async h => {
+      const request = () => {
+        const answers: unknown[] = []
+        const req: ServerRequest = {
+          id: 'clarify-same', method: 'clarify',
+          params: { session_id: 's1', questions: [{ qid: 'q', question: 'Proceed?', choices: ['Yes', 'No'] }] },
+          fail: () => { throw new Error('Unexpected clarify failure') },
+          respond: value => { answers.push(value) }
+        }
+
+        return { req, answers }
+      }
+
+      const first = request()
+      h.gw.emit('request', first.req)
+      await painted()
+      const oldRoot = root(h)
+      const oldEvent = click(h, `${oldRoot}.body.actions.submit`)
+      const oldBound = h.surface.dispatch(oldEvent)
+      expect(oldBound).toBeTypeOf('function')
+
+      const next = request()
+      h.gw.emit('request', next.req)
+      await painted()
+      const newRoot = root(h)
+      expect(newRoot).not.toBe(oldRoot)
+      expect(h.surface.dispatch(oldEvent)).toBeUndefined()
+      await oldBound?.()
+      expect(first.answers).toEqual([])
+      expect(next.answers).toEqual([])
+
+      const newEvent = click(h, `${newRoot}.body.actions.submit`)
+      const current = h.surface.dispatch(newEvent)
+      expect(current).toBeTypeOf('function')
+      await current?.()
+      await painted()
+      expect(next.answers).toEqual([{ answers: { q: 'Yes' } }])
+      expect(first.answers).toEqual([])
     })
   })
 
