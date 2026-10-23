@@ -289,7 +289,7 @@ class SettingsSheet implements Overlay {
     const query = this.#search.text.trim().toLowerCase()
     const matching = (text: string) => !query || text.toLowerCase().includes(query)
     const session = this.#sessionRows().filter(row => matching(`${row.id} ${row.label} ${row.hint ?? ''}`))
-    const sections: NonNullable<PrefsProps['sections']> = []
+    const sections: Array<NonNullable<PrefsProps['sections']>[number]> = []
 
     if (this.#searching || this.#page === SESSION_PAGE) {
       sections.push({ id: SESSION_PAGE, page: SESSION_PAGE, rows: session, title: 'Current live session · temporary pins' })
