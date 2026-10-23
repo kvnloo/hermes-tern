@@ -13,6 +13,7 @@ import type { ConnectWatcher } from '../connections/watcher.js'
 import { durable, type DurableSessionId, type LiveSessionId, type SessionIds, type SessionRef, type StoredSessionId } from '../core/ids.js'
 import type { PullRequests } from '../github/store.js'
 import { storedCompactions } from '../hermes/compactions.js'
+import type { MediaDelivery } from '../media-delivery.js'
 import type { Media } from '../media.js'
 import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
@@ -58,6 +59,7 @@ export interface AdoptHost {
   readonly automation: Pick<Automation, 'adopt'>
   readonly connect: Pick<ConnectWatcher, 'watch'>
   readonly media: Pick<Media, 'showAll'>
+  readonly mediaDelivery: Pick<MediaDelivery, 'clear'>
   readonly notices: Pick<NoticeStrip, 'reset'>
   readonly processes: Pick<Processes, 'poke'>
   readonly prs: Pick<PullRequests, 'adopt'>
@@ -100,6 +102,7 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
     {
       adopt: ({ previous, r, ref }) => {
         const other = ref.live !== previous.live
+        host.mediaDelivery.clear()
         // One step, so nothing of the last session's transcript outlives it: its entries, live
         // turn, reason line, and (another session's) counters and compactions.
         transcript.reset({ session: other ? 'other' : 'same', usage: r.info?.usage ?? undefined })

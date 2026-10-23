@@ -5,6 +5,7 @@
 
 import type { Hud } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
+import type { MediaDelivery } from '../media-delivery.js'
 import type { Completion } from '../overlays/completion.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
@@ -22,6 +23,7 @@ export interface FrameCx extends DockSources {
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
   readonly transcript: Pick<Transcript, 'currentTodos' | 'entries'>
+  readonly mediaDelivery?: MediaDelivery
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
   /** Tern has the aside feature: the PR aside or the session sidebar docks at the right edge. */
@@ -73,6 +75,7 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
+    ...(cx.mediaDelivery ? { media: cx.mediaDelivery, mediaRev: cx.mediaDelivery.token() } : {}),
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
 }

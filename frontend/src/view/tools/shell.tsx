@@ -10,17 +10,19 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../../core/assert.js'
+import type { MediaDelivery } from '../../media-delivery.js'
 import type { ToolCall } from '../../model.js'
 import { tookMs } from '../../transcript/calls.js'
 import { duration } from '../format.js'
 import { age } from '../time.js'
 
+import { toolMediaNode } from './media.js'
 import { type ErrorReader, withView } from './registry.js'
 import type { CallView } from './types.js'
 
 /** The `tool` node of one call; the generic card when its view throws. */
-export function toolNode(call: ToolCall, now: number): JSX.Element {
-  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now))
+export function toolNode(call: ToolCall, now: number, media?: MediaDelivery): JSX.Element {
+  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, media))
 }
 
 /**
@@ -28,22 +30,23 @@ export function toolNode(call: ToolCall, now: number): JSX.Element {
  * and its output, a diff, a file), and why it failed or stopped; the generic card's body when
  * its view throws.
  */
-export function toolDetail(call: ToolCall, now: number): JSX.Element[] {
-  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now))
+export function toolDetail(call: ToolCall, now: number, media?: MediaDelivery): JSX.Element[] {
+  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, media))
 }
 
 /** The `tool` node of `call` as `view` draws it. */
-function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number): JSX.Element {
+function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, media?: MediaDelivery): JSX.Element {
   const solo = view.replaces(now)
 
   if (solo) {
     return solo
   }
 
-  const card = view.card(now)
+  const card = view.card(now, media)
   const status = card.status ?? call.outcome.kind
   const running = status === 'running'
-  const body = [...card.body]
+  const native = toolMediaNode(call, media)
+  const body = [...(native ? [native] : []), ...card.body]
   const error = call.outcome.kind === 'error' ? whyFailed(call) : undefined
 
   if (call.outcome.kind === 'cancelled') {
@@ -58,7 +61,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 
   // A failure with output unfolds to show it (omp's failed bash); one without
   // says why in the head (omp's failed read).
-  const collapsed = call.outcome.kind === 'error' ? false : card.folded
+  const collapsed = call.outcome.kind === 'error' || native ? false : card.folded
 
   // boundary: Tern's ToolProps has no `lang` yet (an upstream ask), so it rides in one unchecked spread.
   const lang = { lang: card.lang }
@@ -90,9 +93,10 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 }
 
 /** What `call`'s step opens to, as `view` draws it. */
-function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number): JSX.Element[] {
-  const card = view.card(now)
-  const body = [...card.body]
+function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, media?: MediaDelivery): JSX.Element[] {
+  const card = view.card(now, media)
+  const native = toolMediaNode(call, media)
+  const body = [...(native ? [native] : []), ...card.body]
   // What the card's head held and its body lacks (a short command).
   const prefix = view.detailPrefix()
 

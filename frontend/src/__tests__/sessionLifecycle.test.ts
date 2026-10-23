@@ -158,6 +158,7 @@ function recordingHost() {
     markPane: id => void log.push(`markPane ${id}`),
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
     media: { showAll: rec('media.showAll') },
+    mediaDelivery: { clear: rec('mediaDelivery.clear') },
     notices: { reset: rec('notices.reset') },
     processes: { poke: rec('processes.poke') },
     prs: { adopt: rec('prs.adopt') },
@@ -202,6 +203,7 @@ describe('adoptSteps', () => {
     expect(log).toEqual([
       'ref b',
       // Another session: the transcript starts over at once, and the last one's sheets and busy-input mode go.
+      'mediaDelivery.clear',
       'transcript.reset other',
       'sheets.dropAll',
       'busyMode queue',
@@ -247,7 +249,7 @@ describe('adoptSteps', () => {
     expect(log).not.toContain('busyMode queue')
     expect(log).not.toContain('transcript.load')
     expect(log).not.toContain('transcript.inflight')
-    expect(log.slice(0, 4)).toEqual(['ref a', 'transcript.reset same', 'readBusyMode', 'queue.reset'])
+    expect(log.slice(0, 5)).toEqual(['ref a', 'mediaDelivery.clear', 'transcript.reset same', 'readBusyMode', 'queue.reset'])
     expect(log.at(-1)).toBe('changed')
   })
 })
