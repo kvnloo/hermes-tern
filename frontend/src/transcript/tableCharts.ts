@@ -49,8 +49,10 @@ export function tableSlices(markdown: string): TableSlice[] {
       let source = line
       let end = i + 1
 
-      while (end < lines.length && /^ {0,3}\|/.test((lines[end] ?? ''))) { source += lines[end] ?? ''
-        end++ }
+      while (end < lines.length && /^ {0,3}\|/.test(lines[end] ?? '')) {
+        source += lines[end] ?? ''
+        end++
+      }
       const table = analyzeTable(source)
 
       if (table && result.length < 8) { result.push({ start: offset, end: offset + source.length, table }) }
