@@ -37,13 +37,14 @@ export interface MediaContext {
   readonly cwd: string | undefined
   readonly native: boolean
   readonly local: boolean
-  readonly remoteHost: MediaPath['host']
+  readonly remoteHost: MediaPath['host'] | 'unknown'
 }
 
 export type ToolMedia =
   | { readonly kind: 'node'; readonly node: Node }
   | { readonly kind: 'remote-image'; readonly source: MediaPath }
   | { readonly kind: 'unsupported'; readonly family: MediaFamily }
+  | { readonly kind: 'unavailable' }
 
 /** No scheme, network path, control byte, or implicit frontend cwd may become a terminal path. */
 export function localMediaPath(path: string, cwd: string | undefined): string | undefined {
@@ -172,7 +173,9 @@ export function confirmedWriteArtifact(call: ToolCall, cx: MediaContext): ToolMe
   }
 
   if (!cx.local) {
-    return { family: 'model', kind: 'unsupported' }
+    return cx.remoteHost === 'unknown'
+      ? { kind: 'unavailable' }
+      : { family: 'model', kind: 'unsupported' }
   }
 
   if (!cx.native) {
@@ -213,6 +216,11 @@ export function projectToolMedia(call: ToolCall, cx: MediaContext): ToolMedia | 
     const projected = readMedia(path, cx.cwd, mime, cx.native, cx.local)
 
     return projected ? { kind: 'node', node: projected } : undefined
+  }
+
+  // No terminal backend proof means no authority to select ANY filesystem owner.
+  if (cx.remoteHost === 'unknown') {
+    return { kind: 'unavailable' }
   }
 
   // The SDK blob path supports raster magic bytes only; do not suggest an SVG/AVIF upload.

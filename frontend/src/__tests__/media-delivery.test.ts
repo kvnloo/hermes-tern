@@ -33,18 +33,21 @@ const image = (id = '1', host: MediaPath['host'] = 'gateway'): MediaPath => ({
 interface Setup {
   readonly blobs?: boolean
   readonly attached?: boolean
-  readonly backend?: string
+  readonly backend?: string | null | undefined
   readonly env?: NodeJS.ProcessEnv
+  readonly native?: boolean
 }
 
-function setup({ blobs = true, attached = true, backend = 'local', env = {} }: Setup = {}) {
+function setup(options: Setup = {}) {
+  const { blobs = true, attached = true, env = {}, native = false } = options
   const gw = new FakeGateway({ replies: { 'media.image': response } })
   gw.attached = attached
   const tern = fakeTern({ features: blobs ? ['blobs'] : [] }).session
+  Object.assign(tern.caps, { kinds: native ? ['media'] : [] })
   const blob = vi.spyOn(tern, 'blob').mockReturnValue('tern-blob')
   const changed = vi.fn()
   let sid: string | null = 'session-1'
-  let currentBackend = backend
+  let currentBackend = Object.hasOwn(options, 'backend') ? options.backend : 'local'
 
   const delivery = new MediaDelivery({
     tern, gw: gw.client, changed,
@@ -57,7 +60,7 @@ function setup({ blobs = true, attached = true, backend = 'local', env = {} }: S
   return {
     blob, changed, delivery, gw,
     session: (id: string | null) => { sid = id },
-    backend: (name: string) => { currentBackend = name }
+    backend: (name: string | null | undefined) => { currentBackend = name }
   }
 }
 
@@ -97,6 +100,124 @@ describe('bounded media bytes', () => {
 })
 
 describe('cross-host previews', () => {
+  it.each([undefined, null, '', '   '])('refuses path authority with unknown backend %s, attached or not', async backend => {
+    for (const attached of [false, true]) {
+      const { delivery, blob, gw } = setup({ attached, backend, native: true })
+      const read = call('read_file', { path: '/gateway/same.png' }, { result: { mime: 'image/png' } })
+      const card = tree(toolNode(read, 0, delivery))
+      const browser = tree(toolNode(call('browser_vision', {}, {
+        result: { success: true, screenshot_path: '/gateway/same.png' }
+      }), 0, delivery))
+
+      expect(delivery.context()).toMatchObject({ local: false, native: true, remoteHost: 'unknown' })
+      expect(projectToolMedia(read, delivery.context())).toEqual({ kind: 'unavailable' })
+      expect(JSON.stringify(card)).toContain('terminal backend identity is unknown')
+      expect(nodes(card).some(n => n.k === 'image' || n.k === 'media')).toBe(false)
+      expect(nodes(browser).some(n => (n.k === 'image' || n.k === 'media') && n.p?.['path'])).toBe(false)
+
+      const entry: UserEntry = {
+        at: 0, id: entryId('unknown'), kind: 'user', text: 'Attachment',
+        attachments: [{ kind: 'image', name: 'same.png', refPath: '/gateway/same.png' }]
+      }
+      const prompt = tree(entryNode(entry, 'main.unknown', {
+        copy: () => undefined, media: delivery, mediaRev: delivery.token(),
+        now: 0, welcome: { tip: '', version: '' }
+      }))
+      expect(nodes(prompt).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
+      expect(nodes(prompt).some(n => n.p?.['role'] === 'hermes.user.attachment')).toBe(true)
+      expect(attachmentImagePath('/gateway/same.png', delivery)).toBeUndefined()
+      expect(delivery.preview(image('same', attached ? 'gateway' : 'frontend')).status).toBe('unsupported')
+      await delivery.load(image('same', attached ? 'gateway' : 'frontend'))
+      expect(gw.sent('media.image')).toEqual([])
+      expect(blob).not.toHaveBeenCalled()
+    }
+  })
+
+  it('renders native paths only with positive local proof, and keeps host controls distinct', () => {
+    const tool = call('read_file', { path: 'same.png' })
+    const known = setup({ attached: false, native: true })
+    const localTree = tree(toolNode(tool, 0, known.delivery))
+    expect(nodes(localTree).some(n => n.k === 'media' && n.p?.['path'] === '/gateway/same.png')).toBe(true)
+    expect(known.blob).not.toHaveBeenCalled()
+
+    for (const opts of [
+      { attached: false, env: { SSH_TTY: 'ssh' }, native: true },
+      { attached: true, native: true },
+      { attached: false, backend: 'docker', native: true }
+    ]) {
+      const { delivery } = setup(opts)
+      expect(delivery.context().local).toBe(false)
+      const shown = tree(toolNode(tool, 0, delivery))
+      expect(nodes(shown).some(n => n.k === 'media' || (n.k === 'image' && n.p?.['path']))).toBe(false)
+    }
+  })
+
+  it('rebuilds actual read cards across unknown -> local -> gateway -> compute without blob resurrection', async () => {
+    const { delivery, backend, blob, gw } = setup({ attached: false, backend: undefined, native: true })
+    const tool = call('read_file', { path: 'same.png' })
+    const render = () => tree(toolNode(tool, 0, delivery))
+    const hasPath = () => nodes(render()).some(n => n.k === 'media' && n.p?.['path'] === '/gateway/same.png')
+
+    expect(hasPath()).toBe(false)
+    const unknownToken = delivery.token()
+    backend('local')
+    expect(hasPath()).toBe(true)
+    const localToken = delivery.token()
+    expect(localToken).not.toBe(unknownToken)
+
+    backend(null)
+    expect(hasPath()).toBe(false)
+    backend('local')
+    expect(hasPath()).toBe(true)
+    expect(delivery.token()).not.toBe(localToken) // A -> B -> A cannot reuse its previous revision.
+
+    gw.attached = true
+    expect(hasPath()).toBe(false)
+    const gatewayTree = render()
+    expect(JSON.stringify(gatewayTree)).toContain('Load image preview')
+    const plan = projectToolMedia(tool, delivery.context())
+    if (plan?.kind !== 'remote-image') {
+      throw new Error('expected a gateway-owned completed read')
+    }
+    await delivery.load(plan.source)
+    expect(delivery.preview(plan.source).status).toBe('ready')
+    expect(nodes(render()).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+
+    backend(undefined)
+    expect(JSON.stringify(render())).toContain('terminal backend identity is unknown')
+    expect(delivery.preview(plan.source).status).toBe('unsupported')
+    backend('local')
+    expect(JSON.stringify(render())).toContain('Load image preview')
+    expect(delivery.preview(plan.source).status).toBe('available')
+    expect(nodes(render()).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(false)
+
+    backend('docker')
+    expect(delivery.context()).toMatchObject({ local: false, remoteHost: 'compute' })
+    expect(nodes(render()).some(n => n.k === 'media' || (n.k === 'image' && n.p?.['blob']))).toBe(false)
+    expect(delivery.preview(plan.source).status).toBe('unsupported')
+    expect(gw.sent('media.image')).toHaveLength(1)
+    expect(blob).toHaveBeenCalledOnce()
+  })
+
+  it('drops a pending gateway upload when backend authority disappears and later returns', async () => {
+    const { delivery, gw, blob, backend } = setup({ attached: true })
+    const waiting = Promise.withResolvers<unknown>()
+    gw.handlers.set('media.image', () => waiting.promise)
+
+    const source = image('pending')
+    const pending = delivery.load(source)
+    await Promise.resolve()
+    backend(null)
+    expect(delivery.context().remoteHost).toBe('unknown')
+    backend('local')
+    expect(delivery.context().remoteHost).toBe('gateway')
+
+    waiting.resolve(response())
+    await pending
+    expect(blob).not.toHaveBeenCalled()
+    expect(delivery.preview(source).status).toBe('available')
+  })
+
   it('uses explicit gateway media.image only for a completed owning read and sends SDK blob bytes', async () => {
     const { blob, delivery, gw } = setup()
     const tool = call('read_file', { path: '/gateway/photo.png' }, { result: { mime: 'image/png' } })

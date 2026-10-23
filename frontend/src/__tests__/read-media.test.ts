@@ -84,6 +84,14 @@ describe('native media projection', () => {
     expect(readMedia('/gateway/a.glb', '/gateway', undefined, true, false)).toBeUndefined()
   })
 
+  it('does not guess a remote host for an unproven backend, including native media', () => {
+    const unknown: MediaContext = { cwd: '/project', local: false, native: true, remoteHost: 'unknown' }
+    for (const path of ['same.png', 'document.pdf', 'clip.mp4', 'mesh.glb']) {
+      const read = call('read_file', { path })
+      expect(projectToolMedia(read, unknown)).toEqual({ kind: 'unavailable' })
+    }
+  })
+
   it('binds remote image reads to the exact completed call, and blocks compute paths', () => {
     const c = call('read_file', { path: '/gateway/photo.png' })
     expect(projectToolMedia(c, remote)).toEqual({
@@ -157,6 +165,7 @@ describe('confirmed file write projections', () => {
 
     expect(projectToolMedia(c, { ...local, native: false })).toBeUndefined()
     expect(projectToolMedia(c, remote)).toMatchObject({ family: 'model', kind: 'unsupported' })
+    expect(projectToolMedia(c, { ...remote, remoteHost: 'unknown' })).toEqual({ kind: 'unavailable' })
   })
 })
 

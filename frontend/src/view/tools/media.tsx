@@ -23,6 +23,10 @@ export function toolMediaNode(call: ToolCall, delivery: MediaDelivery | undefine
     return projection.node
   }
 
+  if (projection.kind === 'unavailable') {
+    return <text key="media" role="omp.media.notice" text="Media preview unavailable: terminal backend identity is unknown." wrap="word" />
+  }
+
   if (projection.kind === 'unsupported') {
     return (
       <text

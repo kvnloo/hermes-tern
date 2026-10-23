@@ -39,7 +39,7 @@ export interface MediaDeliveryDeps {
   readonly gw: Pick<GatewayClient, 'attached' | 'request'>
   readonly session: () => string | null
   readonly cwd: () => string | undefined
-  readonly backend: () => string | undefined
+  readonly backend: () => string | null | undefined
   readonly changed: () => void
   readonly env?: NodeJS.ProcessEnv
 }
@@ -107,6 +107,7 @@ export class MediaDelivery {
   #busy = false
   #epoch = 0
   #closed = false
+  #authority: string | undefined
   #bytes = 0
   #uploads = 0
   revision = 0
@@ -116,15 +117,19 @@ export class MediaDelivery {
   /** The renderer's host decision follows the current gateway, backend, cwd and SSH context. */
   context(): MediaContext {
     const { gw, tern, env = process.env } = this.deps
+    // Observe even local-only transitions: a former host must not reclaim an old blob.
+    this.#scope()
     const backend = this.deps.backend()
-    const compute = Boolean(backend && backend !== 'local')
-    const local = Boolean(this.deps.session()) && !gw.attached && !compute && ternSharesFrontendHost(env)
+    const known = typeof backend === 'string' && backend.trim().length > 0
+    const compute = known && backend !== 'local'
+    const local = Boolean(this.deps.session()) && backend === 'local' &&
+      !gw.attached && ternSharesFrontendHost(env)
 
     return {
       cwd: this.deps.cwd(),
       local,
       native: hasNativeMedia(tern),
-      remoteHost: compute ? 'compute' : gw.attached ? 'gateway' : 'frontend'
+      remoteHost: !known ? 'unknown' : compute ? 'compute' : gw.attached ? 'gateway' : 'frontend'
     }
   }
 
@@ -287,7 +292,19 @@ export class MediaDelivery {
   #scope(): string {
     const { gw, env = process.env } = this.deps
 
-    return JSON.stringify([this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, ternSharesFrontendHost(env)])
+    const current = JSON.stringify([
+      this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, ternSharesFrontendHost(env)
+    ])
+
+    // Keying solely by the current values resurrects blobs after A -> B -> A.
+    // Revoke all previous metadata and pending transfers on each observed authority change.
+    if (this.#authority !== current) {
+      this.#authority = current
+      this.#cache.clear()
+      this.#epoch++
+    }
+
+    return current
   }
 
   #touch(): void {
