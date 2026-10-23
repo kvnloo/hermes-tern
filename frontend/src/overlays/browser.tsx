@@ -24,7 +24,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
 
   let blocks: BrowserBlock[] = []
   let available = false
-  let loading = true
+  let loading = false
   let working = false
   let message = 'Loading Tern browser blocks…'
   let selected: string | undefined
@@ -36,7 +36,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
   const live = () => host.session.ref.live === sid && host.overlays.at(-1) === overlay
 
   const refresh = async () => {
-    if (!live() || working && !loading) {
+    if (!live() || working || loading) {
       return
     }
 

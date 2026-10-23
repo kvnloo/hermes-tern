@@ -34,7 +34,8 @@ function harness(blocks = [user, owned]) {
 
   const sheet = async () => {
     openBrowserBlocks(host)
-    await vi.waitFor(() => expect(gateway.methods('browser.blocks')).toHaveLength(1))
+    const listings = gateway.methods('browser.blocks').length
+    await vi.waitFor(() => expect(gateway.methods('browser.blocks')).toHaveLength(listings + 1))
     await vi.waitFor(() => expect(JSON.stringify(tree(must(overlays.at(-1)).node('layer.browser-blocks')))).toContain('User page'))
 
     return must(overlays.at(-1))
@@ -69,6 +70,7 @@ describe('Tern browser-block sheet', () => {
     sheet.onKey(key('down'))
     sheet.onKey(key('enter'))
     await vi.waitFor(() => expect(h.gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '9' }]))
+    await vi.waitFor(() => expect(h.overlays).toHaveLength(0))
 
     const second = await h.sheet()
     second.onKey(key('down'))
@@ -126,6 +128,31 @@ describe('Tern browser-block sheet', () => {
     await Promise.resolve()
     expect(h.overlays).toHaveLength(0)
     expect(h.gateway.calls.map(c => c.method)).toEqual(['browser.blocks'])
+  })
+
+  it('an adoption refusal keeps the sheet open and never claims control', async () => {
+    const h = harness()
+    h.gateway.handlers.set('browser.adopt', () => { throw new Error('Block already driven') })
+    const sheet = await h.sheet()
+    sheet.onKey(key('enter'))
+    await vi.waitFor(() => expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('Block already driven'))
+    expect(h.overlays).toHaveLength(1)
+    expect(h.gateway.sent('browser.adopt')).toEqual([{ session_id: 's1', target_id: '7' }])
+  })
+
+  it('failed release retains ownership and allows a deliberate retry', async () => {
+    const h = harness()
+    h.gateway.handlers.set('browser.release', () => { throw new Error('Cleanup failed') })
+    const sheet = await h.sheet()
+    sheet.onKey(key('down'))
+    sheet.onKey(key('r'))
+    await vi.waitFor(() => expect(JSON.stringify(tree(sheet.node('layer.browser-blocks')))).toContain('Cleanup failed'))
+    expect(h.gateway.methods('browser.blocks')).toHaveLength(1)
+    expect(h.overlays).toHaveLength(1)
+    h.gateway.handlers.set('browser.release', p => ({ target_id: p['target_id'], released: true }))
+    sheet.onKey(key('r'))
+    await vi.waitFor(() => expect(h.gateway.methods('browser.release')).toHaveLength(2))
+    await vi.waitFor(() => expect(h.gateway.methods('browser.blocks')).toHaveLength(2))
   })
 
   it('reports a gateway refusal without claiming browser ownership', async () => {

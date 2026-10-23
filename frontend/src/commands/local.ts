@@ -190,7 +190,7 @@ const COMMANDS: readonly LocalCommand[] = [
   },
   {
     help: 'Inspect or manage Tern browser blocks (requires Hermes browser-block RPCs)',
-    name: 'browser',
+    name: 'browser-blocks',
     run: host => openBrowserBlocks(host)
   },
   {
