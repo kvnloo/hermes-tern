@@ -736,3 +736,215 @@ def test_explicit_ordinary_tui_uses_real_ink_without_a_tern_attempt(native_sourc
     assert BANNER not in stderr, stderr[-1500:]
     assert code == 0, (code, stdout[-1200:], stderr[-1200:])
     assert TSP_FRAME not in stdout + stderr, "No TSP entry was launched"
+
+
+# POLICY-ONLY: exec the exact cleanup script without its __main__ entry. Its
+# sys/os/signal/select globals are inert mocks: no real process or FD is touched.
+# These tests run under normal pytest, not native_fallback selection.
+class _FakePidfd:
+    FD = 61
+    POLLIN, POLLHUP, POLLERR, POLLNVAL = 1, 16, 8, 32
+
+    def __init__(self):
+        self.events = iter([[], [], [(self.FD, self.POLLIN)]])
+        self.opens, self.signals, self.closed, self.timeouts = [], [], [], []
+        self.open_failure = None
+
+    def open(self, pid, flags=0):
+        self.opens.append((pid, flags))
+        if self.open_failure is not None:
+            raise self.open_failure
+        return self.FD
+
+    def send(self, fd, sig, info=None, flags=0):
+        self.signals.append((fd, sig, info, flags))
+
+    def register(self, fd, flags):
+        assert (fd, flags) == (
+            self.FD, self.POLLIN | self.POLLHUP | self.POLLERR | self.POLLNVAL
+        )
+
+    def poll(self, timeout):
+        self.timeouts.append(timeout)
+        return next(self.events, [])
+
+    def close(self, fd):
+        self.closed.append(fd)
+
+
+@pytest.fixture
+def isolated_gateway_policy(tmp_path):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    pid, started = 9123, 700
+    record = {
+        "pid": pid, "start_time": started, "kind": "gateway",
+        "hermes_home": str(home), "argv": ["hermes", "gateway", "run"],
+    }
+    (home / "gateway.pid").write_text(json.dumps(record), encoding="utf-8")
+    fake = _FakePidfd()
+    env = {"__name__": "policy_only_no_process"}
+    exec(STOP_ISOLATED_GATEWAY, env)
+    env["sys"] = SimpleNamespace(platform="linux", version_info=(3, 11))
+    env["os"] = SimpleNamespace(
+        pidfd_open=fake.open, close=fake.close, getpid=lambda: 321,
+    )
+    env["signal"] = SimpleNamespace(
+        SIGTERM=signal.SIGTERM, SIGKILL=signal.SIGKILL,
+        pidfd_send_signal=fake.send,
+    )
+    env["select"] = SimpleNamespace(
+        poll=lambda: fake, POLLIN=fake.POLLIN, POLLHUP=fake.POLLHUP,
+        POLLERR=fake.POLLERR, POLLNVAL=fake.POLLNVAL,
+    )
+
+    def run(*, verdict=None, cmdline="python -m hermes_cli.main gateway run",
+            matches=True, write_marker=True):
+        def verify(control, payload):
+            assert control == home and payload == record
+            return verdict if verdict is not None else (pid, started)
+
+        def write(control, owner, stamp):
+            if not write_marker:
+                return  # Pinned writer silently ignores marker I/O failures.
+            assert (control, owner, stamp) == (home, pid, started)
+            (home / ".gateway-planned-stop.json").write_text(json.dumps({
+                "target_pid": owner, "target_start_time": stamp, "stopper_pid": 321,
+            }), encoding="utf-8")
+
+        return env["_shutdown_owned_gateway"](
+            home, verify, write,
+            lambda _record, _pid, *, expected_home: expected_home == home and matches,
+            lambda _pid: cmdline, ".gateway-planned-stop.json",
+        )
+
+    return SimpleNamespace(home=home, record=record, fake=fake, run=run,
+                           pid=pid, started=started, env=env)
+
+
+def test_policy_pidfd_term_same_verified_handle_releases_fd(isolated_gateway_policy):
+    case = isolated_gateway_policy
+    case.run()
+    assert case.fake.opens == [(case.pid, 0)]
+    assert case.fake.signals == [(case.fake.FD, signal.SIGTERM, None, 0)]
+    assert case.fake.timeouts == [0, 0, 2000]
+    assert case.fake.closed == [case.fake.FD]
+
+
+def test_policy_pidfd_force_targets_same_handle(isolated_gateway_policy):
+    case = isolated_gateway_policy
+    case.fake.events = iter([[], [], [], [(case.fake.FD, case.fake.POLLHUP)]])
+    case.run()
+    assert [entry[1] for entry in case.fake.signals] == [signal.SIGTERM, signal.SIGKILL]
+    assert all(entry[0] == case.fake.FD for entry in case.fake.signals)
+    assert case.fake.timeouts == [0, 0, 2000, 2000]
+    assert case.fake.closed == [case.fake.FD]
+
+
+@pytest.mark.parametrize("verdict", [
+    "foreign_install", "owner_unverified", (9123, 701), (9124, 700),
+])
+def test_policy_pidfd_recycled_foreign_owner_refused(isolated_gateway_policy, verdict):
+    case = isolated_gateway_policy
+    with pytest.raises(RuntimeError, match="Refusing"):
+        case.run(verdict=verdict)
+    assert case.fake.opens == [(case.pid, 0)]
+    assert not case.fake.signals
+    assert case.fake.closed == [case.fake.FD]
+
+
+@pytest.mark.parametrize("cmdline,matches", [
+    ("", True), ("python -m hermes_cli.main gateway run", False),
+])
+def test_policy_pidfd_unverifiable_live_profile_refused(
+    isolated_gateway_policy, cmdline, matches,
+):
+    case = isolated_gateway_policy
+    with pytest.raises(RuntimeError, match="live process/profile proof"):
+        case.run(cmdline=cmdline, matches=matches)
+    assert not case.fake.signals
+    assert case.fake.closed == [case.fake.FD]
+
+
+def test_policy_pidfd_missing_and_dead_owner_do_not_signal(isolated_gateway_policy):
+    case = isolated_gateway_policy
+    (case.home / "gateway.pid").unlink()
+    case.run()
+    assert not case.fake.opens and not case.fake.closed
+    (case.home / "gateway.pid").write_text(json.dumps(case.record), encoding="utf-8")
+    case.fake.open_failure = ProcessLookupError("dead")
+    case.run()
+    assert case.fake.opens == [(case.pid, 0)]
+    assert not case.fake.signals and not case.fake.closed
+
+
+def test_policy_pidfd_missing_prerequisite_fails_closed(isolated_gateway_policy):
+    case = isolated_gateway_policy
+    case.env["signal"] = SimpleNamespace(SIGTERM=signal.SIGTERM, SIGKILL=signal.SIGKILL)
+    with pytest.raises(RuntimeError, match="pidfd_send_signal"):
+        case.run()
+    assert not case.fake.opens and not case.fake.signals
+
+
+def test_policy_pidfd_missing_marker_or_bad_poll_closes_fd(isolated_gateway_policy):
+    case = isolated_gateway_policy
+    with pytest.raises(FileNotFoundError):
+        case.run(write_marker=False)
+    assert case.fake.closed == [case.fake.FD] and not case.fake.signals
+    case.fake.closed.clear()
+    case.fake.events = iter([[], [], [(case.fake.FD, case.fake.POLLERR)]])
+    with pytest.raises(RuntimeError, match="pidfd readiness"):
+        case.run()
+    assert case.fake.signals == [(case.fake.FD, signal.SIGTERM, None, 0)]
+    assert case.fake.closed == [case.fake.FD]
+
+
+@pytest.mark.parametrize("changed", [
+    "hermes_state.py", "gateway/status.py", "hermes_cli/main_tui_launch.py",
+])
+def test_policy_full_pinned_tree_rejects_content_with_forged_mtime(
+    tmp_path, monkeypatch, changed,
+):
+    tracked = ("hermes_state.py", "gateway/status.py", "hermes_cli/main_tui_launch.py")
+    tree = bytearray()
+    for name in tracked:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = b"original pinned content\n"
+        path.write_bytes(payload)
+        digest = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload)
+        tree.extend(b"100644 blob " + digest.hexdigest().encode() +
+                    b"\t" + os.fsencode(name) + b"\0")
+    monkeypatch.setattr(sys.modules[__name__], "_git_bytes", lambda *_: bytes(tree))
+    _assert_clean_pinned_tree(tmp_path)
+    victim = tmp_path / changed
+    st = victim.stat()
+    victim.write_bytes(b"tampered pinned content\n")
+    os.utime(victim, ns=(st.st_atime_ns, st.st_mtime_ns))
+    with pytest.raises(AssertionError, match="Pinned tracked content changed"):
+        _assert_clean_pinned_tree(tmp_path)
+
+
+@pytest.mark.parametrize("runner,producer", [
+    ("_capture_driver", "_bounded_capture"), ("_pty_driver", "_pty_process"),
+])
+def test_policy_primary_and_gateway_cleanup_failures_retained(
+    monkeypatch, runner, producer,
+):
+    def fail_driver(*_args, **_kwargs):
+        raise TimeoutError("original driver deadline")
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise RuntimeError("gateway verification failed")
+
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_hermes_driver", lambda _source: ["driver"])
+    monkeypatch.setattr(module, producer, fail_driver)
+    monkeypatch.setattr(module, "_stop_isolated_gateway", fail_cleanup)
+    with pytest.raises(ExceptionGroup) as grouped:
+        getattr(module, runner)(Path("/not-used"), {})
+    primary, cleanup = grouped.value.exceptions
+    assert type(primary) is TimeoutError and str(primary) == "original driver deadline"
+    assert type(cleanup) is RuntimeError and str(cleanup) == "gateway verification failed"
+    assert "fail_driver" in [frame.name for frame in traceback.extract_tb(primary.__traceback__)]
+    assert "fail_cleanup" in [frame.name for frame in traceback.extract_tb(cleanup.__traceback__)]
