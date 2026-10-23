@@ -7,6 +7,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { copyToClipboard } from '../clipboard.js'
 import { storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
+import { HOLD_UNAVAILABLE } from '../voice/hold.js'
 import { type AgentsSheetHost, openAgents } from '../overlays/agents.js'
 import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
@@ -34,6 +35,7 @@ export type CommandHost = Pick<
   | 'busy'
   | 'control'
   | 'gw'
+  | 'liveVoice'
   | 'newSession'
   | 'open'
   | 'openHelp'
@@ -73,6 +75,28 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    help: 'Opt-in live conversation (Alt+Shift+V), separate from /voice dictation',
+    name: 'live',
+    run: (host, arg) => {
+      if (arg && arg !== 'status' && arg !== 'off') {
+        return host.transcript.notice('Usage: /live [status|off]', 'warning')
+      }
+      if (arg === 'status') {
+        return host.transcript.notice('Live voice: ' + host.liveVoice.phase)
+      }
+      if (arg === 'off') {
+        void host.liveVoice.control('stop')
+        return
+      }
+      host.liveVoice.toggle()
+    }
+  },
+  {
+    help: 'Why physical hold-to-talk is unavailable (Alt+Shift+Space)',
+    name: 'ptt',
+    run: host => host.transcript.notice(HOLD_UNAVAILABLE, 'warning')
+  },
   {
     // `/q` is Hermes' /queue.
     aliases: ['exit'],
