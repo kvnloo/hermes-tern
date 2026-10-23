@@ -5,11 +5,12 @@ import type { ConfigGetResult } from '@hermes/shared/gateway-events'
 import type { Key } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
+import type { SessionView } from '../app/ports.js'
 import { rpc } from '../wire/rpc.js'
 
 import { APP_SHORTCUTS, effectiveShortcuts, shortcutMatches, type Shortcut } from './actions.js'
 
-/** config.get full is scoped to session_id by the pinned Hermes gateway. */
+/** Consume only supported full-config display fields after explicit profile scoping. */
 function displayConfig(result: ConfigGetResult): Record<string, unknown> {
   const config = result.config
 
@@ -43,16 +44,24 @@ function wantsProfile(result: ConfigGetResult): boolean {
 
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
 
+/** Exact owner identity, captured before sending any preference read. */
+export interface BindingOwner {
+  readonly ref: SessionView['ref']
+  readonly sid: string
+  /** Canonical SessionInfo.profile_name; not a pretty label or HOME basename. */
+  readonly profile: string
+}
+
 export interface BindingHost {
   readonly gw: Pick<GatewayClient, 'request'>
-  sid(): string | null
+  readonly session: Pick<SessionView, 'ref' | 'info'>
   changed(): void
   notice(text: string): void
 }
 
 export class BindingPreferences {
   readonly #host: BindingHost
-  #sid: string | null = null
+  #owner: BindingOwner | null = null
   #read = 0
   #actions: readonly Shortcut[] = APP_SHORTCUTS
   #profile = ''
@@ -61,13 +70,35 @@ export class BindingPreferences {
     this.#host = host
   }
 
-  get actions(): readonly Shortcut[] {
-    return this.#host.sid() === this.#sid ? this.#actions : APP_SHORTCUTS
+  #same(a: BindingOwner | null, b: BindingOwner | null): boolean {
+    return a === b || Boolean(a && b && a.ref === b.ref && a.sid === b.sid && a.profile === b.profile)
   }
 
-  /** Optional display identity: only from the gateway that owns this exact session. */
+  #active(owner: BindingOwner): boolean {
+    const session = this.#host.session
+
+    return Boolean(owner.sid && owner.profile.trim() && session.ref === owner.ref &&
+      session.ref.live === owner.sid && session.info?.profile_name === owner.profile)
+  }
+
+  #reset(owner: BindingOwner | null): void {
+    if (this.#same(this.#owner, owner) && this.#actions === APP_SHORTCUTS && !this.#profile) {
+      return
+    }
+
+    this.#owner = owner
+    this.#actions = APP_SHORTCUTS
+    this.#profile = ''
+    this.#host.changed()
+  }
+
+  get actions(): readonly Shortcut[] {
+    return this.#owner && this.#active(this.#owner) ? this.#actions : APP_SHORTCUTS
+  }
+
+  /** Optional display identity, never used as gateway profile authority. */
   get profile(): string {
-    return this.#host.sid() === this.#sid ? this.#profile : ''
+    return this.#owner && this.#active(this.#owner) ? this.#profile : ''
   }
 
   matches(id: string, key: Key): boolean {
@@ -76,18 +107,17 @@ export class BindingPreferences {
     return item ? shortcutMatches(item, key) : false
   }
 
-  /** A confirmed owner-scoped config readback supersedes a pending adoption read. */
-  accept(result: ConfigGetResult, sid: string, identity?: ConfigGetResult): boolean {
-    if (!sid || this.#host.sid() !== sid) {
+  /** A confirmed owner-scoped readback supersedes pending refresh work. */
+  accept(result: ConfigGetResult, owner: BindingOwner, identity?: ConfigGetResult): boolean {
+    if (!this.#active(owner)) {
       return false
     }
 
-    // A corrupt/manual external edit never installs any partial action map.
     try {
       const display = displayConfig(result)
       const configured = display['tern_keybindings']
       const actions = effectiveShortcuts(configured === undefined ? {} : configured)
-      this.#sid = sid
+      this.#owner = owner
       this.#actions = actions
       this.#profile = display['tern_profile_identity'] === true && typeof identity?.display === 'string'
         ? identity.display
@@ -97,11 +127,9 @@ export class BindingPreferences {
 
       return true
     } catch (error) {
-      // Preserve the last valid map for THIS session. On a new session use defaults.
-      if (this.#sid !== sid) {
-        this.#sid = sid
-        this.#actions = APP_SHORTCUTS
-        this.#profile = ''
+      // An invalid external edit preserves the last valid map only for this exact owner.
+      if (!this.#same(this.#owner, owner)) {
+        this.#reset(owner)
       }
 
       this.#read++
@@ -113,26 +141,41 @@ export class BindingPreferences {
   }
 
   async refresh(): Promise<void> {
-    const sid = this.#host.sid()
+    const ref = this.#host.session.ref
     const read = ++this.#read
 
-    // A replacement session gets defaults before any asynchronous profile read.
-    if (this.#sid !== sid) {
-      this.#sid = sid
-      this.#actions = APP_SHORTCUTS
-      this.#profile = ''
-      this.#host.changed()
+    // Object identity, not merely sid, invalidates an earlier owner immediately.
+    if (this.#owner?.ref !== ref) {
+      this.#reset(null)
     }
 
-    if (!sid) {
+    // adoptSteps calls readShortcuts before it installs the snapshot's session.info.
+    // Finish synchronous adoption before taking canonical profile authority.
+    await Promise.resolve()
+
+    if (this.#host.session.ref !== ref || this.#read !== read) {
       return
     }
 
-    const current = () => this.#host.sid() === sid && this.#read === read
+    const sid = ref.live
+    const profile = this.#host.session.info?.profile_name
+
+    if (!sid || typeof profile !== 'string' || !profile.trim()) {
+      // No unscoped fallback to the connection profile, even after session reap.
+      this.#reset(null)
+      return
+    }
+
+    const owner: BindingOwner = { ref, sid, profile }
+
+    if (!this.#same(this.#owner, owner)) {
+      this.#reset(owner)
+    }
+
+    const current = () => this.#read === read && this.#active(owner)
 
     try {
-      // The pinned gateway's _profile_scoped derives the profile from session_id.
-      const result = await rpc(this.#host.gw, 'config.get', { key: 'full', session_id: sid })
+      const result = await rpc(this.#host.gw, 'config.get', { key: 'full', session_id: sid, profile })
 
       if (!current()) {
         return
@@ -142,26 +185,24 @@ export class BindingPreferences {
 
       if (wantsProfile(result)) {
         try {
-          identity = await rpc(this.#host.gw, 'config.get', { key: 'profile', session_id: sid })
+          identity = await rpc(this.#host.gw, 'config.get', { key: 'profile', session_id: sid, profile })
         } catch (error) {
           if (!current()) {
             return
           }
 
-          // Optional identity lookup failure must not disable valid bindings.
           this.#host.notice('Tern profile identity unavailable: ' + reason(error) + '.')
         }
       }
 
       if (current()) {
-        this.accept(result, sid, identity)
+        this.accept(result, owner, identity)
       }
     } catch (error) {
       if (!current()) {
         return
       }
 
-      // Keep the last valid map for this session, built-ins for a new one.
       this.#host.notice('Tern preferences unavailable; using current valid shortcuts: ' + reason(error) + '.')
       this.#host.changed()
     }
