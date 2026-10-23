@@ -23,7 +23,7 @@ export interface FrameCx extends DockSources {
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
   readonly transcript: Pick<Transcript, 'currentTodos' | 'entries'>
-  readonly mediaDelivery: MediaDelivery
+  readonly mediaDelivery?: MediaDelivery
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
   /** Tern has the aside feature: the PR aside or the session sidebar docks at the right edge. */
@@ -76,7 +76,7 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
     copy: cx.copies.copy,
     now,
     media: cx.mediaDelivery,
-    mediaRev: cx.mediaDelivery.token(),
+    mediaRev: cx.mediaDelivery?.token(),
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
 }
