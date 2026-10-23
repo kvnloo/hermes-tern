@@ -102,7 +102,7 @@ describe('splitPrompt: what a stored prompt carried', () => {
       { kind: 'image', name: 'a.png', refPath: '/h/a.png', source: { path: '/h/a.png' } },
       { kind: 'image', name: 'gone.png', refPath: '/h/gone.png' },
       { kind: 'file', name: 'notes.md' },
-      { kind: 'image', name: 's.png', refPath: '/h/d/s.png', source: { path: '/h/d/s.png' } }
+      { kind: 'image', name: 's.png', source: { path: '/h/d/s.png' } }
     ])
   })
 })
