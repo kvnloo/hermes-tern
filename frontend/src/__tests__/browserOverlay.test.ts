@@ -33,8 +33,8 @@ function harness(blocks = [user, owned]) {
   })
 
   const sheet = async () => {
-    openBrowserBlocks(host)
     const listings = gateway.methods('browser.blocks').length
+    openBrowserBlocks(host)
     await vi.waitFor(() => expect(gateway.methods('browser.blocks')).toHaveLength(listings + 1))
     await vi.waitFor(() => expect(JSON.stringify(tree(must(overlays.at(-1)).node('layer.browser-blocks')))).toContain('User page'))
 
