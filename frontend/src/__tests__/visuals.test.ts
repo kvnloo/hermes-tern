@@ -57,6 +57,12 @@ describe('OpenUI prepared visual front end', () => {
     expect(Object.isFrozen(summary.metrics[0])).toBe(true)
   })
 
+  it('counts zero descendant files for an empty repository root', () => {
+    expect(summarizeVisual({ ...bundle, artifact: { document: {
+      title: 'Empty', root: { code: 0, churn: 0, children: [] }
+    } } }).metrics[0]?.value).toBe(0)
+  })
+
   it('does not inspect the tree for unrequested file counts', () => {
     const noFiles: VisualBundle = {
       ...bundle,

@@ -27,8 +27,12 @@ engine, browser harness or publishing pipeline.
 
 1. `/visual` shows the exact JSON session/branch scope. Keep that value
    byte-for-byte for the CLI's scope positional argument.
-2. Via the agent's terminal tool, run the existing CLI with
-   `prepare program.openui host-document.json '<scope-json>' /absolute/output --json`.
+2. Via the agent's terminal tool in the donor checkout, run:
+
+   ```sh
+   OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node ui-tsp/experiments/openui-preview/cli.mjs prepare \
+     program.openui host-document.json '<scope-json>' /absolute/output --json
+   ```
    A successful `--json` invocation must emit only the full JSON notice;
    path-only output is still supported for explicit `/visual /absolute/file.hvisual.json`.
 3. Reopen `/visual` to list up to 12 recent completed terminal results.
@@ -72,8 +76,8 @@ or pixel parity.
 ## Source and provenance
 
 Behavior is adapted from `kvnloo/hermes-agent`'s
-`ui-tsp/visuals.ts`, `visual-discovery.ts`,
-`overlays/visual.tsx`, `overlays/visual-picker.tsx` and tests.
+`ui-tsp/src/visuals.ts`, `ui-tsp/src/visual-discovery.ts`,
+`ui-tsp/src/overlays/visual.tsx`, `ui-tsp/src/overlays/visual-picker.tsx` and tests.
 See source PRs [#456](https://github.com/kvnloo/hermes-agent/pull/456),
 [#457](https://github.com/kvnloo/hermes-agent/pull/457),
 [#460](https://github.com/kvnloo/hermes-agent/pull/460),

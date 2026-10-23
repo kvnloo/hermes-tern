@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { type CommandHost, localCommand } from '../commands/local.js'
 import { entryId, liveSessionId, storedSessionId, toolCallId } from '../core/ids.js'
 import type { Entry, ToolCall } from '../model.js'
 import type { Overlay } from '../overlays/overlay.js'
@@ -71,6 +72,14 @@ const rendered = (o: Overlay) => JSON.stringify(o.node(`layer.${o.key}`))
 const tick = () => new Promise<void>(resolve => setImmediate(resolve))
 
 describe('OpenUI /visual native overlay ownership', () => {
+  it('registers /visual as a local command with no gateway request', async () => {
+    const app = host()
+    const command = must(localCommand('visual'))
+    expect(command.help).toContain('OpenUI')
+    await command.run(stub<CommandHost>(app), '')
+    expect(must(app.overlays[0]).key).toBe('visual-candidates')
+  })
+
   it('shows exact scope without IO and keeps preview path local to session', async () => {
     const app = host()
     const load = vi.fn(async () => visual)
