@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { key } from '../__tests__/fakes.js'
+import { key } from '../../__tests__/fakes.js'
 
-import { APP_SHORTCUTS, effectiveShortcuts, normalizeChord, shortcutGroups, shortcutMatches } from './actions.js'
+import { APP_SHORTCUTS, effectiveShortcuts, normalizeChord, shortcutGroups, shortcutMatches } from '../actions.js'
 
 const action = (id: string, overrides: unknown = {}) => {
   const found = effectiveShortcuts(overrides).find(item => item.id === id)

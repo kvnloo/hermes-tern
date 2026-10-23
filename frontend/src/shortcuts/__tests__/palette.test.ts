@@ -1,14 +1,14 @@
 import type { CommandsCatalogResult } from '@hermes/shared/gateway-events'
-import type { Overlay } from '../overlays/overlay.js'
+import type { Overlay } from '../../overlays/overlay.js'
 import { describe, expect, it, vi } from 'vitest'
 
-import { liveSessionId } from '../core/ids.js'
-import { Composer } from '../draft/composer.js'
-import { SessionState } from '../session/state.js'
-import { Transcript } from '../transcript/store.js'
-import { FakeGateway, key } from '../__tests__/fakes.js'
+import { liveSessionId } from '../../core/ids.js'
+import { Composer } from '../../draft/composer.js'
+import { SessionState } from '../../session/state.js'
+import { Transcript } from '../../transcript/store.js'
+import { FakeGateway, key } from '../../__tests__/fakes.js'
 
-import { openCommandPalette, paletteRows, type PaletteHost } from './palette.js'
+import { openCommandPalette, paletteRows, type PaletteHost } from '../palette.js'
 
 function fixture(catalog: CommandsCatalogResult = { categories: [{ name: 'Fixture', pairs: [['/zzfixture', 'Fixture command']] }] }) {
   const gw = new FakeGateway({ replies: { 'commands.catalog': () => catalog } })
@@ -28,7 +28,7 @@ function fixture(catalog: CommandsCatalogResult = { categories: [{ name: 'Fixtur
     open: (overlay: Overlay) => void overlays.push(overlay)
   }
 
-  return { gw, session, host, overlays, set, run, changed, notice }
+  return { gw, session, host, composer, overlays, set, run, changed, notice }
 }
 
 function top(overlays: readonly Overlay[]): Overlay {
@@ -76,10 +76,14 @@ describe('Tern native command palette', () => {
 
   it('Tab inserts an unsent command; Escape preserves the draft and query', async () => {
     const f = fixture()
+    f.composer.set('draft with caret', { cursor: 6 })
+    f.set.mockClear()
     openCommandPalette(f.host)
     await vi.waitFor(() => expect(f.gw.sent('commands.catalog')).toHaveLength(1))
     const first = top(f.overlays)
     first.onKey(key('escape'))
+    expect(f.composer.text).toBe('draft with caret')
+    expect(f.composer.cursor).toBe(6)
     expect(f.set).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()
 
