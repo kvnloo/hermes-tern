@@ -220,6 +220,26 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
     }
   })
 
+  it('preserves existing background completion panels without allowing BTW Q/A panels into main history', async () => {
+    const f = await appFixture()
+
+    try {
+      const before = [...f.app.transcript.entries]
+      complete(f, 'one-turn')
+      await settle(f.gw)
+      expect(f.app.transcript.entries).toEqual(before)
+
+      f.gw.event({ type: 'background.complete', session_id: 's1', payload: { task_id: 'bg-1', text: 'Real background result' } })
+      await settle(f.gw)
+      expect(f.app.transcript.entries.slice(before.length)).toMatchObject([
+        { kind: 'panel', title: 'Background task bg-1' }
+      ])
+      expect(f.app.btw.notices).toHaveLength(1)
+    } finally {
+      await f.close()
+    }
+  })
+
   it('an old SDK View cannot resurrect a removed notice after a different session takes ownership', async () => {
     const f = await appFixture()
     let sdk: Awaited<ReturnType<typeof nativeBrowserSurface>> | undefined

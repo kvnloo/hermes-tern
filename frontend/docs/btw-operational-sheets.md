@@ -92,7 +92,7 @@ OMP validation (not run by this connector-only implementation worker):
     node scripts/hermes-src.mjs
     bun install --frozen-lockfile --prefer-offline
     bun run check
-    bun run test src/__tests__/btwSheets.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
+    bun run test src/__tests__/btwNotices.test.ts src/__tests__/dockModel.test.ts src/__tests__/dispatch.test.ts src/__tests__/chrome.test.ts src/__tests__/btwSheets.test.ts src/__tests__/btwPty.test.ts src/__tests__/operationalSheets.test.ts src/__tests__/generalReportSheets.test.ts src/__tests__/commands.test.ts src/__tests__/sessionLifecycle.test.ts src/__tests__/composer.test.ts src/__tests__/slashRouting.test.ts
     bun run bundle
 
 On a compatible Hermes gateway, smoke /btw (list, start, follow up, cancel,
