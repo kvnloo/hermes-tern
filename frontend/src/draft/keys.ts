@@ -12,6 +12,7 @@ import type { PromptQueue } from '../turn/queue.js'
 
 import type { Attachments } from './attachments.js'
 import type { Composer } from './composer.js'
+import type { VimComposer } from './vim.js'
 
 /** A second Ctrl+C within this window quits. */
 export const EXIT_ARM_MS = 1500
@@ -82,6 +83,8 @@ export interface KeyCx {
   hud(key: Key): boolean
   readonly completion: Pick<Completion, 'onKey'>
   readonly composer: Pick<Composer, 'key' | 'set' | 'take' | 'text'>
+  /** Optional modal editor; tests and non-Vim hosts retain the original key contract. */
+  readonly vim?: Pick<VimComposer, 'key' | 'enabled'>
   readonly attachments: Pick<Attachments, 'any' | 'clear' | 'clearAll' | 'paste'>
   readonly queue: Pick<PromptQueue, 'count' | 'dequeue' | 'steer'>
   readonly transcript: Pick<Transcript, 'notice'>
@@ -174,6 +177,14 @@ const modal: KeyRule = (_key, _cx, top) => top?.modal === true
 const hud: KeyRule = (key, cx) => cx.hud(key)
 
 const completion: KeyRule = (key, cx) => cx.completion.onKey(key)
+
+/** Vim owns modal keys after overlays/completion, before the app's Esc Esc shortcut. */
+const vim: KeyRule = (key, cx) => {
+  if (key.name === 'paste' && cx.vim?.enabled && cx.attachments.paste(key.text ?? '')) return true
+  if (!cx.vim?.key(key)) return false
+  if (key.name === 'escape') cx.presses.esc = 0
+  return true
+}
 
 /**
  * Esc: a single one never cancels work (Ink's resolveDoubleEscAction). A second one within
@@ -286,6 +297,7 @@ export const KEY_RULES: readonly KeyRule[] = [
   modal,
   hud,
   completion,
+  vim,
   doubleEsc,
   effort,
   sheets,
