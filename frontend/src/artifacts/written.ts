@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 import { node, type Node } from '@stencil-hq/tern'
 
 import { fileHref } from './links.js'
-import type { MediaPreview } from './media-delivery.js'
 import type { ToolCall } from '../model.js'
 import { mediaNode } from './media-node.js'
 import { record } from '../wire/json.js'

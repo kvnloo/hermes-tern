@@ -173,7 +173,7 @@ export class Attachments {
       }
 
       // Removed chips and cleared drafts must never take a late upload.
-      if (this.#pending.includes(slot)) {
+      if (this.#pending.includes(slot) && this.#host.sid() === sid) {
         this.#items.push(this.#image({ bytes, mime, path: result.path }, name))
       }
     } catch (error) {

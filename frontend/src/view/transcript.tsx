@@ -24,7 +24,8 @@ import { parts, pieces } from './workLogModel.js'
 /** What entry views need from the app. */
 export interface TranscriptContext {
   now: number
-  links: FileContext
+  /** Supplied by live frames; omitted by historical consumers of the view helper. */
+  links?: FileContext
   welcome: WelcomeContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
@@ -52,7 +53,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}|${cx.links.cwd}|${cx.links.hostLocal}|${cx.links.media}`
+  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}|${cx.links?.cwd ?? ''}|${cx.links?.hostLocal ?? false}|${cx.links?.media ?? false}`
   const cached = built[kNode]
 
   if (cached?.rev === rev) {
@@ -241,7 +242,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {cx.links.hostLocal && !live ? displayMarkdown(b.text, cx.links.cwd) : b.text}
+            {cx.links?.hostLocal && !live ? displayMarkdown(b.text, cx.links.cwd) : b.text}
           </md>
         )
 
