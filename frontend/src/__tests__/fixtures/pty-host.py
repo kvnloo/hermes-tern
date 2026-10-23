@@ -99,6 +99,9 @@ def run(app_path: str, mode: str) -> dict:
                 if predicate():
                     return
                 if proc is not None and proc.poll() is not None:
+                    # Expected exit can land between the predicate and poll.
+                    if predicate():
+                        return
                     raise AssertionError(
                         label + ": child exited " + str(proc.returncode) + "\n"
                         + output[-4000:].decode("utf-8", "replace")
