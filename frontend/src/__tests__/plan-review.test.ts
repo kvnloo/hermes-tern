@@ -26,12 +26,24 @@ const doneTurn = (text: string): Entry => ({
   startedAt: 1
 })
 
-const initial = () => ({
+type PlanFixture = {
+  enabled: boolean
+  generating: boolean
+  plan: {
+    annotations: { section: number; text: string }[]
+    decision: 'pending'
+    id: string
+    revision: number
+    text: string
+  }
+}
+
+const initial = (): PlanFixture => ({
   enabled: true,
   generating: false,
   plan: {
-    annotations: [] as { section: number; text: string }[],
-    decision: 'pending' as const,
+    annotations: [],
+    decision: 'pending',
     id: 'plan-1',
     revision: 3,
     text: 'Intro\n# Implement\nGoal\n## Build\nChange one file\n## Verify\nRun tests'

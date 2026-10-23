@@ -105,7 +105,7 @@ export function parsePlan(text: string): Plan | undefined {
     const marker = line.match(/^ {0,3}((?:\x60{3,}|~{3,}))(.*)$/)
 
     if (fence) {
-      if (marker && marker[1]?.[0] === fence.marker && marker[1].length >= fence.length && !marker[2]?.trim()) {
+      if (marker && marker[1]?.[0] === fence.marker && (marker[1]?.length ?? 0) >= fence.length && !marker[2]?.trim()) {
         fence = undefined
       }
     } else if (marker) {
