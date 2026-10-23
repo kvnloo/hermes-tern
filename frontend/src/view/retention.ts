@@ -11,6 +11,18 @@ export const RETAIN_TURNS = 20
 export const RELOAD_PAGE = 40
 const LOAD_ID = 'main.retention-load'
 
+/** Current authoritative transcript membership, even before the next paint. */
+export interface RetentionLive {
+  readonly entries: readonly Entry[]
+  readonly lifetime: number
+}
+
+/** Instrument actual rows inspected and SDK entry trees built by the last paint. */
+export interface RetentionWork {
+  examined: number
+  nodeBuilds: number
+}
+
 interface Resident {
   readonly id: string
   readonly entry: Entry
@@ -127,15 +139,22 @@ export class Retention {
   #boundary = 0
   #held = false
   #copied: string | undefined
+  #copyHandler: TranscriptContext['copy'] | undefined
+  #welcomeVersion: string | undefined
+  #welcomeTip: string | undefined
+  #welcomeLogo: string | undefined
   #cx: TranscriptContext | undefined
+  readonly #live: () => RetentionLive
+  readonly work: RetentionWork = { examined: 0, nodeBuilds: 0 }
   #requested = false
   #reveal = false
   #loadShown = false
   #dirty = false
 
-  constructor(surface: Surface, changed: () => void) {
+  constructor(surface: Surface, changed: () => void, live: () => RetentionLive) {
     this.#surface = surface
     this.#changed = changed
+    this.#live = live
 
     // SDK 0.1 has no public child-forget or dispatch-adoption API. A non-listening
     // SDK Surface routes gestures, while this writer owns the exact resident main.
@@ -232,25 +251,45 @@ export class Retention {
       return undefined
     }
 
-    const router = new Surface({ send() {}, credits: () => 1, dropped() {} }, this.#surface.id, { listen: false })
-    router.render({ main: [entryNode(row.entry, row.id, this.#cx)] })
-    const action = router.dispatch(event)
-
-    if (row.settled) {
-      forgetEntryNode(row.entry)
+    if (this.#absentTarget(row, event.id)) {
+      return undefined
     }
 
-    return action && (() => {
-      if (this.#byId.get(row.entry.id) !== row || !row.present || row.evicted) {
+    // SDK handlers can run after reset/load, before the next frame has reconciled
+    // #byId. Check the actual transcript and lifetime when the gesture executes.
+    const lifetime = this.#live().lifetime
+
+    return () => {
+      const live = this.#live()
+      if (live.lifetime !== lifetime ||
+        this.#byId.get(row.entry.id) !== row || !row.present || row.evicted ||
+        this.#absentTarget(row, event.id) || !live.entries.includes(row.entry)) {
         return
       }
 
-      return action()
-    })
+      const cx = this.#cx
+      if (!cx) {
+        return
+      }
+
+      // Never retain settled-row handlers: rebuild only the addressed, still-live
+      // entry against the current presentation context at dispatch time.
+      const router = new Surface({ send() {}, credits: () => 1, dropped() {} }, this.#surface.id, { listen: false })
+      router.render({ main: [entryNode(row.entry, row.id, cx)] })
+      const action = router.dispatch(event)
+
+      if (row.settled) {
+        forgetEntryNode(row.entry)
+      }
+
+      return action?.()
+    }
   }
 
   /** Send just changed rows plus chrome; no old JSX or Tree rebuild on tokens. */
-  paint(chrome: ViewInput, entries: readonly Entry[], cx: TranscriptContext, hold: boolean): void {
+  paint(chrome: ViewInput, entries: readonly Entry[], cx: TranscriptContext, hold: boolean, changed: Set<Entry>): void {
+    this.work.examined = 0
+    this.work.nodeBuilds = 0
     if (this.#surface.closed) {
       return
     }
@@ -277,6 +316,7 @@ export class Retention {
       const current = new Set(entries)
 
       for (const row of this.#ordered) {
+        this.work.examined++
         if (current.has(row.entry)) {
           continue
         }
@@ -295,6 +335,7 @@ export class Retention {
       const ordered: Resident[] = []
 
       for (let i = 0; i < entries.length; i++) {
+        this.work.examined++
         const entry = entries[i]
 
         if (!entry) {
@@ -333,7 +374,17 @@ export class Retention {
       this.#tail = entries.at(-1)
     }
 
-    for (const row of this.#ordered) {
+    // The transcript reducer marks revised entries; the writer already tracks
+    // structural/boundary changes. Never walk #ordered for a token delta.
+    for (const entry of changed) {
+      const row = this.#byId.get(entry.id)
+      if (row?.entry === entry) {
+        this.#hot.add(row)
+      }
+    }
+
+    for (const row of this.#hot) {
+      this.work.examined++
       const rev = row.entry.kind === 'turn' || row.entry.kind === 'compaction' ? row.entry.rev : 0
       const status = row.entry.kind === 'turn' ? row.entry.end.status : ''
 
@@ -351,8 +402,10 @@ export class Retention {
 
     if (boundaryChanged) {
       this.#boundary = retentionBoundary(entries)
+      this.work.examined += entries.length
 
       for (const row of this.#ordered) {
+        this.work.examined++
         if (row.index >= this.#boundary && row.settled && !row.evicted) {
           this.#hot.add(row)
         } else if (row.index < this.#boundary && !row.settled) {
@@ -375,11 +428,42 @@ export class Retention {
       this.#copied = cx.copied
     }
 
+    // Welcome depends on backend session.info.version via FrameCx; copy handlers
+    // depend on the function identity. 'now' intentionally fixes ages on first
+    // build rather than repainting every old row on every clock tick.
+    const welcomeChanged = this.#welcomeVersion !== cx.welcome.version ||
+      this.#welcomeTip !== cx.welcome.tip || this.#welcomeLogo !== cx.welcome.logo
+    const copyHandlerChanged = this.#copyHandler !== cx.copy
+
+    if (welcomeChanged || copyHandlerChanged) {
+      for (const row of this.#ordered) {
+        this.work.examined++
+        if (!row.present || row.evicted) {
+          continue
+        }
+
+        if ((welcomeChanged && row.entry.kind === 'welcome') ||
+          (copyHandlerChanged && (row.entry.kind === 'user' || row.entry.kind === 'turn'))) {
+          if (copyHandlerChanged) {
+            forgetEntryNode(row.entry)
+          }
+
+          this.#hot.add(row)
+        }
+      }
+
+      this.#welcomeVersion = cx.welcome.version
+      this.#welcomeTip = cx.welcome.tip
+      this.#welcomeLogo = cx.welcome.logo
+      this.#copyHandler = cx.copy
+    }
+
     if (this.#held !== hold) {
       this.#held = hold
 
       if (!hold) {
         for (const row of this.#ordered) {
+          this.work.examined++
           if (row.index < this.#boundary && !row.settled) {
             this.#hot.add(row)
           }
@@ -422,6 +506,7 @@ export class Retention {
       }
 
       const tree = new Tree(row.id, projected)
+      this.work.nodeBuilds++
       const before = this.#nextResident(row.index)
 
       if (!row.present) {
@@ -494,10 +579,24 @@ export class Retention {
     if (ops.length) {
       this.#surface.send(ops)
     }
+
+    // An ACK-blocked paint exits before this point; no reducer delta is lost.
+    changed.clear()
+  }
+
+  #absentTarget(row: Resident, id: string): boolean {
+    for (const missing of row.missing) {
+      if (id === missing || id.startsWith(missing + '.')) {
+        return true
+      }
+    }
+
+    return false
   }
 
   #nextResident(index: number): string | null {
     for (let i = index + 1; i < this.#ordered.length; i++) {
+      this.work.examined++
       const next = this.#ordered[i]
 
       if (next?.present && !next.evicted) {
