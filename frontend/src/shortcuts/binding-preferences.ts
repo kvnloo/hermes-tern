@@ -1,11 +1,43 @@
 // The owning Hermes session's display settings are the only preference source.
 // Adapted from Hermes ui-tsp/src/binding-preferences.ts; no local auth/config authority.
 
-import type { SettingsGetResult } from '@hermes/shared/gateway-events'
+import type { ConfigGetResult } from '@hermes/shared/gateway-events'
 import type { Key } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
+import { rpc } from '../wire/rpc.js'
+
 import { APP_SHORTCUTS, effectiveShortcuts, shortcutMatches, type Shortcut } from './actions.js'
+
+/** config.get full is scoped to session_id by the pinned Hermes gateway. */
+function displayConfig(result: ConfigGetResult): Record<string, unknown> {
+  const config = result.config
+
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('config.get full did not return a config object')
+  }
+
+  const display = config['display']
+
+  if (display === undefined || display === null) {
+    return {}
+  }
+
+  if (typeof display !== 'object' || Array.isArray(display)) {
+    throw new Error('display must be an object')
+  }
+
+  return display
+}
+
+function wantsProfile(result: ConfigGetResult): boolean {
+  const config = result.config
+  const display = config && typeof config === 'object' ? config['display'] : undefined
+
+  return Boolean(display && typeof display === 'object' && !Array.isArray(display) && display['tern_profile_identity'] === true)
+}
+
+const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export interface BindingHost {
   readonly gw: Pick<GatewayClient, 'request'>
@@ -41,17 +73,20 @@ export class BindingPreferences {
   }
 
   /** A confirmed native Settings readback may supersede an adoption read. */
-  accept(result: SettingsGetResult, sid: string): boolean {
+  accept(result: ConfigGetResult, sid: string, identity?: ConfigGetResult): boolean {
     if (!sid || this.#host.sid() !== sid) {
       return false
     }
 
     // A corrupt/manual external edit never installs any partial action map.
     try {
-      const actions = effectiveShortcuts(result.fields['display.tern_keybindings']?.value ?? {})
+      const display = displayConfig(result)
+      const actions = effectiveShortcuts(display['tern_keybindings'] ?? {})
       this.#sid = sid
       this.#actions = actions
-      this.#profile = result.fields['display.tern_profile_identity']?.value === true ? result.profile : ''
+      this.#profile = display['tern_profile_identity'] === true && typeof identity?.display === 'string'
+        ? identity.display
+        : ''
       this.#read++
       this.#host.changed()
 
@@ -65,7 +100,7 @@ export class BindingPreferences {
       }
 
       this.#read++
-      this.#host.notice(`Tern keybindings rejected: ${error instanceof Error ? error.message : String(error)}. Repair display.tern_keybindings in Settings.`)
+      this.#host.notice('Tern keybindings rejected: ' + reason(error) + '. Repair display.tern_keybindings in the owning profile config.')
       this.#host.changed()
 
       return false
@@ -76,29 +111,53 @@ export class BindingPreferences {
     const sid = this.#host.sid()
     const read = ++this.#read
 
+    // A replacement session gets defaults before any asynchronous profile read.
+    if (this.#sid !== sid) {
+      this.#sid = sid
+      this.#actions = APP_SHORTCUTS
+      this.#profile = ''
+      this.#host.changed()
+    }
+
     if (!sid) {
       return
     }
 
-    try {
-      const result = await this.#host.gw.request<SettingsGetResult>('settings.get', { session_id: sid })
+    const current = () => this.#host.sid() === sid && this.#read === read
 
-      if (read === this.#read && this.#host.sid() === sid) {
-        this.accept(result, sid)
-      }
-    } catch (error) {
-      if (read !== this.#read || this.#host.sid() !== sid) {
+    try {
+      // The pinned gateway's _profile_scoped derives the profile from session_id.
+      const result = await rpc(this.#host.gw, 'config.get', { key: 'full', session_id: sid })
+
+      if (!current()) {
         return
       }
 
-      if (this.#sid !== sid) {
-        this.#sid = sid
-        this.#actions = APP_SHORTCUTS
-        this.#profile = ''
+      let identity: ConfigGetResult | undefined
+
+      if (wantsProfile(result)) {
+        try {
+          identity = await rpc(this.#host.gw, 'config.get', { key: 'profile', session_id: sid })
+        } catch (error) {
+          if (!current()) {
+            return
+          }
+
+          // Optional identity lookup failure must not disable valid bindings.
+          this.#host.notice('Tern profile identity unavailable: ' + reason(error) + '.')
+        }
       }
 
-      // A gateway that does not offer settings.get keeps built-in shortcuts.
-      this.#host.notice(`Tern preferences unavailable; using current valid shortcuts: ${error instanceof Error ? error.message : String(error)}.`)
+      if (current()) {
+        this.accept(result, sid, identity)
+      }
+    } catch (error) {
+      if (!current()) {
+        return
+      }
+
+      // Keep the last valid map for this session, built-ins for a new one.
+      this.#host.notice('Tern preferences unavailable; using current valid shortcuts: ' + reason(error) + '.')
       this.#host.changed()
     }
   }

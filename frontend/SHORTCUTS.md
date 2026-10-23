@@ -19,7 +19,7 @@ Ctrl+C, Ctrl+D, Ctrl+V, Esc Esc and the composer's readline keys remain owned by
 
 ## Owning-profile bindings
 
-On each session adoption the frontend reads `settings.get` from that exact Hermes gateway session. The optional `display.tern_keybindings` field maps **action IDs** from `src/shortcuts/actions.ts` to a chord, string array, `null` (default), or empty array (disabled). The optional `display.tern_profile_identity` exposes the owning profile to the session-bound binding store.
+On adoption the frontend requests the pinned gateway's `config.get` with `{ key: 'full', session_id }`. The gateway scopes this to the **owning session profile**. `config.display.tern_keybindings` maps action IDs from `src/shortcuts/actions.ts` to a chord, array of chords, `null` (default), or empty array (disabled). If `config.display.tern_profile_identity === true`, a second session-scoped `config.get` (`key: 'profile'`) supplies its optional display identity. Failure of that identity read does not discard valid bindings. These RPCs never write settings.
 
 Example:
 
@@ -31,7 +31,7 @@ Example:
 }
 ```
 
-The settings shown above are the *value* of the owning gateway's `display.tern_keybindings` field, not a new plugin settings file. Invalid or overlapping bindings are rejected atomically, with defaults for a new session and the previous valid map preserved for the current session. Host-reserved chords and composer-owned keys cannot be rebound. A delayed response from another session is ignored. No profile settings are written by this port.
+The JSON above is the value of `display.tern_keybindings` in the owning Hermes profile's config, not a plugin settings file. Invalid or overlapping bindings are rejected atomically, with defaults for a new session and the previous valid map preserved for the current session. Host-reserved chords and composer-owned keys cannot be rebound. A delayed response from another session is ignored. No profile settings are written by this port.
 
 ## Command palette
 
@@ -39,7 +39,7 @@ The settings shown above are the *value* of the owning gateway's `display.tern_k
 
 ## Model navigation
 
-Model cycling asks `model.options` for available, authenticated models with `safe_inventory` and respects the gateway's pending model intent. Recent accepted selections are local navigation memory (per pane and session, maximum 32); they never change the configured default. If no usable recent shortlist exists, cycling uses the authorized inventory. Every switch uses the existing `switchModel` path and its expensive-model confirmation; no direct model mutation bypasses that guard. The picker flags recent models and the switch path fences late responses from prior sessions.
+Model cycling reads authorized inventory through the pinned `model.options` with `{ session_id }` (excluding explicitly unauthenticated and unavailable rows). The owning `session.info.model` and `session.info.provider` already project a pending pick while a turn streams; `model.options` has no pending fields or `safe_inventory` flag. Recent accepted selections are local navigation memory (per pane and session, maximum 32); they never change the configured default. If no usable recent shortlist exists, cycling uses the authorized inventory. Every switch uses the existing `switchModel` path and its expensive-model confirmation; no direct model mutation bypasses that guard. The picker flags recent models and the switch path fences late responses from prior sessions.
 
 ## OMP verification (not run by this worker)
 
@@ -47,14 +47,13 @@ From the repository root:
 
 ```sh
 cd frontend
-bun run setup
-bun run typecheck
-bun run test src/shortcuts/actions.test.ts src/shortcuts/binding-preferences.test.ts src/shortcuts/model-cycle.test.ts src/shortcuts/palette.test.ts src/__tests__/keys.test.ts
-bun run lint
+node scripts/hermes-src.mjs
+bun install --frozen-lockfile
 bun run check
+bun run test src/shortcuts/__tests__/actions.test.ts src/shortcuts/__tests__/binding-preferences.test.ts src/shortcuts/__tests__/model-cycle.test.ts src/shortcuts/__tests__/palette.test.ts src/__tests__/keys.test.ts --reporter=verbose
 ```
 
-Also manually verify Tern key input (modified F1, Alt+/ and Ctrl+Shift+K), Enter vs Tab in the palette, model confirmation on both gateway modes, reconnect/session replacement while reads are outstanding, and canonical-gateway `settings.get` behavior.
+Also manually verify Tern key input (modified F1, Alt+/ and Ctrl+Shift+K), Enter vs Tab in the palette, model confirmation on both gateway modes, reconnect/session replacement while reads are outstanding, and canonical and private gateway `config.get` full/profile behavior.
 
 ### Provenance
 

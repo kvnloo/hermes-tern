@@ -1,5 +1,5 @@
 // Relative model cycling uses the existing picker/switchModel confirmation contract.
-// Model inventory and pending model intent come from the gateway, never this pane.
+// model.options inventories choices; pending routes are projected by session.info.
 
 import type { ModelOptionsResult } from '@hermes/shared/gateway-events'
 
@@ -33,13 +33,13 @@ export function availableModels(options: Pick<ModelOptionsResult, 'providers'>):
   })
 }
 
-/** The pending route wins during a streaming turn; otherwise use the confirmed gateway route. */
-export function activeModel(options: ModelOptionsResult, fallback: RecentModel): RecentModel {
-  const currentProvider = options.providers?.find(provider => provider.is_current)?.slug || options.provider || fallback.provider
+/** session.info already projects the mid-turn pending pick at this Hermes pin. */
+export function activeModel(options: ModelOptionsResult, sessionRoute: RecentModel): RecentModel {
+  const currentProvider = options.providers.find(provider => provider.is_current)?.slug || options.provider || ''
 
   return {
-    model: options.pending_model || options.model || fallback.model,
-    provider: options.pending_model ? options.pending_provider || currentProvider : currentProvider
+    model: sessionRoute.model || options.model || '',
+    provider: sessionRoute.provider || currentProvider
   }
 }
 
@@ -52,24 +52,18 @@ export function cycleTarget(
 ): RecentModel | null {
   const allowed = new Set(available.map(modelId))
   const seen = new Set<string>()
-  const valid = (recent.length > 1 ? recent : available)
-    .filter(row => allowed.has(modelId(row)))
-    .filter(row => {
-      const id = modelId(row)
+  const valid = recent.filter(row => allowed.has(modelId(row))).filter(row => {
+    const id = modelId(row)
 
-      if (seen.has(id)) {
-        return false
-      }
+    if (seen.has(id)) {
+      return false
+    }
 
-      seen.add(id)
+    seen.add(id)
 
-      return true
-    })
-  const rows = [...valid]
-
-  if (active.model && !seen.has(modelId(active))) {
-    rows.unshift(active)
-  }
+    return true
+  })
+  const rows = valid.length > 1 ? valid : available
 
   if (rows.length < 2) {
     return null
@@ -77,22 +71,27 @@ export function cycleTarget(
 
   const at = rows.findIndex(row => modelId(row) === modelId(active))
 
+  if (at < 0) {
+    return direction === 1 ? rows[0] ?? null : rows[rows.length - 1] ?? null
+  }
+
   return rows[(at + direction + rows.length) % rows.length] ?? null
 }
 
 export function cycleModel(host: ModelsHost, direction: -1 | 1): Promise<void> {
-  const sid = host.session.ref.live
+  const ticket = host.session.ticket()
+  const sid = ticket.sid
   const history = modelRecents(host.session)
 
   return history.enqueue(async () => {
-    if (!sid || host.session.ref.live !== sid) {
+    const current = () => !ticket.signal.aborted && host.session.ref.live === sid
+
+    if (!sid || !current()) {
       return
     }
 
-    const current = () => host.session.ref.live === sid
-
     try {
-      const options = await rpc(host.gw, 'model.options', { safe_inventory: true, session_id: sid })
+      const options = await rpc(host.gw, 'model.options', { session_id: sid })
 
       if (!current()) {
         return
