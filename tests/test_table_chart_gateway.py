@@ -191,9 +191,12 @@ async def test_actual_namespace_discovery_policy_and_strict_deny(native, network
         for bad in (
             {"session_id": "owned", "source": TABLE, "extra": "no"},
             {"session_id": "owned", "source": 7},
-            {"session_id": 7, "source": TABLE},
         ):
             assert (await rpc(client, charts.PLAN_METHOD, bad))["error"]["code"] == -32602
+        # The core owner-routing gate precedes the plugin's value schema.
+        assert (await rpc(client, charts.PLAN_METHOD, {
+            "session_id": 7, "source": TABLE,
+        }))["error"]["code"] == 4001
         assert calls == []
         assert (await rpc(client, charts.PLAN_METHOD, {
             "session_id": "owned", "source": TABLE,
