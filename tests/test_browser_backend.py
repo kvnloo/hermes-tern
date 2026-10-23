@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -124,7 +125,8 @@ def system(monkeypatch):
     native._DRIVERS.clear()
     actor = Caller()
     ctx = Context()
-    owner = {"session_key": "task-one", "running": False, "profile_home": "/profiles/work"}
+    owner = {"session_key": "task-one", "agent": SimpleNamespace(session_id="tool-one"),
+             "running": False, "profile_home": "/profiles/work"}
     clients = []
 
     monkeypatch.setattr(backend, "_profile", lambda req: req.profile if req.attached else req.assert_attached())
@@ -133,10 +135,11 @@ def system(monkeypatch):
     monkeypatch.setattr(backend, "_native_tools_ready",
                         lambda ctx, profile: ctx.consent and ctx.native_installed
                         and ctx.profile_name == profile)
-    monkeypatch.setattr(backend, "_viewer", lambda sid: (
-        3, "window-1", (("TERN_PANE", "3"), ("TERN_WINDOW_KEY", "window-1")),
-        {"PATH": "/bin"}, "tern", ("window-1", "daemon", "config")
-    ))
+    def durable_viewer(sid):
+        assert sid == "task-one", "viewer lookup must use durable owner key"
+        return (3, "window-1", (("TERN_PANE", "3"), ("TERN_WINDOW_KEY", "window-1")),
+                {"PATH": "/bin"}, "tern", ("window-1", "daemon", "config"))
+    monkeypatch.setattr(backend, "_viewer", durable_viewer)
     monkeypatch.setattr(backend, "TernBrowserCLI", lambda *a, **k: clients.append(Native()) or clients[-1])
     monkeypatch.setattr(native.BrowserScope, "require_current",
                         lambda self: self.lease.assert_current())
@@ -335,8 +338,9 @@ def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system, mon
     monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: None)
     listing = request("blocks", actor, ctx)
     assert not listing["available"]
-    assert [b["target_id"] for b in listing["blocks"]] == ["7", "8"]
-    assert not native._DRIVERS
+    assert listing == {"available": False, "blocks": [],
+                       "reason": "task_authority_unavailable"}
+    assert not clients and not native._DRIVERS
     with pytest.raises(PermissionError, match="task"):
         request("adopt", actor, ctx, target_id="7")
 
@@ -360,3 +364,28 @@ def test_native_backend_errors_are_secret_safe():
         "error": "Native Tern browser ownership; no other browser was selected",
     }
     assert "token=" not in raw and "https://" not in raw
+
+
+def test_true_id_domains_and_unbuilt_agent_read_only(system):
+    ctx, actor, owner, clients = system
+    ctx.consent = ctx.native_installed = True
+    assert backend._legacy_identity("s1", "work")[1] == backend.LegacyIdentity(
+        rpc_session_id="s1", viewer_session_id="task-one",
+        task_id="task-one", tool_session_id="tool-one",
+    )
+    assert request("blocks", actor, ctx)["available"]
+    driver = native.get_driver("work", "s1")
+    assert driver.scope.rpc_session_id == "s1"
+    assert driver.scope.viewer_session_id == "task-one"
+    assert driver.scope.tool_session_id == "tool-one"
+    assert native.get_driver("work", "task-one") is None
+    assert native.get_driver_for_tool("work", "tool-one", "task-one") is driver
+    with pytest.raises(NativeBrowserError, match="ownership"):
+        native.get_driver_for_tool("work", "s1", "task-one")
+
+    native._DRIVERS.clear()
+    owner["agent"] = None
+    listing = request("blocks", actor, ctx)
+    assert not listing["available"]
+    assert listing["blocks"][0]["target_id"] == "7"
+    assert native.get_driver("work", "s1") is None

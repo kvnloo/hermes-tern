@@ -80,7 +80,8 @@ def rig(monkeypatch):
     cli = FakeCLI()
     lease = FakeLease()
     scope = native.BrowserScope(
-        profile="work", session_id="s1", task_id="task-one",
+        profile="work", rpc_session_id="s1", viewer_session_id="task-one",
+        task_id="task-one", tool_session_id="tool-one",
         pane_vars=(("TERN_PANE", "3"), ("TERN_WINDOW_KEY", "w1")),
         pane=3, window="w1", window_scope=("w1", "sock", "config"),
         lease=lease, cli=cli,
@@ -159,7 +160,8 @@ def test_cross_profile_same_window_cannot_steal_block(rig):
     driver, cli, _ = rig
     driver.adopt("7")
     peer_scope = native.BrowserScope(
-        profile="other", session_id="s2", task_id="other-task",
+        profile="other", rpc_session_id="s2", viewer_session_id="other-task",
+        task_id="other-task", tool_session_id="other-tool",
         pane_vars=driver.scope.pane_vars, pane=99, window="w1",
         window_scope=driver.scope.window_scope, lease=FakeLease(), cli=cli,
     )
@@ -257,3 +259,22 @@ def test_press_has_all_up_events_without_modifiers_leak():
         {"type": "key", "action": "up", "key": "a", "mods": ["ctrl"]},
         {"type": "key", "action": "up", "key": "Control", "mods": []},
     ]
+
+
+def test_exact_tool_task_lookup_and_no_duplicate_claim(rig):
+    driver, cli, lease = rig
+    assert native.get_driver("work", "s1") is driver
+    assert native.get_driver("work", "task-one") is None
+    assert native.get_driver_for_tool("work", "tool-one", "task-one") is driver
+    assert native.get_driver_for_tool("work", "tool-one", "unknown") is None
+    assert native.has_native_driver("work") and not native.has_native_driver("other")
+    with pytest.raises(NativeBrowserError, match="ownership"):
+        native.get_driver_for_tool("work", "s1", "task-one")
+    with pytest.raises(NativeBrowserError, match="ownership"):
+        native.register_driver(native.BrowserScope(
+            profile="work", rpc_session_id="s2", viewer_session_id="task-one",
+            task_id="task-one", tool_session_id="tool-one",
+            pane_vars=driver.scope.pane_vars, pane=3, window="w1",
+            window_scope=driver.scope.window_scope, lease=FakeLease(), cli=FakeCLI(),
+        ))
+    assert native.get_driver("work", "s1") is driver

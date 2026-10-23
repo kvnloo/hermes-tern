@@ -64,9 +64,23 @@ Initial block discovery is read-only: it may record the lease, but cannot
 invoke control during its provisional start RPC. A second same-session peer
 never receives the original viewer's grant. On older runtimes without the
 public `assert_caller` API, native control is explicitly unsupported.
-`tern_env.pane_env(session_id)` supplies live pane coordinates, not authority.
+`tern_env.pane_env(durable_viewer_session_id)` supplies live pane coordinates, not authority.
 The plugin freezes the original viewer, window and task; replacing the
 viewer cannot redirect old claimed pages.
+
+**Three identity domains are never interchangeable.** The request's live
+`session_id` is an ephemeral RPC slot and binds the original caller/lease;
+the actual legacy owner's `session_key` is the durable conversation ID
+which names the frontend viewer marker and the exact prompt `task_id`;
+the built owner's `agent.session_id` is the distinct tool-call
+`session_id` forwarded by `tool_executor`. The plugin resolves these through
+the trusted `_current_session_steer_authority` owner and its real agent,
+never through client params or pane state. Discovery may be read-only
+while that agent is building. The original lease is indexed only by its
+live RPC SID, while tool dispatch requires both the unique original task
+and exact agent SID to reach that **same driver**. A wrong tool SID,
+duplicate task claim, resumed/replaced viewer, or generation change
+fails closed; no second driver or browser fallback gains ownership.
 
 Drive requires **explicit operator consent** via the per-profile
 `plugins.entries.hermes-tern.allow_tool_override: true` or
@@ -76,6 +90,14 @@ With it, browser tools are overridden only through the public
 `ctx.register_tool(...,override=True)` so Hermes scope, pre-tool hook and
 guardrail checks precede native effects. A `tool_execution` middleware
 runs before those checks and is forbidden for native browser dispatch.
+After a successful native commissioning, an uncached local `check_fn`
+reports the actually selected consented native browser as available to
+model-tool schemas even when unrelated agent-browser, Chromium/cloud or
+extension backends are missing. It reads only local driver, consent and
+registry state: **no Tern I/O, installer, network call or new lease** is
+attempted during schema construction. Outside native support, the
+preexisting browser availability predicates still decide. Tool handlers
+continue through normal Hermes scope, hooks and guardrails.
 Revoking consent disables effects. Granting it **after** the plugin loaded
 without override handlers requires a plugin reload before native drive becomes
 available; discovery remains read-only until the actual native tool handlers
@@ -88,9 +110,10 @@ context exposes profile, session and captured lease, but does not expose
 a documented task/busy-turn snapshot. The legacy TUI backend uses the
 existing `_current_session_steer_authority` to obtain task identity and
 the running fence. Canonical sessions lacking an equivalent trusted
-task/busy accessor can discover read-only, but adoption/focus/release/frame
-remain explicitly unsupported; the backend must not infer this from
-frontend state. The subsequent gateway API projection belongs in
+task/busy accessor are explicitly unsupported for
+adoption/focus/release/frame. Without a trusted durable viewer ID, even
+listing refuses rather than confusing the live RPC SID with a durable
+marker. The backend must not infer these from frontend state. The subsequent gateway API projection belongs in
 `kvnloo/hermes-agent`, not in this fork's runtime pin.
 
 Undriven blocks require explicit handover. Foreign driven blocks cannot
@@ -107,9 +130,10 @@ With `HERMES_SRC` pointing to a checkout of the pinned Hermes SHA:
 
 ```sh
 cd frontend
+HERMES_SRC=/path/to/pinned-hermes-agent bun install --frozen-lockfile --prefer-offline
 HERMES_SRC=/path/to/pinned-hermes-agent bun run setup
-bun run test -- src/__tests__/browserBlocks.test.ts src/__tests__/browserOverlay.test.ts src/__tests__/keys.test.ts
 bun run check
+bun run test -- src/__tests__/browserBlocks.test.ts src/__tests__/browserOverlay.test.ts src/__tests__/keys.test.ts
 bun run bundle
 ```
 
@@ -119,10 +143,17 @@ Test the Python plugin against the separate green Hermes source checkout:
 PYTHONPATH=/path/to/core-0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5 python -m pytest -q -ra tests
 ```
 
+Run OMP's three independent review-only regressions for the distinct
+live/durable/tool SID boundaries and native-only availability, against
+that same core. Keep separate isolated source/profile environments.
 These are validation commands, not a claim they have been run here.
 Native acceptance needs an isolated, signed-in Tern window with its own config
 and daemon, never a user's live panes: inspect, adopt, focus, release, frame,
-gateway refusal, late listing and abandoned native opens. Fake gateway and
+gateway refusal, late listing and abandoned native opens. Verify a
+fresh **owned Tern 0.9.5** window and an isolated loopback test page/model.
+Every outside-pane Tern CLI mutation must pass that verified owned
+`--window` key explicitly. Never default to a user's active Tern window.
+Fake gateway and
 TSP-view tests are not native-browser certification.
 
 ## Provenance

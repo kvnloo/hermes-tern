@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import os
 import queue
 import threading
 from pathlib import Path
@@ -18,6 +19,10 @@ import pytest
 
 from hermes_tern_plugin import browser_backend as backend
 from hermes_tern_plugin import browser_native as native
+from hermes_tern_plugin import tern_env, connections
+
+_REAL_PANE_ENV = tern_env.pane_env
+_REAL_VIEWER = backend._viewer
 
 
 class Peer:
@@ -55,7 +60,8 @@ class ReadOnlyCLI:
 
 def attach(server, sid, peer, home=None):
     server._sessions[sid] = {
-        "transport": peer, "profile_home": home, "session_key": sid,
+        "transport": peer, "profile_home": home, "session_key": f"durable-{sid}",
+        "agent": SimpleNamespace(session_id=f"tool-{sid}"),
         "history": [], "history_lock": threading.Lock(), "running": False,
     }
 
@@ -275,7 +281,7 @@ def test_public_context_consent_grant_revoke_reload_and_registry_identity(green,
     assert refused["error"]["code"] == -32000
     selected = registry.get_entry("browser_click")
     assert selected is not None and selected.handler is backend._NATIVE_HANDLERS["default"]["browser_click"]
-    tool = json.loads(selected.handler({"ref": "@e1"}, session_id="s1", task_id="s1"))
+    tool = json.loads(selected.handler({"ref": "@e1"}, session_id="tool-s1", task_id="durable-s1"))
     assert tool["error_kind"] == "unsupported"
     assert driver.scope.cli.calls == initial  # not a native focus or wrong-backend effect
 
@@ -337,13 +343,10 @@ def test_real_legacy_original_caller_survives_mirror_denial_then_detach(green, m
 
 @pytest.mark.parametrize("revocation", ["generation", "real_rewind"])
 @pytest.mark.asyncio
-async def test_real_canonical_original_caller_and_generation(green, monkeypatch, revocation):
-    """Real canonical router; the temporary task/busy witness is fixture-only.
-
-    Production canonical sessions without a trusted task accessor stay read-only.
-    The mock owner supplies only this orthogonal task fence: the core still binds
-    both real WS peers via its own public GatewayScopeLease.assert_caller.
-    """
+async def test_real_canonical_no_task_accessor_even_after_generation_change(
+    green, monkeypatch, revocation,
+):
+    """Actual canonical dispatcher and rewind: do not fabricate task authority."""
     from gateway.session_authority import LiveSession, SessionAuthority
     from hermes_state import SessionDB
     from hermes_state_runtime import begin_runtime_epoch
@@ -391,36 +394,18 @@ async def test_real_canonical_original_caller_and_generation(green, monkeypatch,
     try:
         for peer in (a, b):
             assert "result" in await call(peer, "session.resume", session_id="canon")
-        # The unmodified production canonical path has no trustworthy task
-        # projection, so genuine attached discovery cannot claim a controller.
         initial = await call(a, "hermes-tern.browser.blocks", session_id="canon")
-        assert initial["result"]["available"] is False, initial
-        assert initial["result"]["reason"] == "operator_consent_or_task_authority_required"
+        assert initial["result"] == {
+            "available": False, "blocks": [], "reason": "task_authority_unavailable",
+        }
         assert native.get_driver("default", "canon") is None
-        # Only the orthogonal task/busy authority is supplied by this fixture;
-        # caller and admission are enforced by the real core dispatcher.
-        monkeypatch.setattr(backend, "_legacy_owner", lambda sid, profile: (
-            {"session_key": "canon", "running": False}
-            if sid == "canon" and profile == "default" else None
-        ))
-        first = await call(a, "hermes-tern.browser.blocks", session_id="canon")
-        assert first["result"]["available"] is True, first
-        driver = native.get_driver("default", "canon")
-        lease = driver.scope.lease
-        calls = list(driver.scope.cli.calls)
         for action, params in (
-            ("blocks", {}),
-            ("adopt", {"target_id": "7"}),
-            ("focus", {"target_id": "7"}),
+            ("adopt", {"target_id": "7"}), ("focus", {"target_id": "7"}),
+            ("release", {"target_id": "7"}), ("frame", {"target_id": "7", "frame": "main"}),
         ):
-            refused = await call(b, f"hermes-tern.browser.{action}",
-                                 session_id="canon", **params)
-            assert refused["error"]["code"] == -32000, refused
-        assert driver.scope.cli.calls == calls
-        assert native.get_driver("default", "canon").scope.lease is lease
-        owned = await call(a, "hermes-tern.browser.adopt", session_id="canon", target_id="7")
-        assert owned["result"]["target_id"] == "7", owned
-        assert driver.scope.lease is lease
+            result = await call(a, f"hermes-tern.browser.{action}", session_id="canon", **params)
+            assert "error" in result, result
+        assert not ActiveCLI.instances
 
         if revocation == "generation":
             db._execute_write(lambda conn: conn.execute(
@@ -443,11 +428,9 @@ async def test_real_canonical_original_caller_and_generation(green, monkeypatch,
             assert rewind["result"]["execution_generation"] == (
                 snapshot["runtime_generation"] + 1
             )
-        calls = list(driver.scope.cli.calls)
-        stale = await call(a, "hermes-tern.browser.focus", session_id="canon", target_id="7")
-        assert stale["error"]["code"] in {4001, -32000}, stale
-        assert driver.scope.cli.calls == calls
-        assert native.get_driver("default", "canon").scope.lease is lease
+        stale = await call(a, "hermes-tern.browser.blocks", session_id="canon")
+        assert "error" in stale or stale["result"]["available"] is False
+        assert not ActiveCLI.instances and not native._DRIVERS
     finally:
         await a.close()
         await b.close()
@@ -488,3 +471,132 @@ def test_real_hermes_policy_deny_before_native_effect(monkeypatch, denial):
     assert state.blocked
     assert not effects
     assert len(posts) == 1
+
+
+def test_native_registry_availability_without_external_browser(green, monkeypatch):
+    """Original browser requirements false; registry schema accepts only commissioned Tern."""
+    from tools import browser_tool as browser
+    from tools.registry import registry
+
+    server, manager, plugins, home = green
+    monkeypatch.setattr(browser, "check_browser_routed_requirements",
+                        lambda action="browser_snapshot": False)
+    monkeypatch.setattr(browser._install, "check_browser_requirements", lambda: False)
+    monkeypatch.setattr(browser._install, "check_browser_vision_requirements", lambda: False)
+    _reload_granted(manager, plugins, home, monkeypatch)
+    peer = Peer()
+    attach(server, "s1", peer)
+    selected = [registry.get_entry(name) for name in backend._TOOL_NAMES]
+    assert all(e is not None and callable(e.check_fn) for e in selected)
+    # Routed originals honor the simulated absent extension/browser.
+    routed = selected[:7]
+    assert all(not e.check_fn() for e in routed)
+    # Separate false-original witness also covers the three plain probes,
+    # independent of dependencies possibly installed on OMP's test host.
+    native_only = backend._native_availability(
+        plugins.PluginContext(plugins.PluginManifest(name="hermes-tern"), manager),
+        lambda: False,
+    )
+    assert native_only() is False
+    assert not ActiveCLI.instances
+
+    found = rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")
+    assert found["result"]["available"], found
+    driver = native.get_driver("default", "s1")
+    assert driver is not None
+    baseline = list(driver.scope.cli.calls)
+    assert baseline == [{"op": "blocks"}]
+    assert all(e.check_fn() for e in selected)
+    assert native_only() is True
+    schemas = registry.get_definitions(set(backend._TOOL_NAMES))
+    assert {schema["function"]["name"] for schema in schemas} == set(backend._TOOL_NAMES)
+    assert driver.scope.cli.calls == baseline  # schema assembly causes zero CLI effects
+
+    assert rpc(server, peer, "hermes-tern.browser.adopt",
+               session_id="s1", target_id="7")["result"]["target_id"] == "7"
+    before = list(driver.scope.cli.calls)
+    _consent(home, False)
+    assert not any(e.check_fn() for e in routed)
+    assert native_only() is False
+    assert driver.scope.cli.calls == before
+
+
+def test_real_create_resume_marker_and_model_tool_original_driver(green, monkeypatch):
+    """Real session factory/owner/dispatcher and REAL filesystem marker reader."""
+    from tools.registry import registry
+
+    server, manager, plugins, home = green
+    _reload_granted(manager, plugins, home, monkeypatch)
+    monkeypatch.setattr(tern_env, "pane_env", _REAL_PANE_ENV)
+    monkeypatch.setattr(backend, "_viewer", _REAL_VIEWER)
+    tern_env._ids.clear()
+    tern_env._panes.clear()
+    bin_dir = home / "bin"
+    bin_dir.mkdir()
+    binary = bin_dir / "tern"
+    binary.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+
+    first = Peer()
+    created = rpc(server, first, "session.create", rid=401, source="desktop")
+    assert "result" in created, created
+    sid, durable = created["result"]["session_id"], created["result"]["stored_session_id"]
+    assert sid != durable
+    assert server._sessions[sid]["session_key"] == durable
+    assert server._sessions[sid]["agent_ready"].wait(30)
+    agent = server._sessions[sid]["agent"]
+    assert agent is not None and isinstance(agent.session_id, str) and agent.session_id
+
+    (connections._dir("viewers") / f"{durable}.json").write_text(json.dumps({
+        "pid": os.getpid(),
+        "tern": {"TERN_PANE": "3", "TERN_WINDOW_KEY": "owned-isolated-window",
+                 "TERN_DAEMON_SOCKET": "isolated.sock"},
+    }), encoding="utf-8")
+    assert tern_env.pane_env(durable)["TERN_PANE"] == "3"
+    assert tern_env.pane_env(sid) == {}
+
+    second = Peer()
+    resumed = rpc(server, second, "session.resume", rid=402, session_id=durable)
+    assert "result" in resumed, resumed
+    resumed_sid = resumed["result"]["session_id"]
+    assert resumed_sid != durable
+    assert resumed_sid == sid
+    assert server._session_transport_contains(server._sessions[sid], first)
+    assert server._session_transport_contains(server._sessions[sid], second)
+
+    listing = rpc(server, second, "hermes-tern.browser.blocks", rid=403, session_id=sid)
+    assert listing["result"]["available"], listing
+    driver = native.get_driver("default", sid)
+    assert driver is not None and driver.scope.lease is not None
+    assert driver.scope.rpc_session_id == sid
+    assert driver.scope.viewer_session_id == durable
+    assert driver.scope.task_id == durable
+    assert driver.scope.tool_session_id == agent.session_id
+    assert native.get_driver("default", durable) is None
+    lease = driver.scope.lease
+    before = list(driver.scope.cli.calls)
+    for action, opts in (
+        ("blocks", {}), ("adopt", {"target_id": "7"}), ("focus", {"target_id": "7"}),
+    ):
+        result = rpc(server, first, f"hermes-tern.browser.{action}",
+                     rid=404, session_id=sid, **opts)
+        assert result["error"]["code"] == -32000, result
+    assert driver.scope.cli.calls == before
+    assert driver.scope.lease is lease
+
+    adopted = rpc(server, second, "hermes-tern.browser.adopt",
+                  rid=405, session_id=sid, target_id="7")
+    assert adopted["result"]["target_id"] == "7", adopted
+    focused = rpc(server, second, "hermes-tern.browser.focus",
+                  rid=406, session_id=sid, target_id="7")
+    assert focused["result"]["target_id"] == "7", focused
+    from tools.registry import registry
+    selected = registry.get_entry("browser_snapshot")
+    assert selected.handler is backend._NATIVE_HANDLERS["default"]["browser_snapshot"]
+    tool = json.loads(selected.handler({"full": False},
+                        session_id=agent.session_id, task_id=durable))
+    assert tool["success"] is True and tool["tern_target"]["target_id"] == "7"
+    assert native.get_driver_for_tool("default", agent.session_id, durable) is driver
+    assert json.loads(selected.handler({"full": False}, session_id=sid,
+                                      task_id=durable))["error_kind"] == "ownership"

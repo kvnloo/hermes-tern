@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import threading
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import tern_env
 from .browser_native import (
     BrowserDriver, BrowserScope, NativeBrowserError, TernBrowserCLI,
-    effect_fence, get_driver, register_driver, unload_profile,
+    effect_fence, get_driver, get_driver_for_tool, has_native_driver, register_driver, unload_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,41 @@ def _viewer(sid: str) -> tuple[int, str, tuple[tuple[str, str], ...], dict[str, 
     return int(pane), window, tuple(sorted(tern.items())), clean, resolved.command[0], scope
 
 
+@dataclass(frozen=True)
+class LegacyIdentity:
+    """Identifiers read from the attached runtime's trusted legacy owner.
+
+    rpc_session_id identifies the live attached gateway slot/lease. The
+    conversation's durable key names the viewer marker and the prompt task.
+    tool_session_id is read from the actual built agent (tool_executor's
+    session_id), not presumed equal to either other identifier.
+    """
+
+    rpc_session_id: str
+    viewer_session_id: str
+    task_id: str
+    tool_session_id: str | None
+
+
+def _legacy_identity(sid: str, profile: str) -> tuple[dict, LegacyIdentity] | None:
+    owner = _legacy_owner(sid, profile)
+    if owner is None:
+        return None
+    durable = owner.get("session_key")
+    if not isinstance(durable, str) or not durable:
+        return None
+    agent = owner.get("agent")
+    tool_sid = getattr(agent, "session_id", None) if agent is not None else None
+    if not isinstance(tool_sid, str) or not tool_sid:
+        tool_sid = None  # construction not finished: read-only, never grant native drive
+    return owner, LegacyIdentity(
+        rpc_session_id=sid,
+        viewer_session_id=durable,
+        task_id=durable,  # prompt_turn passes owner["session_key"] as run task_id
+        tool_session_id=tool_sid,
+    )
+
+
 def _legacy_owner(sid: str, profile: str) -> dict | None:
     """Read the real legacy steer owner; never synthesize one for canonical."""
     try:
@@ -134,11 +170,13 @@ def _forget_native_tools(profile: str, handlers: dict[str, Callable]) -> None:
             _NATIVE_HANDLERS.pop(profile, None)
 
 
-def _new_scope(request, profile: str, sid: str, task_id: str) -> BrowserScope:
-    pane, window, pane_vars, env, executable, window_scope = _viewer(sid)
+def _new_scope(request, profile: str, ids: LegacyIdentity) -> BrowserScope:
+    pane, window, pane_vars, env, executable, window_scope = _viewer(ids.viewer_session_id)
     lease = request.capture_scope()
     return BrowserScope(
-        profile=profile, session_id=sid, task_id=task_id,
+        profile=profile, rpc_session_id=ids.rpc_session_id,
+        viewer_session_id=ids.viewer_session_id,
+        task_id=ids.task_id, tool_session_id=ids.tool_session_id,
         pane_vars=pane_vars, pane=pane, window=window,
         window_scope=window_scope, lease=lease,
         cli=TernBrowserCLI(executable, env, window),
@@ -146,37 +184,51 @@ def _new_scope(request, profile: str, sid: str, task_id: str) -> BrowserScope:
 
 
 def _driver(request, ctx, *, require_owner: bool) -> BrowserDriver:
-    """Reuse only an already granted lease; a control RPC cannot mint its own."""
+    """The live RPC lookup never uses a durable marker or a model-tool hint."""
     profile = _profile(request)
     sid = request.session_id
-    owner = _legacy_owner(sid, profile)
-    if require_owner and owner is None:
-        raise NativeBrowserError("unavailable")
     current = get_driver(profile, sid)
     if current is None:
         raise NativeBrowserError("unsupported")
     scope = current.scope
     scope.require_caller(request)  # original live RPC peer, NOT legacy steer membership
+    resolved = _legacy_identity(sid, profile)
+    if require_owner and resolved is None:
+        raise NativeBrowserError("unavailable")
     if not _native_tools_ready(ctx, profile):
         raise NativeBrowserError("unsupported")
-    _, window, pane_vars, _, _, window_scope = _viewer(sid)
+    if resolved is None:
+        raise NativeBrowserError("ownership")
+    owner, ids = resolved
+    if (scope.rpc_session_id != ids.rpc_session_id
+            or scope.viewer_session_id != ids.viewer_session_id
+            or scope.task_id != ids.task_id
+            or scope.tool_session_id != ids.tool_session_id):
+        raise NativeBrowserError("ownership")
+    _, window, pane_vars, _, _, window_scope = _viewer(ids.viewer_session_id)
     if (scope.pane_vars != pane_vars or scope.window != window
-            or scope.window_scope != window_scope
-            or (owner is not None and owner.get("session_key") != scope.task_id)):
+            or scope.window_scope != window_scope):
         raise NativeBrowserError("ownership")
     return current
 
 
 def _rpc_effect_fence(ctx, request, driver: BrowserDriver, action: str) -> None:
-    """Reauthorize the original RPC before EACH native CLI/selection effect."""
+    """Reauthorize original live RPC and owner metadata before EACH native effect."""
     request.assert_attached()
-    driver.scope.require_caller(request)
-    if not _native_tools_ready(ctx, driver.scope.profile):
+    scope = driver.scope
+    scope.require_caller(request)
+    if not _native_tools_ready(ctx, scope.profile):
         raise PermissionError("native browser tool overrides absent or consent revoked; reload plugin")
     if _cdp_selected():
         raise NativeBrowserError("ownership")
-    owner = _legacy_owner(driver.scope.session_id, driver.scope.profile)
-    if owner is None or owner.get("session_key") != driver.scope.task_id:
+    resolved = _legacy_identity(scope.rpc_session_id, scope.profile)
+    if resolved is None:
+        raise PermissionError("original browser task authority was replaced")
+    owner, ids = resolved
+    if (request.session_id != ids.rpc_session_id
+            or scope.viewer_session_id != ids.viewer_session_id
+            or scope.task_id != ids.task_id
+            or scope.tool_session_id != ids.tool_session_id):
         raise PermissionError("original browser task authority was replaced")
     if action not in {"focus", "blocks"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
@@ -194,34 +246,35 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
     sid = request.session_id
     if params["session_id"] != sid:
         raise PermissionError("session reference does not match caller")
+    existing = get_driver(profile, sid)
+    if existing is not None:
+        # Deny foreign mirrors BEFORE discovery, grant, or owner diagnostics.
+        existing.scope.require_caller(request)
+    resolved = _legacy_identity(sid, profile)
     if action == "blocks":
-        # Read-only discovery is the sole lease-start path. Its provisional
-        # handler may LIST, but never uses assert_caller/control before return.
+        # Read-only discovery is the sole lease-start path. A canonical request
+        # without a trusted durable viewer identity cannot guess from its RPC SID.
         try:
             if _cdp_selected():
                 return {"available": False, "blocks": [], "reason": "explicit_cdp"}
             if not callable(getattr(request, "capture_scope", None)):
                 return {"available": False, "blocks": [], "reason": "caller_binding_unsupported"}
-            owner = _legacy_owner(sid, profile)
+            if resolved is None:
+                return {"available": False, "blocks": [], "reason": "task_authority_unavailable"}
+            owner, ids = resolved
             ready = _native_tools_ready(ctx, profile)
-            existing = get_driver(profile, sid)
-            if existing is not None:
-                # This must reject same-SID mirrored peers even when consent
-                # was revoked and this call will use only transient discovery.
-                existing.scope.require_caller(request)
-            if ready and owner is not None and existing is not None:
+            if ready and ids.tool_session_id and existing is not None:
                 driver = _driver(request, ctx, require_owner=True)
                 with effect_fence(lambda: _rpc_effect_fence(ctx, request, driver, "blocks")):
                     return {"available": True, "blocks": driver.listing()}
 
             reason = ("operator_consent_or_task_authority_required"
-                      if owner is None or not _consented(ctx)
+                      if not _consented(ctx) or not ids.tool_session_id
                       else "needs_plugin_reload")
-            scope = _new_scope(request, profile, sid,
-                               owner["session_key"] if owner is not None else sid)
+            scope = _new_scope(request, profile, ids)
             kept = False
             try:
-                can_start = ready and owner is not None
+                can_start = bool(ready and ids.tool_session_id and owner.get("running") is False)
                 if can_start and not callable(getattr(scope.lease, "assert_caller", None)):
                     can_start = False
                     reason = "caller_binding_unsupported"
@@ -233,13 +286,13 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
                         reason = "needs_plugin_reload"
                     elif _cdp_selected():
                         reason = "explicit_cdp"
-                    elif (new_owner := _legacy_owner(sid, profile)) is None or (
-                            new_owner.get("session_key") != scope.task_id):
+                    elif (latest := _legacy_identity(sid, profile)) is None or (
+                            latest[1] != ids or latest[0].get("running") is not False):
                         reason = "ownership"
                     else:
-                        # The first RPC may only record the original provisional
-                        # lease after read-only discovery. Admission happens on
-                        # successful dispatcher return, never inside this handler.
+                        # The first RPC may record the original provisional
+                        # lease AFTER read-only discovery. Successful dispatcher
+                        # return grants it; no assert_caller on this provisional RPC.
                         register_driver(scope)
                         kept = True
                 return {"available": kept, "blocks": blocks, **({} if kept else {"reason": reason})}
@@ -253,16 +306,17 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
 
     if not _consented(ctx):
         raise PermissionError("native browser drive requires explicit tools.override consent")
-    owner = _legacy_owner(sid, profile)
-    if owner is None:
+    if resolved is None:
         raise PermissionError("original task and busy-turn authority unavailable")
+    owner, ids = resolved
+    if not ids.tool_session_id:
+        raise NativeBrowserError("unsupported")
     if not _native_tools_ready(ctx, profile):
         raise PermissionError("native browser tool handlers absent; reload plugin after consent")
     if action in {"adopt", "release", "frame"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
     if _cdp_selected():
-        # Do not create even an idle native claim while CDP is explicit.
-        existing = get_driver(profile, sid)
+        # Never create an alternate claim while CDP is explicit.
         raise NativeBrowserError("ownership" if existing is not None else "unsupported")
     driver = _driver(request, ctx, require_owner=True)
     target = params["target_id"]
@@ -441,38 +495,58 @@ def _tool_handler(ctx, name: str, original: Callable) -> Callable:
     def handle(args, **kw):
         if not isinstance(args, dict):
             return _error("invalid")
-        sid = kw.get("session_id")
-        if not isinstance(sid, str) or not sid:
+        tool_sid, task_id = kw.get("session_id"), kw.get("task_id")
+        if not isinstance(tool_sid, str) or not tool_sid or not isinstance(task_id, str) or not task_id:
             return _error("ownership")
         from gateway.session_authorities import served_profile_name
         from hermes_constants import get_hermes_home
 
         profile = served_profile_name(get_hermes_home())
-        driver = get_driver(profile, sid)
-        # A claimed native session is irreversible until explicit cleanup.
-        if driver is not None:
-            try:
+        try:
+            # Unique original claim indexed by its trusted task and its exact
+            # built-agent tool SID, NEVER by a guessed live RPC/durable alias.
+            driver = get_driver_for_tool(profile, tool_sid, task_id)
+            if driver is not None:
                 driver.scope.require_current()
-                if kw.get("task_id") != driver.scope.task_id:
-                    return _error("ownership")
                 if not _native_tools_ready(ctx, profile):
                     return _error("unsupported")
                 if _cdp_selected():
                     return _error("ownership")
                 return _model_action(name, args, driver)
-            except NativeBrowserError as exc:
-                return _error(exc.kind)
-            except (OSError, ValueError, TypeError, RuntimeError):
-                logger.exception("native browser effect refused")
-                return _error("failed")
+        except NativeBrowserError as exc:
+            return _error(exc.kind)
+        except (PermissionError, OSError, ValueError, TypeError, RuntimeError):
+            logger.exception("native browser effect refused")
+            return _error("failed")
 
-        # No native claim: an explicitly selected CDP backend wins. Outside a
-        # live Tern viewer, the existing browser implementation stays intact.
-        if _cdp_selected() or not tern_env.pane_env(sid):
+        # No claim: retain the ORIGINAL tool for non-Tern/explicit CDP.
+        # A live durable-keyed Tern pane must first commission via the bound
+        # RPC; never silently let an unrelated browser take over its request.
+        if _cdp_selected() or not tern_env.pane_env(tool_sid):
             return original(args, **kw)
-        return _error("unsupported")  # discover through a caller-bound RPC first
+        return _error("unsupported")
 
     return handle
+
+
+def _native_availability(ctx, original_check: Callable | None) -> Callable:
+    """Pure native capability check; preserve the existing non-native gate.
+
+    A successful, caller-bound native discovery is the only way to enter the
+    native branch. Checking this predicate does not call Tern, read a viewer
+    marker, install Chromium or claim a page. The normal Hermes availability
+    predicate remains authoritative outside supported native operation.
+    """
+    from tools.registry import no_cache_check_fn
+
+    def check() -> bool:
+        profile = ctx.profile_name
+        if (_native_tools_ready(ctx, profile) and not _cdp_selected()
+                and has_native_driver(profile)):
+            return True
+        return bool(original_check()) if original_check is not None else True
+
+    return no_cache_check_fn(check)
 
 
 def register(ctx) -> None:
@@ -506,7 +580,8 @@ def register(ctx) -> None:
         registration = ctx.register_tool(
             name=name, toolset=entry.toolset, schema=entry.schema,
             handler=handler,
-            check_fn=entry.check_fn, requires_env=entry.requires_env,
+            check_fn=_native_availability(ctx, entry.check_fn),
+            requires_env=entry.requires_env,
             is_async=entry.is_async, description=entry.description,
             emoji=entry.emoji, override=True,
         )

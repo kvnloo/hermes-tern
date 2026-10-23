@@ -46,8 +46,10 @@ class BrowserScope:
     """Original server-authorized session, viewer and publisher; never retarget."""
 
     profile: str
-    session_id: str
+    rpc_session_id: str
+    viewer_session_id: str
     task_id: str
+    tool_session_id: str | None
     pane_vars: tuple[tuple[str, str], ...]
     pane: int
     window: str
@@ -72,7 +74,7 @@ class BrowserScope:
         self.lease.assert_current()
         if served_profile_name(get_hermes_home()) != self.profile:
             raise NativeBrowserError("ownership")
-        if tuple(sorted(tern_env.pane_env(self.session_id).items())) != self.pane_vars:
+        if tuple(sorted(tern_env.pane_env(self.viewer_session_id).items())) != self.pane_vars:
             raise NativeBrowserError("ownership")
 
 
@@ -364,15 +366,45 @@ _LOCK = threading.RLock()
 _DRIVERS: dict[tuple[str, str], BrowserDriver] = {}
 
 
-def get_driver(profile: str, session_id: str) -> BrowserDriver | None:
+def get_driver(profile: str, rpc_session_id: str) -> BrowserDriver | None:
+    """Exact live RPC slot; a durable session key is never accepted as an alias."""
     with _LOCK:
-        return _DRIVERS.get((profile, session_id))
+        return _DRIVERS.get((profile, rpc_session_id))
+
+
+def get_driver_for_tool(profile: str, tool_session_id: str, task_id: str) -> BrowserDriver | None:
+    """Resolve the commissioned driver through one exact trusted task identity.
+
+    A stale agent SID or duplicate task must fail closed, never fall back to
+    another browser. No loose session aliases are cached.
+    """
+    with _LOCK:
+        matches = [driver for (name, _), driver in _DRIVERS.items()
+                   if name == profile and driver.scope.task_id == task_id]
+        if not matches:
+            return None
+        if (len(matches) != 1 or matches[0].scope.tool_session_id != tool_session_id):
+            raise NativeBrowserError("ownership")
+        return matches[0]
+
+
+def has_native_driver(profile: str) -> bool:
+    """Side-effect-free availability witness for previously commissioned sessions."""
+    with _LOCK:
+        return any(name == profile and bool(driver.scope.tool_session_id)
+                   and not getattr(getattr(driver.scope.lease, "cancellation", None),
+                                   "is_set", lambda: False)()
+                   for (name, _), driver in _DRIVERS.items())
 
 
 def register_driver(scope: BrowserScope) -> BrowserDriver:
     with _LOCK:
-        key = (scope.profile, scope.session_id)
-        if key in _DRIVERS:
+        key = (scope.profile, scope.rpc_session_id)
+        if (key in _DRIVERS or not scope.tool_session_id
+                or any(name == scope.profile and driver.scope.task_id == scope.task_id
+                       for (name, _), driver in _DRIVERS.items())):
+            # A resume must not duplicate an unacknowledged native claim for
+            # the same durable task. The old original lease owns its cleanup.
             raise NativeBrowserError("ownership")
         driver = BrowserDriver(scope)
         _DRIVERS[key] = driver
