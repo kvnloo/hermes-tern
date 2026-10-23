@@ -5,12 +5,9 @@ import { App } from './appSetup.js'
 import { FakeGateway, fakeTern, given, key, topNodes } from './fakes.js'
 
 function findEditor(nodes: readonly Node[]): Node {
-  for (const n of nodes) {
-    if (n.kind === 'editor') return n
-    const found = search(n.children)
-    if (found) return found
-  }
-  throw new Error('No native editor in Tern dock')
+  const editor = search(nodes)
+  if (!editor) throw new Error('No native editor in Tern dock')
+  return editor
 }
 
 function search(nodes: readonly Node[]): Node | undefined {
