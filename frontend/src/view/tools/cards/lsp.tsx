@@ -10,12 +10,13 @@ import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { LspDetail, LspLocation, LspRange, LspResult, LspSymbol } from '../../../tools/lsp-result.js'
 import { shortPath } from '../steps.js'
+import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import type { Card, ToolView } from '../types.js'
 
 import { fallbackView } from './generic.js'
 
-/** No session-locality proof reaches this registry yet: never point Tern at a guessed host file. */
-const LOCAL_LINK_NOTICE = 'File targets are not verified host-local; links disabled.'
+/** Presented when the frame cannot prove the file-host identity. */
+const LOCAL_LINK_NOTICE = 'File targets are not confirmed host-local; links disabled.'
 
 /** Keep wrapping whitespace, but render terminal controls and bidi overrides as visible escapes. */
 function visible(text: string): string {
@@ -28,34 +29,37 @@ function rangeText(span: LspRange): string {
   return span.start.line + ':' + span.start.col + '–' + span.end.line + ':' + span.end.col
 }
 
-function symbolItem(symbol: LspSymbol): TreeItem {
+function symbolItem(symbol: LspSymbol, context?: LspLinkContext): TreeItem {
+  const href = lspFileHref(symbol.location.path, context, symbol.selection)
+
   return {
     id: symbol.id,
     label: [
-      { s: 'accent', t: visible(symbol.name) },
+      { s: 'accent', t: visible(symbol.name), ...(href ? { href } : {}) },
       { s: 'muted', t: ' · kind ' + symbol.kind + ' · ' + symbol.selection.start.line + ':' + symbol.selection.start.col }
     ],
     open: true,
-    children: symbol.children.map(symbolItem)
+    children: symbol.children.map(child => symbolItem(child, context))
   }
 }
 
 /** A separate wrapping row retains each symbol's complete source and selection metadata. */
-function symbolLocations(symbols: LspSymbol[]): JSX.Element[] {
+function symbolLocations(symbols: LspSymbol[], context?: LspLinkContext): JSX.Element[] {
   return symbols.flatMap(symbol => [
     <text
       key={'s' + symbol.id}
+      href={lspFileHref(symbol.location.path, context, symbol.selection)}
       role="omp.tool.symbol.location"
       text={visible(symbol.name + ' · ' + symbol.location.path + ' · ' + rangeText(symbol.location.range) +
         ' · selection ' + rangeText(symbol.selection))}
       wrap="word"
     />,
-    ...symbolLocations(symbol.children)
+    ...symbolLocations(symbol.children, context)
   ])
 }
 
 /** File-grouped results, without guessing at file links when a gateway may be remote. */
-function references(locations: LspLocation[]): JSX.Element[] {
+function references(locations: LspLocation[], context?: LspLinkContext): JSX.Element[] {
   const groups = new Map<string, LspLocation[]>()
 
   for (const location of locations) {
@@ -73,18 +77,18 @@ function references(locations: LspLocation[]): JSX.Element[] {
     />,
     ...[...groups].map(([path, items], i) => (
       <col key={'f' + i} role="omp.tool.references.file">
-        <text key="path" role="omp.tool.file" text={visible(path + ' · ' + items.length)} wrap="word" />
+        <text key="path" href={lspFileHref(path, context)} role="omp.tool.file" text={visible(path + ' · ' + items.length)} wrap="word" />
         {items.map((item, j) => (
-          <text key={'r' + j} role="omp.tool.reference" text={rangeText(item.range)} wrap="word" />
+          <text key={'r' + j} href={lspFileHref(path, context, item.range)} role="omp.tool.reference" text={rangeText(item.range)} wrap="word" />
         ))}
       </col>
     ))
   ]
 }
 
-function resultBody(result: LspResult): JSX.Element[] {
+function resultBody(result: LspResult, context?: LspLinkContext): JSX.Element[] {
   const body: JSX.Element[] = [
-    <text key="path" role="omp.tool.file" text={visible(result.path)} wrap="word" />,
+    <text key="path" href={lspFileHref(result.path, context)} role="omp.tool.file" text={visible(result.path)} wrap="word" />,
     <text
       key="server"
       role="omp.tool.context"
@@ -95,15 +99,15 @@ function resultBody(result: LspResult): JSX.Element[] {
 
   switch (result.kind) {
     case 'references':
-      body.push(...references(result.locations))
+      body.push(...references(result.locations, context))
       break
 
     case 'symbols':
       if (result.symbols.length) {
         body.push(
           <col key="symbols">
-            <tree key="tree" nodes={result.symbols.map(symbolItem)} role="omp.tool.symbols" />
-            {symbolLocations(result.symbols)}
+            <tree key="tree" nodes={result.symbols.map(symbol => symbolItem(symbol, context))} role="omp.tool.symbols" />
+            {symbolLocations(result.symbols, context)}
           </col>
         )
       } else {
@@ -114,7 +118,7 @@ function resultBody(result: LspResult): JSX.Element[] {
     case 'hover':
       if (result.range) {
         body.push(
-          <text key="range" role="omp.tool.hover.range" text={rangeText(result.range)} wrap="word" />
+          <text key="range" href={lspFileHref(result.path, context, result.range)} role="omp.tool.hover.range" text={rangeText(result.range)} wrap="word" />
         )
       }
 
@@ -149,12 +153,14 @@ function resultBody(result: LspResult): JSX.Element[] {
       break
   }
 
-  body.push(<text key="locality" role="omp.tool.notice" spans={[{ s: 'muted', t: LOCAL_LINK_NOTICE }]} wrap="word" />)
+  if (!context?.hostLocal) {
+    body.push(<text key="locality" role="omp.tool.notice" spans={[{ s: 'muted', t: LOCAL_LINK_NOTICE }]} wrap="word" />)
+  }
 
   return body
 }
 
-function lspCard(call: ToolCall, d: LspDetail, now: number): Card {
+function lspCard(call: ToolCall, d: LspDetail, now: number, context?: LspLinkContext): Card {
   const result = d.result
 
   if (!result) {
@@ -162,7 +168,7 @@ function lspCard(call: ToolCall, d: LspDetail, now: number): Card {
     return fallbackView(call).card(now)
   }
 
-  const card: Card = { body: resultBody(result), folded: false, name: 'lsp', title: 'LSP' }
+  const card: Card = { body: resultBody(result, context), folded: false, name: 'lsp', title: 'LSP' }
 
   if (result.kind === 'error') {
     card.status = 'error'

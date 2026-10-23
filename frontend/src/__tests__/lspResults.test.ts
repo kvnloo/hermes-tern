@@ -2,15 +2,17 @@
 // stored JSON replay, malformed fallback, and Tern SDK semantic node metadata.
 
 import type { NodeJson } from '@stencil-hq/tern'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { App } from '../app/chat.js'
 import { detailOf, toolKeyOf } from '../tools/detail.js'
 import { parseLspResult } from '../tools/lsp-result.js'
+import { lspFileHref } from '../view/tools/lsp-links.js'
 import { hubIconOf } from '../view/tools/registry.js'
 import { toolDetail, toolNode } from '../view/tools/shell.js'
 import { actionOf, stepLabel } from '../view/workLogModel.js'
 
-import { tree } from './fakes.js'
+import { FakeGateway, fakeTern, given, settle, topNodes, tree } from './fakes.js'
 import { call } from './toolFixtures.js'
 
 const base = { path: '/project/src/a.py', server: 'pyright', position_encoding: 'utf-16' }
@@ -104,8 +106,9 @@ describe('LSP tool cards', () => {
     expect(root).toMatchObject({ k: 'tool', p: { name: 'lsp', title: 'LSP', status: 'done', collapsed: false } })
     expect(role(root, 'omp.tool.references.file')).toHaveLength(2)
     expect(role(root, 'omp.tool.reference').map(n => n.p?.['text'])).toEqual(['2:3–4:5', '2:3–4:5', '2:3–4:5'])
+    // With no proven frame locality, even a valid absolute target must remain inert.
     expect(nodes(root).every(n => n.p?.['href'] === undefined)).toBe(true)
-    expect(role(root, 'omp.tool.notice')[0]?.p?.['spans']).toEqual([{ s: 'muted', t: 'File targets are not verified host-local; links disabled.' }])
+    expect(role(root, 'omp.tool.notice')[0]?.p?.['spans']).toEqual([{ s: 'muted', t: 'File targets are not confirmed host-local; links disabled.' }])
   })
 
   it('preserves nested tree IDs and full source + selection range through stored JSON replay', () => {
@@ -179,5 +182,220 @@ describe('LSP tool cards', () => {
     const root = tree(toolNode(lsp(envelope({ path, kind: 'unavailable', operation: 'hover', message: 'bad' + String.fromCharCode(0) + 'file' })), 0))
     expect(role(root, 'omp.tool.file')[0]?.p?.['text']).toBe('/project/red.py')
     expect(role(root, 'omp.tool.lsp.unavailable')[0]?.p?.['text']).toBe('hover: bad\\u0000file')
+  })
+})
+
+const local = { cwd: '/project', hostLocal: true }
+const referencePayload = envelope({
+  kind: 'references',
+  locations: [location('src/a.py'), location('/project/src/b.py'), location('src/a.py')]
+})
+
+describe('LSP file hrefs through the typed tool registry', () => {
+  it('links result paths, grouped files and every full reference range when host-local', () => {
+    const root = tree(toolNode(lsp(referencePayload), 1, local))
+    expect(role(root, 'omp.tool.file').map(n => n.p?.['href'])).toEqual([
+      'file:///project/src/a.py', 'file:///project/src/a.py', 'file:///project/src/b.py'
+    ])
+    expect(role(root, 'omp.tool.reference').map(n => n.p?.['href'])).toEqual([
+      'file:///project/src/a.py#L2-L4',
+      'file:///project/src/a.py#L2-L4',
+      'file:///project/src/b.py#L2-L4'
+    ])
+    expect(role(root, 'omp.tool.reference').map(n => n.p?.['text'])).toEqual([
+      '2:3–4:5', '2:3–4:5', '2:3–4:5'
+    ])
+    expect(role(root, 'omp.tool.notice')).toHaveLength(0)
+    expect(toolDetail(lsp(referencePayload), 1, local).map(tree).flatMap(nodes)
+      .filter(n => n.p?.['role'] === 'omp.tool.reference' && typeof n.p?.['href'] === 'string')).toHaveLength(3)
+  })
+
+  it('links nested symbol-label spans and source rows through live and JSON-replayed results', () => {
+    const payload = envelope({ kind: 'symbols', symbols: [symbol('outer', 'Outer', [symbol('inner', 'method')])] })
+    for (const result of [payload, JSON.stringify(payload)]) {
+      const root = tree(toolNode(lsp(result), 2, local))
+      expect(role(root, 'omp.tool.symbols')[0]?.p?.['nodes']).toMatchObject([{
+        id: 'outer',
+        open: true,
+        label: [{ t: 'Outer', href: 'file:///project/src/a.py#L2-L4' }, {}],
+        children: [{
+          id: 'inner',
+          label: [{ t: 'method', href: 'file:///project/src/a.py#L2-L4' }, {}]
+        }]
+      }])
+      expect(role(root, 'omp.tool.symbol.location').map(n => n.p?.['href'])).toEqual([
+        'file:///project/src/a.py#L2-L4', 'file:///project/src/a.py#L2-L4'
+      ])
+      expect(role(root, 'omp.tool.symbol.location')[0]?.p?.['text']).toContain('selection 2:3–4:5')
+    }
+  })
+
+  it('links hover ranges without changing Markdown, literal text or syntax-marked code', () => {
+    const payload = envelope({ kind: 'hover', range: span, contents: [
+      { format: 'markdown', text: '**hi**', language: null },
+      { format: 'code', text: 'x = 1', language: 'python' },
+      { format: 'plaintext', text: '<literal>', language: null }
+    ] })
+    const root = tree(toolNode(lsp(JSON.stringify(payload)), 2, local))
+    expect(role(root, 'omp.tool.hover.range')[0]?.p?.['href']).toBe('file:///project/src/a.py#L2-L4')
+    expect(role(root, 'omp.tool.hover').map(n => n.k)).toEqual(['md', 'code', 'text'])
+    expect(role(root, 'omp.tool.hover')[1]?.p?.['lang']).toBe('python')
+  })
+
+  it('blocks schemes, control bytes, ambiguous cwd and unsafe targets rather than retargeting them', () => {
+    expect(lspFileHref('/project/a b#c%.py', local, span)).toBe('file:///project/a%20b%23c%25.py#L2-L4')
+    for (const target of [
+      'file:///etc/passwd', 'https://host/x', '//server/share',
+      '/project/a' + String.fromCharCode(0) + 'b.py', ''
+    ]) {
+      expect(lspFileHref(target, local)).toBeUndefined()
+    }
+    expect(lspFileHref('src/a.py', { cwd: 'relative', hostLocal: true })).toBeUndefined()
+    expect(lspFileHref('src/a.py', { cwd: '/project', hostLocal: false })).toBeUndefined()
+    const malicious = tree(toolNode(lsp(envelope({
+      kind: 'references', locations: [location('https://remote/file.py')]
+    })), 2, local))
+    expect(role(malicious, 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+  })
+})
+
+// Drive the real App -> frame -> transcript -> work log -> tool registry, with fake I/O only.
+vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
+
+const sshVariables = ['SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'] as const
+
+async function withLspApp(
+  run: (h: {
+    app: App
+    gw: FakeGateway
+    show: (payload: Record<string, unknown>, replay?: boolean) => Promise<NodeJson[]>
+    shown: () => NodeJson[]
+    refresh: () => Promise<void>
+  }) => Promise<void>,
+  ssh = false
+) {
+  const previous = sshVariables.map(name => process.env[name])
+  for (const name of sshVariables) {
+    delete process.env[name]
+  }
+  if (ssh) {
+    process.env['SSH_CONNECTION'] = 'remote client'
+  }
+
+  const gw = new FakeGateway()
+  gw.attached = false
+  const tern = fakeTern({ draws: true })
+  const app = new App(tern.session, gw.client, 'fixture')
+  const running = app.run()
+  given.session(app, 'lsp-session')
+  given.info(app, { cwd: '/project', model: 'fixture', terminal_backend: 'local' })
+
+  const shown = () => topNodes(tern.region('main')).flatMap(n => nodes(n.toJSON()))
+  const refresh = async () => { app.changed(); await settle(gw) }
+  const show = async (payload: Record<string, unknown>, replay = false): Promise<NodeJson[]> => {
+    if (replay) {
+      app.transcript.load([
+        { role: 'user', text: 'Inspect project' },
+        { role: 'tool', name: 'lsp', tool_call_id: 'lsp1',
+          args: { operation: 'references' }, content: JSON.stringify(payload) }
+      ])
+    } else {
+      app.transcript.toolStart({ name: 'lsp', tool_id: 'lsp1', args: { operation: 'references' } }, 1)
+      app.transcript.toolComplete({ name: 'lsp', tool_id: 'lsp1', result: payload }, 2)
+      app.transcript.complete({ status: 'complete', text: '' }, 3)
+    }
+    await refresh()
+    return shown()
+  }
+
+  try {
+    await run({ app, gw, show, shown, refresh })
+  } finally {
+    app.quit()
+    tern.end()
+    await running
+    sshVariables.forEach((name, index) => {
+      const value = previous[index]
+      if (value === undefined) {
+        delete process.env[name]
+      } else {
+        process.env[name] = value
+      }
+    })
+  }
+}
+
+const appRole = (list: NodeJson[], name: string) => list.filter(n => n.p?.['role'] === name)
+
+describe('LSP app render authority and cache transitions', () => {
+  it('produces local live and stored hrefs through the real App work-log path', async () => {
+    await withLspApp(async h => {
+      const expected = [
+        'file:///project/src/a.py#L2-L4',
+        'file:///project/src/a.py#L2-L4',
+        'file:///project/src/b.py#L2-L4'
+      ]
+      expect(appRole(await h.show(referencePayload), 'omp.tool.reference')
+        .map(n => n.p?.['href'])).toEqual(expected)
+      expect(appRole(await h.show(referencePayload, true), 'omp.tool.reference')
+        .map(n => n.p?.['href'])).toEqual(expected)
+
+      const symbols = envelope({ kind: 'symbols', symbols: [symbol('outer', 'Outer', [symbol('inner', 'method')])] })
+      const replayed = await h.show(symbols, true)
+      expect(appRole(replayed, 'omp.tool.symbols')[0]?.p?.['nodes']).toMatchObject([{
+        children: [{ label: [{ href: 'file:///project/src/a.py#L2-L4' }, {}] }]
+      }])
+    })
+  })
+
+  it('revokes unchanged-turn hrefs for attached, remote and SSH transitions, then scopes to new cwd', async () => {
+    await withLspApp(async h => {
+      await h.show(referencePayload, true)
+      const expected = 'file:///project/src/a.py#L2-L4'
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBe(expected)
+
+      h.gw.attached = true
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+      h.gw.attached = false
+      given.info(h.app, { cwd: '/project', model: 'fixture', terminal_backend: 'ssh' })
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+      expect(appRole(h.shown(), 'omp.tool.notice')[0]?.p?.['spans']).toEqual([
+        { s: 'muted', t: 'File targets are not confirmed host-local; links disabled.' }
+      ])
+
+      given.info(h.app, { cwd: '/another folder', model: 'fixture', terminal_backend: 'local' })
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href'])
+        .toBe('file:///another%20folder/src/a.py#L2-L4')
+      given.info(h.app, { cwd: '/project', model: 'fixture', terminal_backend: 'local' })
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBe(expected)
+
+      process.env['SSH_CLIENT'] = 'remote client'
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+      delete process.env['SSH_CLIENT']
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBe(expected)
+    })
+  })
+
+  it('refuses an unknown backend, a missing active session and SSH stored-result replay', async () => {
+    await withLspApp(async h => {
+      await h.show(referencePayload, true)
+      given.info(h.app, { cwd: '/project', model: 'fixture' })
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+      given.info(h.app, { cwd: '/project', model: 'fixture', terminal_backend: 'local' })
+      h.app.session.ref = { live: null, stored: null }
+      await h.refresh()
+      expect(appRole(h.shown(), 'omp.tool.reference')[0]?.p?.['href']).toBeUndefined()
+    })
+    await withLspApp(async h => {
+      expect(appRole(await h.show(referencePayload, true), 'omp.tool.reference')[0]?.p?.['href'])
+        .toBeUndefined()
+    }, true)
   })
 })

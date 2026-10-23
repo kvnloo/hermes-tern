@@ -52,6 +52,24 @@ its icon, deck tile and branding.
 `@tui/*` imports reach the renderer-free modules of `ui-tui/src` (the gateway transport, skins,
 history, completion requests); nothing here imports React or Ink.
 
+## LSP source links
+
+A stored or live structured Hermes `lsp_result` presents references grouped by file,
+nested symbols with stable IDs and source/selection ranges, and hover contents.
+Source paths, reference rows, symbol labels and hover ranges become openable
+`file:///` targets only when the **current** session explicitly reports
+`terminal_backend: local`, the session `cwd` is absolute, the gateway is not
+attached, a session is active, and none of `SSH_CONNECTION`, `SSH_CLIENT` or
+`SSH_TTY` is set. Relative result paths resolve against session cwd, never
+the renderer process cwd. Tern handles opening; column fragments remain
+terminal-dependent. No filesystem probe, new LSP RPC or backend change is made.
+
+Unknown, attached, SSH, remote and missing-cwd contexts display the literal
+results without file links. Changing host or cwd invalidates transcript caches
+even when the tool's revision is unchanged. Legacy/malformed payloads retain
+the generic card. Source and provenance: Hermes `ui-tsp/LSP.md` and
+`ui-tsp/src/view/lsp-diagnostics.tsx`, using the Tern/Stencil MIT SDK.
+
 ## Developing
 
 ```sh

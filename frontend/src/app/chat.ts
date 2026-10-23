@@ -117,6 +117,7 @@ export class App implements ChatPorts {
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      gateway: this.#gw,
       surface: this.#surface
     }
     s.theme.apply()
