@@ -1,6 +1,9 @@
 // MBP acceptance: actual OS PTY bytes travel through the existing Tern-key / Composer /
 // PromptRouter path. No synthetic editor edits or replacement prompt router.
 import { spawn } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { Key } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
@@ -119,6 +122,9 @@ function nativeKeys(input: string): Key[] {
 
 describe('BTW and main draft PTY isolation (macOS native acceptance)', () => {
   it.skipIf(process.platform !== 'darwin')('routes split UTF-8, bracketed paste and Enter without cross-submitting', async () => {
+    const previousHome = process.env['HERMES_HOME']
+    const home = mkdtempSync(join(tmpdir(), 'hermes-tern-btw-pty-'))
+    process.env['HERMES_HOME'] = home
     const gw = new FakeGateway({
       replies: {
         'btw.list': () => ({
@@ -186,6 +192,13 @@ describe('BTW and main draft PTY isolation (macOS native acceptance)', () => {
       app.quit()
       tern.end()
       await running
+      if (previousHome === undefined) {
+        delete process.env['HERMES_HOME']
+      } else {
+        process.env['HERMES_HOME'] = previousHome
+      }
+
+      rmSync(home, { force: true, recursive: true })
     }
   })
 })
