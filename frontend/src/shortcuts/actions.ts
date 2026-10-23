@@ -166,9 +166,12 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
     overrides.set(id, normalized)
   }
 
-  const actions = APP_SHORTCUTS.map(action => overrides.has(action.id)
-    ? { ...action, keys: overrides.get(action.id) ?? [], legacy: undefined }
-    : action)
+  const actions: Shortcut[] = APP_SHORTCUTS.map(action => {
+    const keys = overrides.get(action.id)
+
+    // Omit legacy entirely: explicit undefined breaks exact optional properties.
+    return keys === undefined ? action : { id: action.id, group: action.group, title: action.title, keys }
+  })
 
   for (let i = 0; i < actions.length; i++) {
     for (let j = i + 1; j < actions.length; j++) {
