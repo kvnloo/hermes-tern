@@ -568,13 +568,15 @@ export const VIM_ACTIONS: ReadonlyArray<{ readonly id: string; readonly keys: re
   { id: 'redo', keys: ['ctrl+r'] }
 ]
 
+const VIM_MODIFIERS: readonly ('ctrl' | 'alt' | 'shift' | 'meta')[] = ['ctrl', 'alt', 'shift', 'meta']
+
 export function vimActionForKey(key: Key): string | undefined {
   if ((key.text === '^' || key.text === '$') && !key.ctrl && !key.alt && !key.meta) return key.text
   return VIM_ACTIONS.find(({ keys }) => keys.some(chord => {
     const parts = chord.split('+')
     const name = parts.pop()
     return key.name.toLowerCase() === name &&
-      (['ctrl', 'alt', 'shift', 'meta'] as const).every(mod => parts.includes(mod) === Boolean(key[mod]))
+      VIM_MODIFIERS.every(mod => parts.includes(mod) === Boolean(key[mod]))
   }))?.id
 }
 
