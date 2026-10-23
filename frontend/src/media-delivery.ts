@@ -274,7 +274,7 @@ export class MediaDelivery {
   }
 
   #key(source: MediaPath): string {
-    return JSON.stringify([this.deps.session(), source.host, source.id, source.path, source.mime, source.toolCallId])
+    return JSON.stringify([this.#scope(), source.host, source.id, source.path, source.mime, source.toolCallId])
   }
 
   #scope(): string {
