@@ -199,7 +199,7 @@ export class PromptQueue {
       return
     }
 
-    if (!host.allowImages(sid, { ...prompt, images: ready.images })) return
+    if (!host.allowImages(sid, prompt)) return
 
     const own: OwnAdmission<Admitted> = {
       admission: { kind: 'submitting' },
