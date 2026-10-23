@@ -49,7 +49,8 @@ export function tableSlices(markdown: string): TableSlice[] {
       let source = line
       let end = i + 1
 
-      while (end < lines.length && /^ {0,3}\|/.test((lines[end] ?? ''))) { source += lines[end++]! }
+      while (end < lines.length && /^ {0,3}\|/.test((lines[end] ?? ''))) { source += lines[end] ?? ''
+        end++ }
       const table = analyzeTable(source)
 
       if (table && result.length < 8) { result.push({ start: offset, end: offset + source.length, table }) }
@@ -150,8 +151,11 @@ export class TableCharts {
       let entry = this.#cache.get(key)
 
       if (!entry) {
-        if (this.#cache.size >= 128) { const oldest = this.#cache.keys().next().value
-          if (oldest !== undefined) { this.#cache.delete(oldest) } }
+        if (this.#cache.size >= 128) {
+          const oldest = this.#cache.keys().next().value
+
+          if (oldest !== undefined) { this.#cache.delete(oldest) }
+        }
         entry = { kind: 'bar' }
         this.#cache.set(key, entry)
 
