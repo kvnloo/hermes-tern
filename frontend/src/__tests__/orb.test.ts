@@ -131,7 +131,7 @@ describe('orb animation boundaries', () => {
     const blob = vi.fn((_bytes: Uint8Array) => `frame-${blob.mock.calls.length}`)
 
     const orb = new ThinkingOrb(
-      { blob, caps: { dark: true, reduceMotion: false } } as unknown as Session,
+      stub<Session>({ blob, caps: { dark: true, reduceMotion: false } }),
       stub<Surface>({ send, blocked: false, closed: false })
     )
 
