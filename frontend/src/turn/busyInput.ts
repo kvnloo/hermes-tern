@@ -20,7 +20,7 @@ export function busyHint(mode: BusyMode): string {
 export interface BusyDraftHost {
   readonly gw: Requester
   readonly session: Pick<SessionState, 'ticket'>
-  readonly composer: Pick<Composer, 'text' | 'cursor' | 'revision' | 'take'>
+  readonly composer: Pick<Composer, 'text' | 'cursor' | 'revision' | 'set' | 'take'>
   readonly transcript: Pick<Transcript, 'live' | 'steer' | 'notice'>
   changed(): void
 }
@@ -42,6 +42,9 @@ export class BusyDraft {
     if (this.#pending || !ticket.sid || !text) {
       return
     }
+
+    // Native Tern Send may carry the submitted text before its matching edit callback.
+    if (raw !== composer.text) composer.set(raw)
 
     const revision = composer.revision
     const cursor = composer.cursor
