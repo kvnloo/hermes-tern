@@ -53,13 +53,19 @@ jobs:
       # ui-tui's own packages, from Hermes' lockfile: the bundle inlines some of them (undici).
       - run: npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund
         working-directory: .hermes-agent
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22' # donor OpenUI parser requires >=22 <23
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # Includes the self-contained OpenUI parser workspace; no nested npm ci.
       - run: node scripts/hermes-src.mjs && bun install --frozen-lockfile
         env:
           HERMES_SRC: ${{ github.workspace }}/.hermes-agent
+          OPENUI_TELEMETRY_DISABLED: '1'
+          DO_NOT_TRACK: '1'
       - name: typecheck
         run: bun run typecheck
-      - name: tests (unit, app and golden replays)
+      - name: tests (unit, app, packaged OpenUI and golden replays)
         run: bun run test
 
   lint:
@@ -88,10 +94,16 @@ jobs:
       # ui-tui's own packages, from Hermes' lockfile: the bundle inlines some of them (undici).
       - run: npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund
         working-directory: .hermes-agent
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22' # donor OpenUI parser requires >=22 <23
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # Includes the self-contained OpenUI parser workspace; no nested npm ci.
       - run: node scripts/hermes-src.mjs && bun install --frozen-lockfile
         env:
           HERMES_SRC: ${{ github.workspace }}/.hermes-agent
+          OPENUI_TELEMETRY_DISABLED: '1'
+          DO_NOT_TRACK: '1'
       - name: lint
         run: bun run lint
       - name: file sizes

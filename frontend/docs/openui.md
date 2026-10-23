@@ -12,7 +12,7 @@ summaries**, not generated executable code, model output or publication receipts
   validator, bundle/scope assertions, byte caps and current-source fingerprints.
 - `frontend/openui/openui-generation/src/`: original bounded
   `@openuidev/lang-core@0.3.1` compiler adapter, catalog and static-program
-  guard. The exact package lock and `.npmrc` ship alongside these files.
+  guard. The exact donor package lock and `.npmrc` ship alongside these files;\n  the root Bun workspace lock mirrors their exact npm integrity records.
 - `frontend/openui/openui-preview/tern/`: the reviewed `host.luau`,
   `window.luau`, `visual.css` and `plugin.toml`. Their actual bytes are
   fingerprint inputs. **Files are shipped, not installed into Tern.**
@@ -41,21 +41,39 @@ source prerequisite, and that upstream runtime does not contain this preview.
 
 ## Prepare a candidate explicitly
 
-Run the isolated real parser install **once per plugin checkout**, from
-`frontend/`. It uses the copied upstream-verified lockfile; no frontend
-dependency or Hermes runtime pin is changed.
+For **contributors and CI**, the supported clean-install path is the root
+Bun workspace. The root manifest includes `openui/openui-generation` as a
+self-contained workspace; `bun.lock` pins exactly the donor's
+`@openuidev/lang-core@0.3.1`, `zod@4.0.0` and `ci-info@4.4.0`
+checksums, while the frontend keeps its existing `zod@4.4.3`.
+This prevents the generator from accidentally resolving the frontend's
+Zod or relying on an undeclared nested `npm ci`.
+
+```sh
+cd frontend
+HERMES_SRC=/absolute/path/to/locked-upstream-hermes node scripts/hermes-src.mjs
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 bun install --frozen-lockfile
+bun run check
+```
+
+The Hermes source checkout above is the existing pinned gateway/build input,
+**not** an OpenUI donor checkout. The parser's install script is not trusted
+by the frontend, and both telemetry-disable flags are set for installs.
+No dependencies are installed on render, preview, or test execution.
+
+For **prebuilt plugin users** who did not run the root frontend development
+install and want to **explicitly prepare** a new candidate, a separate
+preparation-only install remains possible:
 
 ```sh
 cd frontend
 OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm ci --prefix openui/openui-generation --ignore-scripts --no-audit --no-fund --workspaces=false
 ```
 
-The real parser dependency is needed only to *prepare* a new candidate, not to
-discover, validate or summarize one. No network, inference or dependency
-installation occurs when opening `/visual`. A missing parser makes preparation
-fail rather than silently using a lookalike. The checked-in `package-lock.json`
-pins the parser, its peer and their package integrity hashes. Do not replace
-this with an unpinned global install.
+That optional prebuilt preparation command is **not** a contributor/CI
+prerequisite and must never be invoked automatically by `/visual`, a render,
+or a test. Missing parser dependencies fail closed. The donor npm lock and
+all fingerprint inputs remain unmodified.
 
 1. In a running `hermes tern` session, type `/visual`. Copy its exact JSON
    session/branch scope (for example `["stored-id","main"]`).
@@ -116,17 +134,16 @@ regular frontend's existing gateway/client build. No donor checkout or
 ```sh
 cd frontend
 HERMES_SRC=/absolute/path/to/locked-upstream-hermes node scripts/hermes-src.mjs
-bun install --frozen-lockfile
-OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm ci --prefix openui/openui-generation --ignore-scripts --no-audit --no-fund --workspaces=false
-OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-generation
-OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-preview
-OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node --test openui/openui-preview/test/integration.mjs
-bunx vitest run src/__tests__/openuiPackaged.test.ts src/__tests__/visuals.test.ts src/__tests__/visual-discovery.test.ts src/__tests__/visualOverlay.test.ts
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 bun install --frozen-lockfile
 bun run check
+bun run test src/__tests__/openuiInstall.test.ts src/__tests__/openuiPackaged.test.ts src/__tests__/visuals.test.ts src/__tests__/visual-discovery.test.ts src/__tests__/visualOverlay.test.ts
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-generation --workspaces=false
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 npm test --prefix openui/openui-preview --workspaces=false
+OPENUI_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1 node --test openui/openui-preview/test/integration.mjs
 bun run bundle
 ```
 
-The new real-path suite exercises the shipped CLI with both telemetry
+The frozen-workspace regression checks the root/child manifest, donor integrity pins\nand generation-local Zod resolution; the unconditional packaged CLI suite\nexecutes the real parser after the normal install. No nested npm step is\nneeded in CI. The new real-path suite exercises the shipped CLI with both telemetry
 variables absent in its subprocess environment, strict validation, Tern SDK
 native JSX, changed renderer/parser fingerprints, wrong scope, swapped notice
 ID, malformed data/UTF-8, actual file byte bounds and cancellation. The
