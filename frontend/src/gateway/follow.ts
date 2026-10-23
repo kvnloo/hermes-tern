@@ -25,12 +25,14 @@ export type FollowCx = EventCx & {
   readonly transcript: Pick<Transcript, 'interrupt'>
   /** The development tap's file (HERMES_TERN_EVENT_LOG); empty for none. */
   readonly eventLog: string
+  /** Shown-session events after dispatch, excluding cancelled queued admissions. */
+  onShown?(ev: AnyGatewayEvent): void
 }
 
 /** Follows `gw`'s events, requests and exits, then lets the events it held come. */
 export function followGateway(gw: Pick<GatewayClient, 'attached' | 'drain' | 'on'>, cx: FollowCx) {
   const log = eventLog(cx.eventLog)
-  const dispatch = dispatcher(cx, type => log.unknown(type))
+  const dispatch = dispatcher(cx, type => log.unknown(type), cx.onShown)
 
   const deliver = (ev: AnyGatewayEvent) => {
     if (dispatch(ev) === 'render') {
