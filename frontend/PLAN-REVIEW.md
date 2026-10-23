@@ -76,12 +76,12 @@ TSP/SDK and OMP interaction vocabulary: Can Bölük and Stencil contributors.
 Plugin UI and dock architecture: alt-glitch and hermes-tern contributors.
 Original ui-tsp frontend port donors: contributors of kvnloo/hermes-agent.
 
-From frontend/, point HERMES_SRC at a compatible local Hermes checkout and
-run `bun install --frozen-lockfile`, `bun run typecheck`,
+From frontend/, point HERMES_SRC at a compatible local Hermes checkout
+and run `node scripts/hermes-src.mjs` to prepare the source link without
+an unfrozen install, then `bun install --frozen-lockfile`,
+`bun run typecheck`,
 `bun run test -- src/__tests__/plan-review.test.ts src/__tests__/plan-editor.test.ts src/__tests__/todo-hud.test.ts`,
-`bun run check`, then `bun run bundle`. Run `bun run setup` first only
-when the Hermes source link is not yet prepared; setup itself invokes an
-unfrozen `bun install`, so re-run the frozen install before claiming that gate.
+`bun run check`, and `bun run bundle`.
 Separately check a real isolated native Tern pane, idle/busy ordinary
 Continue/Refine, modal preemption and late editor completion, with a Hermes
 gateway both with and without plan.status support. A successful frontend suite
