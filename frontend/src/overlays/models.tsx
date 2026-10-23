@@ -20,6 +20,7 @@ import { levelsFor } from '../session/effort.js'
 import { setFast } from '../session/fast.js'
 import { rpc } from '../wire/rpc.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { editQuery, hitRuns, moveSelection, rank } from './search.js'
 
@@ -242,7 +243,7 @@ export function openModelPicker(host: ModelsHost) {
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    node: () => {
+    node: id => {
       const { hits, order } = view()
       const priced = rows.some(r => r.provider.pricing?.[r.model])
       const columns: PickerColumn[] = priced ? [{ format: 'price', head: '$/M', id: 'price', priority: 2 }] : []
@@ -271,7 +272,7 @@ export function openModelPicker(host: ModelsHost) {
             { id: 'use', keys: ['enter'], label: 'Switch', primary: true }
           ]}
           columns={columns}
-          key={KEY}
+          key={nativeOverlayKey(id)}
           {...optional('confirm', confirm ? { act: 'confirm', label: 'Switch anyway', text: confirm.text } : undefined)}
           current={current ? [current] : []}
           {...optional('empty', query ? undefined : 'No models in this scope')}

@@ -17,6 +17,7 @@ import type { PrsPill } from '../view/dock.js'
 import { relative } from '../view/format.js'
 import { button } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { tickWhileOpen } from './sheet.js'
 
@@ -91,7 +92,7 @@ export function openPrSheet(host: PullRequestsSheetHost, focus?: PrKey) {
       const body = `${id}.body`
 
       return (
-        <overlay anchor="center" key={SHEET} modal role="hermes.pr.sheet" size="full">
+        <overlay anchor="center" key={nativeOverlayKey(id)} modal role="hermes.pr.sheet" size="full">
           <col gap="none" key="frame" role="hermes.pr.frame">
             <row align="center" gap="sm" key="top" role="hermes.pr.top">
               {view.switcher() ?? <text key="title" spans={[{ s: 'strong', t: 'Pull request' }]} />}
@@ -148,11 +149,11 @@ export function openPrMenu(host: PullRequestsSheetHost) {
   const overlay: Overlay = {
     cancel: close,
     key: MENU,
-    node: () => {
+    node: id => {
       const now = Date.now()
 
       return (
-        <overlay anchor={{ node: 'dock.agents', side: 'above' }} key={MENU} role="hermes.pr.menu">
+        <overlay anchor={{ node: 'dock.agents', side: 'above' }} key={nativeOverlayKey(id)} role="hermes.pr.menu">
           <col gap="none" key="list" role="hermes.pr.menu.list">
             {entries().map(e => menuRow(e, now, prKey(e.ref) === selected, () => pick(prKey(e.ref))))}
           </col>

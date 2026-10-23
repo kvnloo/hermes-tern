@@ -49,7 +49,7 @@ function open(method: string, params: Record<string, unknown>) {
 function inputText(overlay: Overlay): unknown {
   const walk = (n: NodeJson): unknown => (n.k === 'input' ? n.p?.['text'] : (n.c ?? []).map(walk).find(t => t !== undefined))
 
-  return walk(tree(overlay.node('layer.prompt:r1')))
+  return walk(tree(overlay.node('layer.overlay-1')))
 }
 
 describe('Ctrl+C on a question sheet', () => {
@@ -103,7 +103,7 @@ describe('the approval sheet', () => {
         ? [{ keys: (n.c ?? []).map(c => c.p?.['keys']).find(Boolean), label: n.c?.[0]?.p?.['text'], primary: n.p['tone'] === 'accent' }]
         : (n.c ?? []).flatMap(walk)
 
-    return walk(tree(overlay.node('layer.prompt:r1')))
+    return walk(tree(overlay.node('layer.overlay-1')))
   }
 
   it('offers each answer as a button, Allow once on Enter', () => {
@@ -146,7 +146,7 @@ describe('the approval sheet', () => {
   it('shows the whole command, wrapped', () => {
     const command = `cd /home/x/worktree && ${'for f in a b c; do echo $f; done && '.repeat(6)}true`
     const { overlay } = open('approval', { command })
-    const tree = JSON.stringify(overlay.node('layer.prompt:r1'))
+    const tree = JSON.stringify(overlay.node('layer.overlay-1'))
 
     expect(tree).toContain(JSON.stringify(command))
     expect(tree).toMatch(/"wrap":true/)
@@ -224,7 +224,7 @@ function sheetText(overlay: Overlay): string {
     ...(n.c ?? []).flatMap(walk)
   ]
 
-  return walk(tree(overlay.node('layer.prompt:shared:p1'))).join(' ')
+  return walk(tree(overlay.node('layer.overlay-1'))).join(' ')
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))

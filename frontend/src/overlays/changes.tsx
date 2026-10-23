@@ -8,6 +8,7 @@ import { copyToClipboard } from '../clipboard.js'
 import { optional } from '../core/assert.js'
 import { type ChangedFile, fileDiff, type GitState, gitState } from '../git/status.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { moveSelection } from './search.js'
 
@@ -61,7 +62,7 @@ export function openChanges(host: ChangesHost, focus?: string) {
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    node: () => sheetNode(),
+    node: id => sheetNode(id),
     onKey: (k: Key) => {
       const file = current()
 
@@ -84,7 +85,7 @@ export function openChanges(host: ChangesHost, focus?: string) {
     }
   }
 
-  function sheetNode(): JSX.Element {
+  function sheetNode(id: string): JSX.Element {
     const list = files()
 
     if (!list.some(f => f.path === selected)) {
@@ -108,7 +109,7 @@ export function openChanges(host: ChangesHost, focus?: string) {
         empty={failed ? 'This folder is not in a git repository.' : state ? 'Nothing changed since the last commit.' : 'Reading git…'}
         icon="diff"
         items={list.map(item)}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         noun="files"
         onAction={{
           close: () => host.close(overlay),

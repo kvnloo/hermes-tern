@@ -1178,7 +1178,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p1"
+       "key": "overlay-1"
       },
       "c": [
        {
@@ -3097,7 +3097,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p2"
+       "key": "overlay-2"
       },
       "c": [
        {
@@ -3827,7 +3827,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p2"
+       "key": "overlay-2"
       },
       "c": [
        {
@@ -5691,7 +5691,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:r1"
+       "key": "overlay-3"
       },
       "c": [
        {

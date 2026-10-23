@@ -6,7 +6,7 @@
 import type { Hud } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { Completion } from '../overlays/completion.js'
-import type { Overlay } from '../overlays/overlay.js'
+import type { Overlay, OverlayStack } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
 import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
@@ -22,7 +22,8 @@ export interface FrameCx extends DockSources {
   readonly retention?: Retention | undefined
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
-  readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
+  readonly overlays: readonly Overlay[]
+  readonly stack: Pick<OverlayStack, 'rootOf'>
   readonly transcript: Pick<Transcript, 'changedEntries' | 'currentTodos' | 'entries'>
   readonly prAside: Pick<PrAside, 'node' | 'open'>
   readonly sidebar: Pick<Sidebar, 'node'>
@@ -57,7 +58,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
     dock: dockNodes(dockModel(cx, now), cx.actions),
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
-      ...cx.overlays.map(o => o.node(`layer.${o.key}`)),
+      ...cx.overlays.map(o => o.node(cx.stack.rootOf(o))),
       ...(modal ? [] : cx.completion.nodes(COMPOSER_ID))
     ]
   }
@@ -85,8 +86,8 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
 }
 
 /** Where the caret goes: the top overlay's field; none under a modal sheet without one or while a pill holds the keys; else the composer. */
-function focusOf(cx: Pick<FrameCx, 'hud' | 'overlays'>): string | null {
+function focusOf(cx: Pick<FrameCx, 'hud' | 'overlays' | 'stack'>): string | null {
   const top = cx.overlays.at(-1)
 
-  return top?.focus ? top.focus(`layer.${top.key}`) : top?.modal || cx.hud.focused ? null : INPUT_ID
+  return top?.focus ? top.focus(cx.stack.rootOf(top)) : top?.modal || cx.hud.focused ? null : INPUT_ID
 }
