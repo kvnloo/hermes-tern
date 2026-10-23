@@ -1,13 +1,13 @@
-// The isolated tool-card adapter: the existing registry, parsers and card shells stay unchanged.
-// Completion and host ownership have already been checked by projectToolMedia().
+// The isolated read/write card adapter; the registry and parser keep their existing behavior.
+// Completion, path and host validation are owned by projectToolMedia().
 import type { JSX } from '@stencil-hq/tern'
 
 import type { MediaDelivery } from '../../media-delivery.js'
 import type { ToolCall } from '../../model.js'
 import { projectToolMedia } from '../../read-media.js'
-import { button } from '../ui/button.js'
+import { imagePreviewNode } from '../media.js'
 
-/** Build declarative nodes only. An image transfer starts exclusively on a user click. */
+/** Build declarative nodes only; the preview's transfer starts on the user's action. */
 export function toolMediaNode(call: ToolCall, delivery: MediaDelivery | undefined): JSX.Element | undefined {
   if (!delivery) {
     return undefined
@@ -34,20 +34,5 @@ export function toolMediaNode(call: ToolCall, delivery: MediaDelivery | undefine
     )
   }
 
-  const state = delivery.preview(projection.source)
-
-  if (state.status === 'ready') {
-    return <image alt={projection.source.path} blob={state.blob} key="media" role="omp.media.preview" />
-  }
-
-  if (state.status === 'available' || state.status === 'failed') {
-    return (
-      <col gap="xs" key="media" role="omp.media.preview">
-        {state.status === 'failed' ? <text key="error" role="omp.media.notice" text={state.error} wrap="word" /> : null}
-        {button({ key: 'load', label: state.label, onClick: () => void delivery.load(projection.source) })}
-      </col>
-    )
-  }
-
-  return <text key="media" role="omp.media.notice" text={state.label} wrap="word" />
+  return imagePreviewNode(projection.source, delivery, projection.source.path)
 }
