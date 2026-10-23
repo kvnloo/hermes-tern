@@ -21,6 +21,7 @@ import { todoProgress } from '../transcript/todos.js'
 import type { QueuedRow } from '../turn/queue.js'
 
 import { type AutomationLine, automationNode, reconnectNode } from './automation.js'
+import { btwNoticesNode } from './btwNotices.js'
 import { queuedNode } from './queued.js'
 import { button } from './ui/button.js'
 import { compact } from './time.js'
@@ -193,21 +194,7 @@ export function dockNodes(cx: DockContext, on: DockActions): JSX.Element[] {
 
   if (cx.btwNotices.length) {
     nodes.push(
-      <col gap="xs" key="btw-notices" role="omp.btw.notices">
-        {cx.btwNotices.map(notice => (
-          <row align="center" gap="sm" key={notice.id} role="omp.btw.notice">
-            <text
-              grow={1}
-              key="label"
-              role="omp.btw.notice.message"
-              text={notice.failed ? 'Side question failed' : 'Side question answered'}
-              tone={notice.failed ? 'error' : 'muted'}
-            />
-            {button({ key: 'view', label: 'View', onClick: () => on.onBtwView(notice) })}
-            {button({ key: 'dismiss', label: 'Dismiss', onClick: () => on.onBtwDismiss(notice) })}
-          </row>
-        ))}
-      </col>
+      btwNoticesNode(cx.btwNotices, on)
     )
   }
 
