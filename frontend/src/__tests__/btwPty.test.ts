@@ -227,5 +227,5 @@ describe('BTW and main draft PTY-to-App isolation (Linux/macOS)', () => {
 
       rmSync(home, { force: true, recursive: true })
     }
-  }, 20_000)
+  })
 })
