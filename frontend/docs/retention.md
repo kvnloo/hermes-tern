@@ -13,9 +13,14 @@ When Tern advertises the public SDK `settle` feature:
 - Preserve the newest **20 completed assistant turns**. Keep running,
   interrupted, failed, warned, and unfinished tool/subagent/compaction entries
   (and their prompts) available. Never guess that an error was acknowledged.
-- After the first presentation, diff **only changed entry roots**; release
-  cached JSX and saved SDK trees for settled, cold entries. Streaming frames do
-  not re-project old settled JSX, and `main` stays the same node.
+- After the first presentation, use `Transcript.changedEntries` to inspect
+  only changed/hot roots on token frames. The reducer marks revisions, including
+  late tool-result edits; compaction lifecycle updates mark affected historical
+  compaction views only when compactions change. Full scans are for membership,
+  completion/settlement boundary and presentation-context changes, not tokens.
+  Release cached JSX and saved SDK trees for settled, cold entries. `main`
+  stays the same node. `Retention.work` counts examined rows and SDK entry
+  Tree builds per frame, not just emitted wire operations.
 - Keep the dock/layer and incremental history in **one Surface.send frame**,
   subject to the SDK's real ACK credits. Do not poll the terminal or invent
   viewport, scroll-end or history-request events.
@@ -25,8 +30,15 @@ When Tern advertises the public SDK `settle` feature:
 - The **Load older history** action or **Ctrl+Home** explicitly restores up to
   **40** evicted entries, maintaining order. Keep the current reading page
   un-settled, then release it when another page is requested.
-- Rebuild action routing only for the selected row. Queued handlers verify
-  the entry still belongs to the current transcript before executing.
+- Rebuild action routing on execution only for the addressed row. Queued handlers
+  verify the current live `Transcript.entries` identity and reset/load lifetime
+  **before the next paint**, along with partial/full gone state. Evicted native
+  IDs must not receive actions.
+- A welcome logo/tip or late `session.info.version` update refreshes its
+  resident welcome row. A changed Copy handler identity refreshes resident
+  prompt/answer handlers; the copied-ID indicator refreshes only its two
+  affected rows. Evicted history is never resurrected for context changes.
+  Wall-clock `now` deliberately freezes age labels at the first projection.
 - Without `settle`, keep the existing `SurfaceHost.render` behavior.
 
 Tern SDK 0.1.0 has `Surface.send`, `Surface.settle`, `View.ops`, `Tree`,
@@ -40,9 +52,11 @@ Run on OMP's machine with a prepared Hermes source checkout:
 ```sh
 cd frontend
 bun run setup
-bun run typecheck
-bun run test src/__tests__/retention.test.ts
+bun install --frozen-lockfile
 bun run check
+bun run test src/__tests__/retention.test.ts
+bun bench/retention.ts
+bun run bundle
 ```
 
 Then run an **isolated** real Tern/Hermes pane with a throwaway
@@ -55,11 +69,18 @@ Then run an **isolated** real Tern/Hermes pane with a throwaway
    Load older history / Ctrl+Home; untouched native scroll and composer cursor.
 5. Credit=1, hidden→visible, resize, detach, quit, and no-settle fallback.
 
-The Vitest suite is a **static implementation submission** in this PR: the
-connector cannot run Bun, a real terminal, or native Tern e2e. Before promotion,
-collect real frame-op/byte counts and p50/p95 timings; distinguish initial
-history upload (necessarily O(history)) from steady streaming; benchmark
-200 and 2,000 history entries with 5,000 deltas and identical ACK cadence.
+The Vitest suite and off-host benchmark are **unexecuted source submissions**:
+this connector-only worker cannot run Bun, a real terminal or a native Tern
+pane. `bench/retention.ts` replays the production writer and SDK Tree/View/Op
+path with a one-credit ACK-controlled fake transport: **200 and 2,000 entries**,
+**5,000 token deltas per run**, **five fresh interleaved runs per size**,
+and the **same one-ACK-per-emitted-frame cadence**. It measures SDK entry-tree
+builds, inspected rows, TSP op counts and serialized wire bytes, and reports
+cold-upload p95/bytes separately from steady p50/p95/bytes. The script exits
+nonzero unless **2,000-entry steady p95 <= 1.5 × 200-entry steady p95** and
+constant per-token examined/build counts and final root identities hold. This
+does not prove actual native host render latency; OMP must record the real
+command output on the exact PR head before promotion.
 
 ## Sources and provenance
 
