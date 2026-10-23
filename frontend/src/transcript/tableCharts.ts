@@ -96,7 +96,7 @@ export function chartSvg(table: NumericTable, kind: Exclude<ChartKind, 'none'>):
   return `<svg xmlns="http://www.w3.org/2000/svg" width="620" height="320" viewBox="0 0 620 320"><title>${xml(table.title)}</title><text x="60" y="25" fill="var(--text)" font-size="16">${xml(table.title)}</text><text x="5" y="55" fill="var(--muted)" font-size="10">${max}</text><text x="5" y="260" fill="var(--muted)" font-size="10">${min}</text><path d="M60 ${baseline}H560" stroke="var(--muted)"/>${marks}${labels}</svg>`
 }
 
-interface CachedChart { kind: ChartKind; pending?: Promise<void> }
+interface CachedChart { kind: ChartKind; attempted?: boolean; pending?: Promise<void> }
 export interface ChartPlanner {
   policy(session: string): Promise<ChartMode>
   plan(session: string, table: NumericTable, signal: AbortSignal): Promise<ChartKind>
@@ -171,7 +171,12 @@ export class TableCharts {
         entry = { kind: 'bar' }
         this.#cache.set(key, entry)
 
-        if (this.mode === 'smart' && this.#budget > 0 && !this.#active) { this.#plan(table, entry) }
+      }
+
+      // A table first encountered while another request is active may plan
+      // on a later render. Failed/completed plans never retry the same source.
+      if (this.mode === 'smart' && !entry.attempted && this.#budget > 0 && !this.#active) {
+        this.#plan(table, entry)
       }
 
       if (entry.kind !== 'none') { result += `\n\n\`\`\`svg\n${chartSvg(table, entry.kind)}\n\`\`\`\n\n` }
@@ -183,6 +188,7 @@ export class TableCharts {
   #plan(table: NumericTable, entry: CachedChart) {
     if (this.#active) { return }
 
+    entry.attempted = true
     // Count admissions even when a provider is unavailable. Do not refill this
     // budget on policy changes; only a different runtime session gets eight.
     this.#budget--

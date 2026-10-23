@@ -11,7 +11,9 @@ const MAX_REPLY_BYTES = 4096
 
 /** Reject any prose, SVG, tool output or unknown kind from the auxiliary subprocess. */
 export function readTableChartReply(stdout: string): ChartKind {
-  const data: unknown = JSON.parse(stdout.trim())
+  // Match widget_author.py's transport: Python dependency activation may
+  // print diagnostics before the one final JSON line.
+  const data: unknown = JSON.parse(stdout.trim().split('\n').at(-1) ?? '')
 
   if (typeof data === 'object' && data !== null && !Array.isArray(data) &&
       Object.keys(data).length === 1 && 'kind' in data &&
