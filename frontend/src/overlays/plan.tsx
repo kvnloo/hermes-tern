@@ -36,7 +36,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     return
   }
 
-  if (host.overlays.at(-1)?.modal) {
+  if (host.overlays.at(-1)?.modal && host.overlays.at(-1)?.key !== 'plan') {
     host.notice('Close the current question before opening plan review.', 'warning')
 
     return

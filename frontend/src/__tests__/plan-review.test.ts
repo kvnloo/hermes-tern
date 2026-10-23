@@ -235,26 +235,11 @@ describe('native plan review', () => {
     expect(f.gw.sent('plan.decide')).toEqual([])
 
     f.click('edit-plan')
-    f.overlays.at(-1)?.onKey(key('text', { text: '# Smaller\nOnly one change' }))
-    // Plan editing starts with the full original text; overwrite it through the native field's edit handler.
-    const note = f.element('note')
-    const edit = note?.handlers?.onEdit
-
-    if (!edit) {
-      throw new Error('No native plan editor')
+    // The dedicated editor starts with the plan; replace it without touching the prompt draft.
+    for (let index = 0; index < status.plan.text.length; index++) {
+      f.overlays.at(-1)?.onKey(key('backspace'))
     }
-
-    edit({
-      cursor: '# Smaller\nOnly one change'.length,
-      ev: 'edit',
-      from: 0,
-      id: 'fixture',
-      len: String(note.props.text).length,
-      raw: {},
-      sf: 'hermes',
-      text: '# Smaller\nOnly one change',
-      to: String(note.props.text).length
-    })
+    f.overlays.at(-1)?.onKey(key('text', { text: '# Smaller\nOnly one change' }))
     f.click('save')
     await paint()
     expect(f.gw.sent('plan.edit')[0]).toEqual({
