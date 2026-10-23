@@ -82,7 +82,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
     cancel: () => model.close(),
     onClose: () => model.closed(sheet),
     node: (): JSX.Element => (
-      <overlay anchor="bottom" head="/btw" key="btw" modal role="omp.overlay.btw" size="lg">
+      <overlay anchor="bottom" head="/btw" key="btw" modal role="omp.overlay.report" size="lg">
         <col gap="sm" key="body">
           <text key="hint" text="Tab: history / reader / composer · Ctrl+N/P: select · Alt+Enter: send · Ctrl+X: stop side turn" wrap="word" />
           <row gap="sm" key="panes" role="omp.btw.body">

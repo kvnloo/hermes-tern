@@ -50,6 +50,14 @@ export class OperationalSheets {
     const sid = this.host.session.ref.live
 
     if (!sid) {
+      this.adopt(null)
+      const sheet = openOperationalOverlay(this, {
+        title: '/' + service, status: 'unavailable',
+        text: 'No active Hermes session. No inventory read was attempted.'
+      })
+      this.#sheet = sheet
+      this.#epoch++
+
       return
     }
 

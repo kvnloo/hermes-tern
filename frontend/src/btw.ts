@@ -94,9 +94,11 @@ export class BtwThreads {
   update(thread: BtwThread) {
     const index = this.threads.findIndex(item => item.id === thread.id)
 
+    const previous = this.threads[index]
+
     if (index < 0) {
       this.threads.push(thread)
-    } else if (this.threads[index] && this.threads[index].revision < thread.revision) {
+    } else if (previous && previous.revision < thread.revision) {
       this.threads[index] = thread
     } else {
       return
@@ -121,6 +123,13 @@ export class BtwThreads {
     const sid = this.host.session.ref.live
 
     if (!sid) {
+      this.adopt(null)
+      const sheet = openBtwOverlay(this)
+      this.#sheet = sheet
+      this.error = 'No active Hermes session.'
+      this.state = 'idle'
+      this.host.changed()
+
       return
     }
 
