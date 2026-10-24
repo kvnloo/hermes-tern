@@ -396,7 +396,7 @@ describe('retained long-session transcript', () => {
   it('refreshes a late backend version and tip without rebuilding evicted history', () => {
     const entries: Entry[] = [{ id: entryId('welcome'), kind: 'welcome' }, ...history(25)]
     const h = harness()
-    const session = { info: { version: '1.0' } }
+    const session = { info: { version: '1.0' }, ref: { live: null } }
     const frame = stub<Pick<FrameCx, 'session' | 'copies' | 'welcome'>>({
       session, copies: { copy: defaultCopy }, welcome: { version: '', tip: 'First tip' }
     })

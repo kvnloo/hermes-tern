@@ -72,8 +72,10 @@ def _chat(flags: list[str], tui_dir: str | None, env: dict[str, str] | None = No
 
 
 def _run(args: argparse.Namespace) -> None:
+    # An explicit opt-out is the ordinary Ink TUI, even inside a real Tern pane.
+    force_ink = os.environ.get("HERMES_TERN", "").strip().lower() in {"0", "false", "off", "no"}
     bundle = FRONTEND / "dist" / "entry.js"
-    if not bundle.is_file():
+    if not force_ink and not bundle.is_file():
         print(f"hermes tern: {bundle} is missing; reinstall the plugin", file=sys.stderr)
         sys.exit(1)
     flags = [a for a in args.tui_args if a != "--"]
@@ -86,11 +88,11 @@ def _run(args: argparse.Namespace) -> None:
     flags, restored = panes.plan(flags)
     if restored:
         env[panes.RESTORED_ENV] = restored
-    code = _chat(flags, str(FRONTEND), env)
-    if code == NO_TSP_EXIT:
+    code = _chat(flags, None if force_ink else str(FRONTEND), env)
+    if not force_ink and code == NO_TSP_EXIT:
         print("hermes tern: this terminal does not speak the Tern Surface Protocol; "
               "starting the regular TUI", file=sys.stderr)
-        code = _chat(flags, None)
+        code = _chat(flags, None, env)
     sys.exit(code)
 
 

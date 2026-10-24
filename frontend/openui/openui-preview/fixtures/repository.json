@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "title": "Synthetic repository — not real project metrics",
+  "root": {
+    "id": "repo", "label": "demo", "code": 1000, "churn": 100,
+    "children": [
+      { "id": "src", "label": "src/", "code": 700, "churn": 85,
+        "children": [
+          { "id": "engine", "label": "engine.ts", "code": 500, "churn": 60, "children": [] },
+          { "id": "view", "label": "view.ts", "code": 200, "churn": 25, "children": [] }
+        ]
+      },
+      { "id": "tests", "label": "tests/", "code": 250, "churn": 10,
+        "children": [{ "id": "spec", "label": "engine.test.ts", "code": 250, "churn": 10, "children": [] }]
+      },
+      { "id": "readme", "label": "README.md", "code": 50, "churn": 5, "children": [] }
+    ]
+  }
+}

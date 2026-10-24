@@ -66,6 +66,8 @@ export class WatchApp {
   /** The dock's buttons: the composer steers the agent and Stop stops it; this pane has no pills, queue, chips or chips' sheets. */
   readonly #dock: DockActions = {
     onAgents: none,
+    onBtwDismiss: none,
+    onBtwView: none,
     onEdit: ev => {
       this.composer.edit(ev)
       this.changed()
@@ -419,6 +421,7 @@ export class WatchApp {
             ready: running
           },
           now,
+          btwNotices: [],
           pills: {},
           queue: { canSteer: false, rows: [] },
           route: { effort: '', model: a.model ?? '' },

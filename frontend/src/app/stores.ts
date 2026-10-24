@@ -7,11 +7,13 @@ import type { Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { Agents } from '../agents/store.js'
+import { BtwThreads } from '../btw.js'
 import { Hud } from '../chrome/hud.js'
 import { NoticeStrip } from '../chrome/notices.js'
 import { Reconnect } from '../chrome/reconnect.js'
 import { Sidebar } from '../chrome/sidebar.js'
 import { Theme } from '../chrome/theme.js'
+import { TodoHud } from '../todo-hud.js'
 import { dispatched } from '../commands/slash.js'
 import type { LaunchEnv } from '../config/env.js'
 import { markViewer } from '../connections/cards.js'
@@ -25,6 +27,7 @@ import type { Warned } from '../gateway/handlers/chrome.js'
 import { PullRequests } from '../github/store.js'
 import { writeActiveSessionFile } from '../hermes/activeSessionFile.js'
 import { Media } from '../media.js'
+import { OperationalSheets } from '../operations.js'
 import { Completion } from '../overlays/completion.js'
 import { OverlayStack } from '../overlays/overlay.js'
 import { openUrl } from '../overlays/pullRequests.js'
@@ -111,6 +114,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const title = new SessionTitle(chat)
   /** The pills above the composer: the one holding the keys, and the todo panel's fold. */
   const hud = new Hud({ changed, open: pill => act().openPill(pill) })
+  const todoHud = new TodoHud()
   /** The conversation's PRs; links are stored under the stored session id the tools see. */
   const prs = new PullRequests({ changed, cwd: () => session.info?.cwd || null, sid: () => durable(session.ref) })
   /** The pull request docked at the pane's right edge (the PR aside). */
@@ -123,11 +127,17 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     scroll: (id, to) => chat.scroll(id, to)
   })
   const composer = new Composer()
+  const btw = new BtwThreads(chat)
+  const operations = new OperationalSheets(chat)
   /** The open overlays; a modal one takes the keys from the completion list. */
   const stack = new OverlayStack({
     changed,
-    closed: overlay => sheets.closed(overlay),
+    closed: overlay => {
+      btw.invalidateActions()
+      sheets.closed(overlay)
+    },
     opened: overlay => {
+      btw.invalidateActions()
       if (overlay.modal) {
         // The sheet owns the keys now: a list or reply for the composer would only land under it.
         completion.dismiss()
@@ -189,6 +199,8 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const shared = {
     activity,
     agents,
+    btw,
+    operations,
     automation,
     changed,
     composer,
@@ -209,6 +221,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     state: session,
     timers,
     title,
+    todoHud,
     transcript
   }
   /** Which session the pane shows and how it switches: views, held requests, and the steps each adopt runs in order. */
