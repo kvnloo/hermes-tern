@@ -13,6 +13,7 @@ import { NoticeStrip } from '../chrome/notices.js'
 import { Reconnect } from '../chrome/reconnect.js'
 import { Sidebar } from '../chrome/sidebar.js'
 import { Theme } from '../chrome/theme.js'
+import { TodoHud } from '../todo-hud.js'
 import { dispatched } from '../commands/slash.js'
 import type { LaunchEnv } from '../config/env.js'
 import { markViewer } from '../connections/cards.js'
@@ -113,6 +114,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const title = new SessionTitle(chat)
   /** The pills above the composer: the one holding the keys, and the todo panel's fold. */
   const hud = new Hud({ changed, open: pill => act().openPill(pill) })
+  const todoHud = new TodoHud()
   /** The conversation's PRs; links are stored under the stored session id the tools see. */
   const prs = new PullRequests({ changed, cwd: () => session.info?.cwd || null, sid: () => durable(session.ref) })
   /** The pull request docked at the pane's right edge (the PR aside). */
@@ -219,6 +221,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     state: session,
     timers,
     title,
+    todoHud,
     transcript
   }
   /** Which session the pane shows and how it switches: views, held requests, and the steps each adopt runs in order. */

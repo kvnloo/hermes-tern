@@ -81,10 +81,12 @@ A turn shows what the agent does while it works: its reasoning, short notes, and
     <td><img alt="The session sidebar docked at the pane's edge" src="docs/images/sidebar.png"></td>
   </tr>
   <tr>
-    <td><b>Subagents.</b> A delegated batch is one card, with one row per agent: its model and its tool count.</td>
+    <td><b>Subagents.</b> Active Task cards use the same tile frame as background processes. Each frame shows up to four agents, with an overflow action that opens <code>/agents</code>.</td>
     <td><b>Sidebar.</b> The branch, the session's pull requests and the changed files.</td>
   </tr>
 </table>
+
+Each active agent tile shows its current tool and its latest two assistant or tool-intent lines, limited to 160 characters per line. Click a tile to open the existing agent view beside the chat, or its timeline sheet when native splitting is unavailable. Hover the dock's agents pill to see the same frame. Pending placeholders without agent events stay as rows. When all agents finish, the Task card returns to result rows.
 
 ### Keys and commands
 
@@ -228,6 +230,77 @@ No private server records, second store, alternate RPC path or runtime
 pin changes are used. See
 [compatibility and authority details](frontend/docs/btw-operational-sheets.md).
 
+## Exit-75 fallback qualification (downstream, opt-in)
+
+The production path remains **one launcher**: hermes tern calls Hermes'
+chat --tui with HERMES_TUI_DIR=frontend/; the **real compiled** Tern entry asks
+for TSP. Only exit **75** retries Hermes' ordinary **Ink** TUI, with the same
+CLI flags and pane-launch environment. Other exits propagate. HERMES_TERN=0
+(or false, off, no) deliberately uses Ink without starting the TSP entry.
+
+Two distinct regression levels are retained:
+
+- Default Python tests (tests/test_launcher.py and tests/test_panes.py)
+  verify launcher policy, profile/pane context, argv, exact-once retry, opt-out
+  and existing dead-pane ownership. The lightweight policy tests record a
+  *simulated* return code. They do **not** qualify a frontend handshake.
+- Explicit tests/test_fallback_native.py uses **actual** frontend/dist/entry.js,
+  a real PTY and non-TTY subprocess, the plugin's real _run/_chat into the
+  pinned Hermes _launch_tui, and a separately built **real Ink bundle**.
+  The only recorder is a transparent HERMES_NODE shell wrapper that logs
+  launch argv and safe scope fields before exec-ing the real Node. No Hermes
+  monkeypatch, fake exit code, fake frontend, stub Ink or second launcher.
+  Native tests are **excluded** from ordinary pytest collection by pytest.ini
+  and explicitly selected in the command below. Exclusion is **not** a green
+  native test result.
+
+Run on OMP's exclusively scheduled, quiet MBP job; use **only an isolated
+/tmp copy** of the pinned Hermes source, never the installed Hermes wrapper
+(which may sweep an active source tree). The source must be at
+22063fc099ec9ad8357d7f8f6e6248a0400680d3, and its Python dependencies
+must already be installed in the interpreter selected as HERMES_PYTHON.
+No provider, microphone, user config or credential copying is required.
+
+~~~sh
+# From the hermes-tern checkout at the exact PR head.
+export HERMES_FALLBACK_SOURCE=/tmp/hermes-fallback-22063fc
+test "$(git -C "$HERMES_FALLBACK_SOURCE" rev-parse HEAD)" = \
+  "$(cat frontend/hermes-src.lock)"
+test "$HERMES_FALLBACK_SOURCE" != "$HOME" # disposable source, not the live install
+(cd "$HERMES_FALLBACK_SOURCE" &&
+  npm ci --prefer-offline --ignore-scripts --workspace ui-tui --no-audit --no-fund &&
+  node scripts/build/tui.mjs &&
+  mkdir -p hermes_cli/tui_dist &&
+  cp ui-tui/dist/entry.js hermes_cli/tui_dist/entry.js)
+HERMES_SRC="$HERMES_FALLBACK_SOURCE" node frontend/scripts/hermes-src.mjs
+(cd frontend &&
+  bun install --frozen-lockfile --prefer-offline &&
+  bun run check &&
+  bun run bundle)
+uv run --no-project --python 3.11 --with pytest python -m pytest -q \
+  tests/test_launcher.py tests/test_panes.py tests/test_plugin_registration.py
+# Run with a Python that has pinned Hermes dependencies; do NOT invoke hermes.
+HERMES_FALLBACK_SOURCE="$HERMES_FALLBACK_SOURCE" "$HERMES_PYTHON" -m pytest -q \
+  -o 'addopts=--import-mode=importlib' -m native_fallback \
+  tests/test_fallback_native.py
+~~~
+
+The compiled-entry checks include **real local PTYs** with SSH/tmux/screen/zellij
+*environment markers only*; those markers do **not** test a remote SSH session
+or installed multiplexer. Non-TTY fallback is not evidence of Ink painting:
+only the real-PTY route checks Ink output, a single fallback and no TSP APC
+after handoff. Record exact head, exit statuses, tests, source/bundle SHA and
+PTY trace. Remaining separately owned evidence: actual remote SSH and
+installed multiplexer paths, clean exit/reattach in an isolated authenticated
+Tern window under headless Sway, crash/resume across a real pane and its
+gateway. A tern serve or marker probe is supplementary, not a fabricated
+TERN_PANE or signed-in native-window pass.
+
+Source provenance: the hermes-tern launcher and frontend by the plugin's
+original maintainers; Hermes CLI/Ink and tui_gateway by NousResearch/Hermes;
+Tern Surface Protocol and SDK by Can Bölük/Stencil Labs; donor fallback
+invariants from kvnloo/hermes-agent PR #624 and issue #510.
+
 ## Development
 
 ```sh
@@ -246,6 +319,12 @@ bun run bundle                                    # rebuilds dist/entry.js for l
 `lab/fake_model.py --home DIR` writes a disposable `HERMES_HOME` that points at a loopback model, and then serves that model. The prompt picks the flow: "approve", "clarify", "tool", "work…", "delegate…", "errands…", "jobchart…", "pr URL…" and more. The file's docstring lists them all. Any other prompt streams Markdown.
 
 Pair the fake model with a headless Tern (`tern serve --control PORT`, then `tern ctl --control PORT run|type|key|shot …`) to check the UI. The screenshots in this README come from that setup.
+
+For agent tiles, send `delegate tiles`. This mode starts six real Hermes delegates against the loopback model. Each delegate sends assistant progress notes and runs two harmless 45-second terminal calls. The normal `delegate` mode remains a shorter three-agent batch.
+
+Use an owned private headless Sway display for native lab runs. Set `WLR_BACKENDS=headless`, disable Xwayland, and use private runtime, D-Bus, Tern configuration and daemon sockets. Do not use the host display or an existing Hermes profile. Start the model, then run `HERMES_HOME=DIR hermes tern --new` in the lab Tern pane. `tern serve` is an ungated offscreen native renderer. Its `shot` command captures the live Hermes UI, but `grim` cannot capture that offscreen surface.
+
+The tile comparison uses actual `hermes tern` sessions with the loopback model and native `tern serve` screenshots, not a mock renderer: [before](docs/images/agent-wait-before.png), [after](docs/images/agent-wait-after.png), and the [OMP reference](docs/images/omp-agent-wait-reference.png). The same run captured the [dock hover](docs/images/agent-wait-dock.png), [six-agent overflow hub](docs/images/agent-wait-hub.png), [tile action's timeline fallback](docs/images/agent-wait-timeline.png), and [settled result rows](docs/images/agent-wait-settled.png). Native split creation was not demonstrated in this offscreen session.
 
 `lab/chartbench.ts` replays real background jobs (their recorded output and log files) through the chart registry and the auxiliary model, and reports which jobs chart.
 

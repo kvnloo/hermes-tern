@@ -125,7 +125,7 @@ describe('session commands', () => {
   it('leaves rewind, compress and branch to slash.exec on a private gateway', async () => {
     const { h, request } = host({ canonical: false })
 
-    for (const name of ['undo', 'retry', 'compact', 'fork']) {
+    for (const name of ['undo', 'retry', 'compact', 'branch']) {
       expect(await run(name, h)).toBe(false)
     }
 
@@ -187,7 +187,7 @@ describe('session commands', () => {
   it('/branch opens the branched session and names it', async () => {
     const { h, request } = host({}, { 'session.info': { title: 'Bug hunt #2' }, 'session.mutate': { branched_session_id: 'child' } })
 
-    await run('fork', h, 'try B')
+    await run('branch', h, 'try B')
 
     expect(mutation(request)).toMatchObject({ operation: 'branch', payload: { title: 'try B' } })
     expect(h.open).toHaveBeenCalledWith('child')

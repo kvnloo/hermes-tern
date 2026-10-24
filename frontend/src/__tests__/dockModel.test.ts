@@ -204,7 +204,7 @@ function frame(over: Partial<FrameCx> = {}) {
     prAside: { node: () => null, open: false },
     sidebar: { node: () => null },
     surface: { closed: false, follow: id => void log.push(`follow ${id}`), render: () => void log.push('render') },
-    transcript: { currentTodos: () => undefined, entries: [] },
+    transcript: { changedEntries: new Set(), currentTodos: () => undefined, entries: [] },
     welcome: { tip: '', version: '' },
     ...over
   }
@@ -223,7 +223,7 @@ describe('drawFrame', () => {
   })
 
   it('leaves the caret off the composer while a pill still holds the keys', () => {
-    const { cx, log } = frame({ transcript: { currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
+    const { cx, log } = frame({ transcript: { changedEntries: new Set(), currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
 
     expect(shownPills(cx, NOW)).toEqual(['todos'])
     drawFrame(cx, NOW)
