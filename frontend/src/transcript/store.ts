@@ -153,9 +153,7 @@ export class Transcript {
     return this.#live
   }
 
-  get generation(): number {
-    return this.#generation
-  }
+  get generation(): number { return this.#generation }
 
   push(entry: Entry) {
     this.#entries.push(entry)
@@ -168,9 +166,7 @@ export class Transcript {
   steer(text: string, at = Date.now(), owner: TurnEntry | undefined = this.live) {
     // A delayed steer confirmation may belong to a completed turn. Never mark another turn,
     // or a session that replaced this transcript while the request was in flight.
-    if (owner && !this.#entries.includes(owner)) {
-      return
-    }
+    if (owner && !this.#entries.includes(owner)) return
 
     if (!owner) {
       return this.user({ at, text })

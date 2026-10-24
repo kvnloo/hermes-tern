@@ -53,7 +53,7 @@ import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
 import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
-import { BusyDraft, busyIntent } from '../turn/busyInput.js'
+import { BusyDraft, busyIntent, shouldSteer } from '../turn/busyInput.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
 import type { PromptQueue } from '../turn/queue.js'
@@ -274,7 +274,7 @@ export class AppActions {
     }
     const raw = this.#cx.composer.text
 
-    if (this.#shouldSteer(raw, alternate)) {
+    if (shouldSteer(this.#cx, raw, alternate)) {
       void this.#busyDraft.steer(raw)
       return
     }
@@ -288,7 +288,7 @@ export class AppActions {
     if (isModal(this.#cx.chat.overlays)) {
       return
     }
-    if (this.#shouldSteer(raw, false)) {
+    if (shouldSteer(this.#cx, raw, false)) {
       void this.#busyDraft.steer(raw)
       return
     }
@@ -296,18 +296,6 @@ export class AppActions {
     this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
   }
 
-  /** Never redirect a live turn implicitly. Shell, slash, images and modal answers keep their own paths. */
-  #shouldSteer(raw: string, alternate: boolean): boolean {
-    const cx = this.#cx
-    const text = raw.trim()
-
-    return Boolean(
-      cx.activity.busy && cx.state.ref.live && !cx.life.switching &&
-      !isModal(cx.chat.overlays) && !cx.attachments.any && !cx.attachments.uploading &&
-      text && !text.startsWith('/') && !text.startsWith('!') &&
-      busyIntent(cx.state.busyMode, alternate) === 'steer'
-    )
-  }
 
   /**
    * Sends or queues a prompt, or runs a command; `draft`: the user entered it (it takes the draft's
@@ -574,31 +562,11 @@ export class AppActions {
 
   /** Opens the sheet behind a pill. */
   openPill(pill: SheetPill) {
-    const { chat } = this.#cx
-
-    switch (pill) {
-      case 'agents':
-        openAgents(chat)
-
-        break
-
-      case 'shells':
-        openBackground(chat)
-
-        break
-
-      case 'prs':
-        openPrMenu(chat)
-
-        break
-
-      case 'goal':
-
-      case 'loop':
-        openAutomation(chat, pill)
-
-        break
-    }
+    const chat = this.#cx.chat
+    if (pill === 'agents') openAgents(chat)
+    else if (pill === 'shells') openBackground(chat)
+    else if (pill === 'prs') openPrMenu(chat)
+    else openAutomation(chat, pill)
   }
 
   /** Opens or closes the session sidebar (Tern's aside); says why where Tern has none. */
