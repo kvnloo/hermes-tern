@@ -8,7 +8,6 @@ import {
   imageBytesMime,
   MEDIA_CACHE_ENTRIES,
   MEDIA_CONNECTION_BLOBS,
-  type MediaDelivery,
   type MediaPath,
   readImageBytes,
   ternSharesFrontendHost
