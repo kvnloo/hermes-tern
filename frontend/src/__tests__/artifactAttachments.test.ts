@@ -406,7 +406,7 @@ describe('the session-owned image controller', () => {
     })
     const tasks = Array.from({ length: 8 }, (_, n) => s.a.fromDataUrl(url, 'image-' + n))
     expect(s.a.uploading).toBe(true)
-    expect(s.gw.sent('image.attach_bytes')).toHaveLength(8)
+    await vi.waitFor(() => expect(s.gw.sent('image.attach_bytes')).toHaveLength(8))
     await s.a.fromDataUrl(url, 'ninth')
     expect(s.gw.sent('image.attach_bytes')).toHaveLength(8)
     s.a.remove(0) // canceled but unsettled: still a concurrency slot
