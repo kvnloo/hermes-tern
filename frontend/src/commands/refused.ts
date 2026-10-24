@@ -341,7 +341,6 @@ const HIDDEN: readonly { name: string; aliases?: readonly string[]; why: (name: 
   { aliases: ['learning', 'memory-graph'], name: 'journey', why: ink('Tern has no learning timeline.') },
   { name: 'logs', why: ink('Tern has no gateway log viewer.') },
   { aliases: ['scroll'], name: 'mouse', why: ink('Tern handles the mouse itself.') },
-  { name: 'palette', why: ink('in Tern, type / to search every command.') },
   { name: 'pet', why: ink('Tern has no pet.') },
   { aliases: ['generate-pet'], name: 'hatch', why: ink('Tern has no pet.') },
   { aliases: ['compose'], name: 'prompt', why: ink("Tern's composer already edits Markdown.") },

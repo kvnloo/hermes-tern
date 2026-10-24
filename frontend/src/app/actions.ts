@@ -8,7 +8,8 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
-import { agentName } from '../agents/rows.js'
+import { Artifacts } from '../artifacts.js'
+import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { copyToClipboard } from '../clipboard.js'
@@ -25,6 +26,7 @@ import type { Attachments } from '../draft/attachments.js'
 import type { Composer } from '../draft/composer.js'
 import type { KeyCx, Presses } from '../draft/keys.js'
 import { storedCompactions } from '../hermes/compactions.js'
+import { forkSession } from '../fork-session.js'
 import { shellError, shellExec, shellLines } from '../hermes/shell.js'
 import type { Media } from '../media.js'
 import type { ToolCall } from '../model.js'
@@ -34,18 +36,22 @@ import { openBackground } from '../overlays/background.js'
 import type { Completion } from '../overlays/completion.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
+import { openPlanReview } from '../overlays/plan.js'
 import { promptOverlay } from '../overlays/prompts.js'
 import { openPrMenu, openPrSheet, openUrl } from '../overlays/pullRequests.js'
 import { parsePrompt } from '../prompts/parse.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
+import { BindingPreferences } from '../shortcuts/binding-preferences.js'
+import { cycleModel } from '../shortcuts/model-cycle.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
 import { INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
@@ -55,9 +61,10 @@ import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
 import type { LiveVoice } from '../voice/live.js'
-import { openSidebar, specOf } from '../watch/spec.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAgentPane } from './agent-pane.js'
+import { openAppPalette } from './palette.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -67,6 +74,7 @@ export interface ActionsCx {
   readonly gw: GatewayClient
   readonly launch: Pick<LaunchEnv, 'home'>
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'viewNotice' | 'dismissNotice'>
   readonly activity: Activity
   readonly attachments: Attachments
   readonly queue: PromptQueue
@@ -78,6 +86,7 @@ export interface ActionsCx {
   readonly composer: Composer
   readonly liveVoice: LiveVoice
   readonly transcript: Transcript
+  readonly todoHud: TodoHud
   readonly media: Media
   readonly connect: ConnectWatcher
   readonly sidebar: Sidebar
@@ -98,10 +107,12 @@ export class AppActions {
   readonly #copied = new Flash<string>(() => this.#cx.changed())
   /** The folder last reported to Tern by OSC 7. */
   #reportedCwd: string | undefined
+  readonly #artifacts = new Artifacts()
   /** What the dock's buttons and fields do. */
   readonly dock: DockActions
   /** What the key rules (draft/keys.ts) reach. */
   readonly keys: KeyCx
+  readonly bindings: BindingPreferences
   /** What the Tern actions (surface/actions.ts) reach. */
   readonly events: ActionCx
   /** What a slash command reaches (commands/slash.ts). */
@@ -113,10 +124,19 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    this.bindings = new BindingPreferences({
+      gw,
+      session: cx.state,
+      changed,
+      notice: text => chat.notice(text, 'warning')
+    })
 
     this.dock = {
+      onBtwView: notice => cx.btw.viewNotice(notice),
+      onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
+        if (composer.vim.enabled) return
         composer.edit(ev)
         changed()
       },
@@ -134,6 +154,7 @@ export class AppActions {
       onQueueSteer: i => queue.steer(i),
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
+        if (composer.vim.enabled) return
         this.submit(ev.text)
         changed()
       },
@@ -144,6 +165,7 @@ export class AppActions {
       },
       onTodos: () => cx.hud.toggleTodos(),
       onUndo: () => {
+        if (composer.vim.enabled) return
         composer.undo()
         changed()
       }
@@ -156,13 +178,22 @@ export class AppActions {
       completion: cx.completion,
       composer,
       liveVoice: cx.liveVoice,
+      vim: composer.vim,
       cycleEffort: () => cycleEffort(chat),
+      fork: () => void forkSession(chat),
       hud: key => this.hudKey(key),
       interrupt: () => this.interrupt(),
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
+      openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
+      openModel: () => openModelPicker(chat),
+      openPalette: () => this.openPalette(),
+      openHelp: () => void chat.openHelp(),
+      cycleModel: direction => void cycleModel(chat, direction),
+      shortcut: (id, key) => this.bindings.matches(id, key),
+      openPlan: () => openPlanReview(chat),
       presses: cx.presses,
       queue,
       quit: () => chat.quit(),
@@ -178,6 +209,7 @@ export class AppActions {
       },
       modal: () => isModal(chat.overlays),
       openAgent: id => void this.openAgent(id),
+      openAgents: () => openAgents(chat),
       openProcess: id => openBackground(chat, id),
       openUrl
     }
@@ -204,6 +236,11 @@ export class AppActions {
       submit: text => this.submit(text, true, 'queue'),
       transcript
     }
+  }
+
+  /** The native command palette dispatches through the existing command route. */
+  openPalette() {
+    openAppPalette(this.#cx, command => this.submit(command, false))
   }
 
   /** The entry whose Copy button reads Copied. */
@@ -461,6 +498,14 @@ export class AppActions {
     }
   }
 
+  /** Opens model outputs beside the live chat. */
+  showArtifacts(call: ToolCall | undefined) {
+    this.#artifacts.show(call, this.#cx.state.info?.cwd ?? process.cwd(), text => {
+      this.#cx.transcript.notice(text, 'warning')
+      this.#cx.changed()
+    })
+  }
+
   /** A tool call's image landed: its card draws again. */
   imageLanded(call: ToolCall) {
     this.#cx.transcript.touchCall(call)
@@ -481,12 +526,12 @@ export class AppActions {
 
   /** Down from an empty prompt focuses the pills; ←/→, Enter and Esc/↑ while one holds the keys. */
   hudKey(key: Key): boolean {
-    const { activity, chat, completion, composer, transcript } = this.#cx
+    const { activity, chat, completion, composer, transcript, todoHud } = this.#cx
     const { agents, automation, processes, prs } = chat
 
     return this.#cx.hud.key(key, {
       idle: !composer.text && !composer.browsing && !completion.open,
-      pills: shownPills({ activity, agents, automation, processes, prs, transcript }, Date.now())
+      pills: shownPills({ activity, agents, automation, processes, prs, todoHud, transcript }, Date.now())
     })
   }
 
@@ -553,18 +598,6 @@ export class AppActions {
 
   /** Shows subagent `id` beside the chat in a Tern split; its timeline sheet where no split can open. */
   async openAgent(id: string) {
-    const { chat, state } = this.#cx
-    const a = chat.agents.all().find(x => x.id === id)
-    const sid = state.ref.live
-
-    if (!a || !sid) {
-      return
-    }
-
-    const cwd = state.info?.cwd || this.#cx.launch.home || '/'
-
-    if (!(await openSidebar(specOf(a, agentName(a), sid, state.ref.stored), cwd))) {
-      openAgents(chat, { id, watch: true })
-    }
+    return openAgentPane(this.#cx, id)
   }
 }

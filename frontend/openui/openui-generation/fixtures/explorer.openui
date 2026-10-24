@@ -1,0 +1,3 @@
+root = RepoExplorer("demo", "code", [metrics, hottest])
+metrics = MetricRow(["files", "code", "churn"])
+hottest = HottestFiles(8)
