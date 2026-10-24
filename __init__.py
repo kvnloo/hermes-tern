@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import connections, panes, plan_gateway, pull_requests, tern_env
+from . import browser_backend, connections, panes, plan_gateway, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
 
@@ -113,6 +113,7 @@ def register(ctx) -> None:
     pull_requests.register(ctx)
     connections.register(ctx)
     tern_env.register(ctx)
+    browser_backend.register(ctx)
     # Older Hermes has no public gateway registration; do not synthesize
     # a JSON-RPC method or change its pinned runtime.
     if callable(getattr(ctx, "register_gateway_method", None)):

@@ -9,7 +9,7 @@ import type { SessionIds } from '../../../core/ids.js'
 import type { ToolCall } from '../../../model.js'
 import { type TernTarget, ternTargetOf } from '../../../tools/browser.js'
 import { button } from '../../ui/button.js'
-import { browserTarget } from '../../../wire/browser.js'
+import { browserCaller, browserTarget } from '../../../wire/browser.js'
 
 import type { Card } from '../types.js'
 
@@ -55,7 +55,12 @@ export function bindBrowserFocus(host: BrowserFocusHost, source: Pick<SessionIds
     return undefined
   }
 
-  const live = () => host.session.ref === source && host.session.ref.live === sid
+  const caller = browserCaller(host.session)
+  if (!caller || !caller.current()) {
+    return undefined
+  }
+
+  const live = () => host.session.ref === source && host.session.ref.live === sid && caller.current()
 
   return (call, target) => {
     if (!live() || call.outcome.kind !== 'done' ||
@@ -71,7 +76,7 @@ export function bindBrowserFocus(host: BrowserFocusHost, source: Pick<SessionIds
       return
     }
 
-    void browserTarget(host.gw, 'browser.focus', sid, target.target_id).catch(error => {
+    void browserTarget(host.gw, 'hermes-tern.browser.focus', caller, target.target_id).catch(error => {
       if (live()) {
         host.notice(errorText(error), 'warning')
       }
