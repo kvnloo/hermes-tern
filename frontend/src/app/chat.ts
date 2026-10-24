@@ -10,6 +10,7 @@ import type { ScrollTo, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import logo from '../../assets/logo.png'
+import type { BtwThreads } from '../btw.js'
 import type { Agents } from '../agents/store.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
@@ -25,6 +26,7 @@ import { followGateway } from '../gateway/follow.js'
 import type { PullRequests } from '../github/store.js'
 import { HostLifecycle } from '../host-lifecycle.js'
 import type { NoticeEntry } from '../model.js'
+import type { OperationalSheets } from '../operations.js'
 import { openHelp } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { Cron } from '../processes/cron.js'
@@ -40,6 +42,7 @@ import { runInput } from '../surface/input.js'
 import type { Transcript } from '../transcript/store.js'
 import type { Busy } from '../turn/activity.js'
 import { IMAGE_ONLY_PROMPT } from '../turn/prompt.js'
+import { Retention } from '../view/retention.js'
 import { STYLES } from '../view/styles.js'
 import { noticeSink, onCardFault } from '../view/tools/faults.js'
 import { busyLabel, preparingLabel } from '../view/workLogModel.js'
@@ -60,6 +63,8 @@ export class App implements ChatPorts {
   readonly agents: Agents
   readonly processes: Processes
   readonly cron: Cron
+  readonly btw: BtwThreads
+  readonly operations: OperationalSheets
   readonly sidebar: Sidebar
   readonly automation: Automation
   readonly prs: PullRequests
@@ -76,6 +81,7 @@ export class App implements ChatPorts {
   readonly #act: AppActions
   #surface!: SurfaceHost
   #editingExternal = false
+  #retention: Retention | undefined
   /** What each frame draws from (app/frame.ts); set once run() opened the surface. */
   #view: FrameCx | undefined
 
@@ -96,6 +102,8 @@ export class App implements ChatPorts {
     this.agents = s.agents
     this.processes = s.processes
     this.cron = s.cron
+    this.btw = s.btw
+    this.operations = s.operations
     this.sidebar = s.sidebar
     this.automation = s.automation
     this.prs = s.prs
@@ -121,13 +129,17 @@ export class App implements ChatPorts {
   async run(): Promise<number> {
     const s = this.stores
     this.#surface = new SurfaceHost(this.#tern, 'hermes', STYLES)
+    if (this.#tern.caps.features.includes('settle')) {
+      this.#retention = new Retention(this.#surface.raw, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
+    }
     this.#view = {
       ...s,
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
       gateway: this.#gw,
-      surface: this.#surface
+      surface: this.#surface,
+      retention: this.#retention
     }
     s.theme.apply()
     // A card that throws draws as the generic one, and the pane says so once per tool name.
@@ -168,8 +180,17 @@ export class App implements ChatPorts {
     void runInput(this.#tern, {
       after: () => this.changed(),
       onError: error => this.transcript.notice(`Input failed: ${errorText(error)}`, 'error'),
-      onEvent: event => onTernEvent(event, this.#act.events),
-      onKey: key => onKey(key, this.#act.keys, this.overlays.at(-1))
+      onEvent: event => {
+        this.#retention?.gone(event)
+        onTernEvent(event, this.#act.events)
+      },
+      onKey: key => {
+        if (this.#retention && key.ctrl && key.name === 'home' && !this.overlays.at(-1)?.modal) {
+          this.#retention.request(true)
+        } else {
+          onKey(key, this.#act.keys, this.overlays.at(-1))
+        }
+      }
     }).then(() => this.#end())
 
     const code = await this.#done.promise

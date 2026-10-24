@@ -7,15 +7,14 @@ import type { Decor, Key } from '@stencil-hq/tern'
 
 import { append as appendHistory, load as loadHistory } from '../hermes/history.js'
 
+import { boundaryAt, lineEnd, lineStart, nextGrapheme, nextWord, prevGrapheme, prevWord } from './keys.js'
 import { listNewline, markdownDecor, type Splice, toggleMark } from './markdown.js'
-import { nextWord, prevWord } from './readline-words.js'
 import { type Snapshot, UndoHistory } from './undo.js'
 import { VimComposer } from './vim.js'
 
 /** What a key asked the app to do beyond editing. */
 export type ComposerAction = 'submit' | null
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 /** The prompt editor: text, caret, undo/redo, prompt history and kill ring, driven by keys and native edits. */
 export class Composer {
@@ -33,10 +32,17 @@ export class Composer {
   #decor: { text: string; decor: Decor[] } = { decor: [], text: '' }
   /** Pasted text that holds `{!…}` or starts with `!`: what it says is not the user's command. */
   #pasted: string[] = []
+  /** A monotonic identity for draft state, including edit/undo/redo ABA. */
+  #revision = 0n
 
   /** The draft; only the composer's own edits change it. */
   get text(): string {
     return this.#text
+  }
+
+  /** Draft mutation ticket; never infer identity from text, which may return to its old value. */
+  get revision(): bigint {
+    return this.#revision
   }
 
   /** The caret's offset in the draft. */
@@ -107,6 +113,7 @@ export class Composer {
   /** Clears the draft after a submit, remembering it in the prompt history. */
   take(): string {
     const text = this.text
+    this.#revision++
     appendHistory(text)
     this.#pasted = []
     this.#steps.clear()
@@ -149,9 +156,16 @@ export class Composer {
     }
 
     if (ev.from === ev.to && !ev.text) {
-      this.#cursor = clamp(ev.cursor, this.text.length)
+      const cursor = clamp(ev.cursor, this.text.length)
       const anchor = ev.raw?.['anchor']
-      this.#anchor = typeof anchor === 'number' && anchor !== this.cursor ? clamp(anchor, this.text.length) : undefined
+      const nextAnchor = typeof anchor === 'number' && anchor !== cursor ? clamp(anchor, this.text.length) : undefined
+
+      if (cursor !== this.#cursor || nextAnchor !== this.#anchor) {
+        this.#revision++
+      }
+
+      this.#cursor = cursor
+      this.#anchor = nextAnchor
 
       return
     }
@@ -186,6 +200,7 @@ export class Composer {
   #restore(step: Snapshot | undefined) {
     if (step) {
       this.rev++
+      this.#revision++
       this.#text = step.text
       this.#cursor = step.cursor
       this.#pasted = [...step.pasted]
@@ -455,6 +470,7 @@ export class Composer {
     }
 
     this.#browse = at
+    this.#revision++
     const text = at === items.length ? this.#draft : (items[at] ?? '')
 
     if (at === items.length) {
@@ -471,6 +487,7 @@ export class Composer {
 
   #move(to: number): true {
     if (to !== this.cursor || this.anchor !== undefined) {
+      this.#revision++
       this.#cursor = clamp(to, this.text.length)
       this.#anchor = undefined
       this.#steps.breakBurst()
@@ -505,6 +522,7 @@ export class Composer {
   /** Saves an undo step; typing bursts merge into one. Every edit runs it, so it also ends a history walk. */
   #record({ merge }: { merge: boolean }) {
     this.rev++
+    this.#revision++
     // An edited history entry is the draft now: the next Up saves it and starts from the newest entry.
     this.#browse = -1
     this.#anchor = undefined
@@ -516,59 +534,6 @@ function clamp(n: number, max: number): number {
   return Math.max(0, Math.min(max, n))
 }
 
-function lineStart(text: string, at: number): number {
-  // lastIndexOf clamps a negative start to 0, so it would find a newline at 0 from offset 0.
-  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1
-}
-
-function lineEnd(text: string, at: number): number {
-  const i = text.indexOf('\n', at)
-
-  return i < 0 ? text.length : i
-}
-
-/** `at` when it is a grapheme boundary of `text`, else the boundary before it. */
-function boundaryAt(text: string, at: number): number {
-  if (at >= text.length) {
-    return text.length
-  }
-
-  let floor = 0
-
-  for (const { index } of graphemes.segment(text)) {
-    if (index > at) {
-      break
-    }
-
-    floor = index
-  }
-
-  return floor
-}
-
-function prevGrapheme(text: string, at: number): number {
-  let prev = 0
-
-  for (const { index } of graphemes.segment(text)) {
-    if (index >= at) {
-      break
-    }
-
-    prev = index
-  }
-
-  return prev
-}
-
-function nextGrapheme(text: string, at: number): number {
-  for (const { index, segment } of graphemes.segment(text)) {
-    if (index >= at) {
-      return index + segment.length
-    }
-  }
-
-  return text.length
-}
 
 /** Text that would run a command if typed: a `{!cmd}`, or a leading `!`. */
 export function pastedCommand(text: string): boolean {

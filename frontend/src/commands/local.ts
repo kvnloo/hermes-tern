@@ -36,6 +36,8 @@ export type CommandHost = Pick<
   | 'attachClipboardImage'
   | 'attachImagePath'
   | 'busy'
+  | 'btw'
+  | 'operations'
   | 'control'
   | 'gw'
   | 'editExternal'
@@ -288,14 +290,32 @@ const COMMANDS: readonly LocalCommand[] = [
   },
   {
     name: 'history',
-    run: (host, arg) => host.transcript.panel('/history', historyText(host.transcript.entries, arg))
+    run: (host, arg) => host.operations.showText('/history', historyText(host.transcript.entries, arg))
   },
   {
     // `/help <command>` is the backend's detailed usage.
     name: 'help',
     run: (host, arg) => (arg ? false : host.openHelp())
   },
-  ...CONTROL_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
+  // The history-capable sheet supersedes CONTROL_COMMANDS' legacy one-shot /btw route.
+  { name: 'btw', run: (host, arg) => host.btw.show(arg) },
+  { name: 'mcp', run: (host, arg) => host.operations.show('mcp', arg) },
+  { name: 'ssh', run: (host, arg) => host.operations.show('ssh', arg) },
+  {
+    name: 'tools',
+    run: (host, arg) => {
+      const query = arg.trim().toLowerCase()
+
+      if (query === '' || query === 'list') {
+        return host.operations.showTools(query)
+      }
+
+      return CONTROL_COMMANDS.find(c => c.name === 'tools')?.run(host.control(), arg)
+    }
+  },
+  ...CONTROL_COMMANDS.filter(c => c.name !== 'tools').map(c => ({
+    ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg)
+  })),
   ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
   ...REFUSED_COMMANDS
 ]

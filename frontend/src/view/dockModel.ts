@@ -6,6 +6,7 @@ import type { Usage } from '@hermes/shared/gateway-events'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { Agents } from '../agents/store.js'
+import type { BtwThreads } from '../btw.js'
 import { type Hud, type Pill, pills, todos } from '../chrome/hud.js'
 import type { NoticeStrip } from '../chrome/notices.js'
 import type { Reconnect } from '../chrome/reconnect.js'
@@ -34,6 +35,7 @@ export const PLACEHOLDER = 'Ask Hermes — / commands · @ files'
 
 /** What the dock reads, each part a narrow view of the store that owns it. */
 export interface DockSources {
+  readonly btw: Pick<BtwThreads, 'notices'>
   readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null }
   readonly activity: Pick<Activity, 'busy' | 'compacting'>
   readonly composer: Composer
@@ -107,6 +109,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
 
   return {
     activity: dockActivity(src.activity),
+    btwNotices: src.btw.notices,
     composer: {
       attachments: src.attachments.chips(),
       draft: src.composer,

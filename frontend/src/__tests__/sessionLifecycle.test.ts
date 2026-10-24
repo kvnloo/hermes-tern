@@ -150,6 +150,7 @@ function recordingHost() {
   const host: AdoptHost = {
     activity: { busy: null, endCompaction: rec('activity.endCompaction'), set: rec('activity.set') },
     agents: { adopt: sid => void log.push(`agents.adopt ${sid}`), scan: rec('agents.scan') },
+    btw: { adopt: sid => void log.push(`btw.adopt ${sid}`) },
     automation: { adopt: sid => void log.push(`automation.adopt ${sid}`) },
     changed: rec('changed'),
     connect: { watch: rec('connect.watch') },
@@ -160,6 +161,7 @@ function recordingHost() {
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
     media: { showAll: rec('media.showAll') },
     notices: { reset: rec('notices.reset') },
+    operations: { adopt: sid => void log.push(`operations.adopt ${sid}`) },
     processes: { poke: rec('processes.poke') },
     prs: { adopt: rec('prs.adopt') },
     queue: { adopt: ref => void log.push(`queue.adopt ${ref.live}`), server: { reset: rec('queue.reset') } },
@@ -205,6 +207,8 @@ describe('adoptSteps', () => {
 
     expect(log).toEqual([
       'ref b',
+      'btw.adopt b',
+      'operations.adopt b',
       // Another session: the transcript starts over at once, and the last one's sheets and busy-input mode go.
       'transcript.reset other',
       'sheets.dropAll',
@@ -254,7 +258,7 @@ describe('adoptSteps', () => {
     expect(log).not.toContain('busyMode queue')
     expect(log).not.toContain('transcript.load')
     expect(log).not.toContain('transcript.inflight')
-    expect(log.slice(0, 5)).toEqual(['ref a', 'transcript.reset same', 'readBusyMode', 'readVimPreference', 'queue.reset'])
+    expect(log.slice(0, 7)).toEqual(['ref a', 'btw.adopt a', 'operations.adopt a', 'transcript.reset same', 'readBusyMode', 'readVimPreference', 'queue.reset'])
     expect(log.at(-1)).toBe('changed')
   })
 })
