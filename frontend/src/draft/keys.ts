@@ -37,6 +37,7 @@ export type KeyAction =
   | 'clipboardImage'
   | 'dequeue'
   | 'effort'
+  | 'plan'
   | 'fork'
   | 'prs'
   | 'quit'
@@ -59,7 +60,8 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
   fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
-  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta'] },
+  plan: { label: 'alt+shift+p', name: 'p', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
+  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta', 'shift'] },
   quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'] },
   sidebar: { label: 'alt+s', name: 's', with: ['alt'], without: ['ctrl', 'meta'] },
   steer: { label: 'alt+enter', name: 'enter', with: ['alt'] }
@@ -99,6 +101,7 @@ export interface KeyCx {
   openAgents(): void
   openBackground(): void
   openPrs(): void
+  openPlan(): void
   fork(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
@@ -216,6 +219,7 @@ const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
   [KEYS.background, cx => cx.openBackground()],
   [KEYS.sidebar, cx => cx.toggleSidebar()],
   [KEYS.prs, cx => cx.openPrs()],
+  [KEYS.plan, cx => cx.openPlan()],
   [KEYS.fork, cx => cx.fork()]
 ]
 
