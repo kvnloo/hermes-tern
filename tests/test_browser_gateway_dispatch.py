@@ -985,6 +985,7 @@ def test_real_create_resume_marker_and_model_tool_original_driver(green, monkeyp
     ):
         result = rpc(server, first, f"hermes-tern.browser.{action}",
                      rid=404, session_id=sid, **opts)
+        assert "error" in result, result
         assert result["error"]["code"] == -32000, result
     assert driver.scope.cli.calls == before
     assert driver.scope.lease is lease
