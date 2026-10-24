@@ -27,6 +27,7 @@ import type { Presses } from '../draft/keys.js'
 import type { Warned } from '../gateway/handlers/chrome.js'
 import { PullRequests } from '../github/store.js'
 import { writeActiveSessionFile } from '../hermes/activeSessionFile.js'
+import { MediaDelivery } from '../media-delivery.js'
 import { Media } from '../media.js'
 import { OperationalSheets } from '../operations.js'
 import { Completion } from '../overlays/completion.js'
@@ -101,6 +102,14 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   }
   /** Images tool calls showed, a URL's bytes fetched once and sent as a blob. */
   const media = new Media({ blob: (bytes, mime) => act().blob(bytes, mime) })
+  const mediaDelivery = new MediaDelivery({
+    tern,
+    gw,
+    session: () => session.ref.live,
+    cwd: () => session.info?.cwd,
+    backend: () => session.info?.terminal_backend ?? undefined,
+    changed
+  })
   /** The session's subagents, followed while they run (Task cards, the pill, the hub). */
   const agents = new Agents(live)
   /**
@@ -211,6 +220,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     connect,
     hud,
     media,
+    mediaDelivery,
     notices,
     overlays: stack.items,
     prAside,
@@ -278,6 +288,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
 
 /** Stops what the stores run on their own: every timer, the polls and the sidebar's reads. */
 export function disposeStores(s: ChatStores) {
+  s.mediaDelivery.clear(true)
   s.liveVoice.dispose()
   s.timers.dispose()
   s.connect.dispose()

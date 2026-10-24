@@ -6,6 +6,7 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../core/assert.js'
+import type { MediaDelivery } from '../media-delivery.js'
 import type { SessionIds } from '../core/ids.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
@@ -13,6 +14,7 @@ import type { TableCharts } from '../transcript/tableCharts.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
 
 import { duration } from './format.js'
+import { attachmentImagePath, imagePreviewNode } from './media.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
 import type { BrowserFocus } from './tools/cards/browser.js'
@@ -40,6 +42,9 @@ export interface TranscriptContext {
   copy(text: string, id: string): void
   /** The entry copied a moment ago, whose copy button shows a check. */
   copied?: string | undefined
+  /** Optional for isolated render fixtures; App supplies its current delivery service. */
+  media?: MediaDelivery
+  mediaRev?: string
 }
 
 const kNode = Symbol('tsp.node')
@@ -71,7 +76,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   const built: Built = holder
   // Authority is presentation state: a cached local href must not survive a host/cwd switch.
   const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
-    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0])
+    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? ''])
   const cached = built[kNode]
 
   if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
@@ -121,7 +126,7 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
         />
         {copyButton(e.text, e.id, 'omp.user.tool', 'Copy message', cx)}
       </row>
-      {e.attachments?.length ? attachmentsRow(e.attachments) : null}
+      {e.attachments?.length ? attachmentsRow(e.attachments, cx) : null}
       {e.text ? <md key="body">{e.text}</md> : null}
     </card>
   )
@@ -131,25 +136,34 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
  * A prompt's attachments over its words, as omp's bubble shows them: each image a thumbnail
  * (a click opens Tern's lightbox, which steps through the others), a file or a gone image a chip.
  */
-function attachmentsRow(list: readonly UserAttachment[]): JSX.Element {
+function attachmentsRow(list: readonly UserAttachment[], cx: TranscriptContext): JSX.Element {
   return (
     <row align="start" gap="sm" key="images" role="omp.user.images" wrap>
-      {list.map((a, i) =>
-        a.source ? (
-          <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
-        ) : (
+      {list.map((a, i) => {
+        const path = a.source && 'blob' in a.source ? undefined
+          : a.refPath ?? (a.source && 'path' in a.source ? a.source.path : undefined)
+        const remote = a.kind === 'image' && path && cx.media && !cx.media.context().local
+          ? attachmentImagePath(path, cx.media)
+          : undefined
+
+        return remote && cx.media ? imagePreviewNode(remote, cx.media, a.name, `a${i}`)
+          : a.source && ('blob' in a.source || !cx.media || cx.media.context().local) ? (
+            <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
+          ) : (
           <row
             align="center"
             gap="xs"
             key={`a${i}`}
             role="hermes.user.attachment"
-            title={a.kind === 'image' ? `${a.name} (the file is gone)` : a.name}
+            title={a.kind === 'image'
+              ? `${a.name} (${cx.media && !cx.media.context().local ? 'remote preview unavailable' : 'the file is gone'})`
+              : a.name}
           >
             <icon key="i" name={a.kind === 'image' ? 'image' : 'file'} />
             <text key="t" text={a.name} truncate="middle" wrap="none" />
           </row>
         )
-      )}
+      })}
     </row>
   )
 }
@@ -251,7 +265,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser, cx.media)
     }
 
     const b = p.block
@@ -265,7 +279,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser)
+        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser, cx.media)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

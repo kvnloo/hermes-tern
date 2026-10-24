@@ -133,7 +133,7 @@ function bind<K extends ToolKey>(call: ToolCall, key: K, d: DetailOf<K>): CallVi
 
   return {
     action: () => view.action,
-    card: (now, context) => view.card(call, d, now, context),
+    card: (now, context, media) => view.card(call, d, now, context, media),
     detailPrefix: () => view.detailPrefix?.(call, d),
     exit: () => view.exit?.(d),
     replaces: now => view.replaces?.(call, d, now),

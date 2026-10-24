@@ -4,6 +4,7 @@
 
 import type { JSX, Tone } from '@stencil-hq/tern'
 
+import type { MediaDelivery } from '../../media-delivery.js'
 import type { ToolCall } from '../../model.js'
 import type { DetailOf, ToolKey } from '../../tools/detail.js'
 import type { LspLinkContext } from './lsp-links.js'
@@ -56,7 +57,7 @@ export interface ToolView<K extends ToolKey> {
   action: Action
   /** Its icon in the agents hub's timeline, which knows only the name; a wrench when unset. */
   hubIcon?: string | ((name: string) => string)
-  card(call: ToolCall, d: DetailOf<K>, now: number, context?: LspLinkContext): Card
+  card(call: ToolCall, d: DetailOf<K>, now: number, context?: LspLinkContext, media?: MediaDelivery): Card
   /** Its line in a work group, after t3code's `workEntryDisplayLabel`. */
   step(call: ToolCall, d: DetailOf<K>): string
   /** A node drawn in place of the whole `tool` node (a one-agent delegation as its agent's row). */
@@ -70,7 +71,7 @@ export interface ToolView<K extends ToolKey> {
 /** One call's view with its detail bound: what the shell and the work log ask of a call. */
 export interface CallView {
   action(): Action
-  card(now: number, context?: LspLinkContext): Card
+  card(now: number, context?: LspLinkContext, media?: MediaDelivery): Card
   step(): string
   replaces(now: number): JSX.Element | undefined
   exit(): number | undefined

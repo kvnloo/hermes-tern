@@ -8,6 +8,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { Hud } from '../chrome/hud.js'
 import type { ThinkingOrb } from '../chrome/orb.js'
 import type { Sidebar } from '../chrome/sidebar.js'
+import type { MediaDelivery } from '../media-delivery.js'
 import type { Completion } from '../overlays/completion.js'
 import type { Overlay, OverlayStack } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
@@ -32,6 +33,7 @@ export interface FrameCx extends DockSources {
   readonly gateway?: Pick<GatewayClient, 'attached'>
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
+  readonly mediaDelivery?: MediaDelivery
   readonly charts: TableCharts
   readonly overlays: readonly Overlay[]
   readonly stack: Pick<OverlayStack, 'rootOf'>
@@ -89,7 +91,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser'>>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser' | 'mediaDelivery'>>, now: number): TranscriptContext {
   const info = cx.session.info
   const focusBrowser = cx.browser ? bindBrowserFocus(cx.browser, cx.session.ref) : undefined
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
@@ -101,6 +103,7 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
     focusBrowser,
     browserSource: cx.session.ref,
     now,
+    ...(cx.mediaDelivery ? { media: cx.mediaDelivery, mediaRev: cx.mediaDelivery.token() } : {}),
     lspContext: lspLinkContext({
       cwd: info?.cwd,
       terminalBackend: info?.terminal_backend,

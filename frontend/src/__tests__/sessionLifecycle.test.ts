@@ -160,6 +160,7 @@ function recordingHost() {
     markPane: id => void log.push(`markPane ${id}`),
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
     media: { showAll: rec('media.showAll') },
+    mediaDelivery: { clear: rec('mediaDelivery.clear') },
     notices: { reset: rec('notices.reset') },
     operations: { adopt: sid => void log.push(`operations.adopt ${sid}`) },
     processes: { poke: rec('processes.poke') },
@@ -211,6 +212,7 @@ describe('adoptSteps', () => {
       'btw.adopt b',
       'operations.adopt b',
       // Another session: the transcript starts over at once, and the last one's sheets and busy-input mode go.
+      'mediaDelivery.clear',
       'transcript.reset other',
       'sheets.dropAll',
       'busyMode queue',
@@ -262,6 +264,7 @@ describe('adoptSteps', () => {
       'ref a',
       'btw.adopt a',
       'operations.adopt a',
+      'mediaDelivery.clear',
       'transcript.reset same',
       'readBusyMode',
       'readShortcuts',

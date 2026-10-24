@@ -7,6 +7,7 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { clip } from '../../../core/text.js'
+import type { MediaDelivery } from '../../../media-delivery.js'
 import { shownImage } from '../../../media.js'
 import type { ToolCall } from '../../../model.js'
 import { tilesNode } from '../../../processes/widgets/view.js'
@@ -17,6 +18,7 @@ import { isWatchCall } from '../../../transcript/calls.js'
 import { record } from '../../../wire/json.js'
 import { commandLine } from '../../describe.js'
 import { nonEmpty } from '../../format.js'
+import type { LspLinkContext } from '../lsp-links.js'
 import { namedStep } from '../steps.js'
 import type { CallView, Card, ToolView } from '../types.js'
 
@@ -37,7 +39,7 @@ const own = (call: ToolCall): Look => ({ name: call.name, title: humanize(call.n
  * name. Its card reads only the generic fields, so it serves every tool whose detail has them.
  */
 const plain = (look: (call: ToolCall) => Look, action: ToolView<'other'>['action'] = 'other') =>
-  ({ action, card: (call: ToolCall, d: GenericFields) => genericCard(call, d, look(call)), step: namedStep }) satisfies ToolView<'other'>
+  ({ action, card: (call: ToolCall, d: GenericFields, _now: number, _context?: LspLinkContext, media?: MediaDelivery) => genericCard(call, d, look(call), media), step: namedStep }) satisfies ToolView<'other'>
 
 /** Any tool no view takes, by its own name. */
 export const otherView: ToolView<'other'> = plain(own)
@@ -51,14 +53,14 @@ export const visionView: ToolView<'vision_analyze'> = plain(() => ({ name: 'imag
 /** image_generate: the picture asked for, even before it lands. */
 export const imageGenerateView: ToolView<'image_generate'> = {
   action: 'other',
-  card: (call, d) => imageCard(call, d, { name: 'image', title: 'Image' }, shownImage(call)),
+  card: (call, d, _now, _context, media) => imageCard(call, d, { name: 'image', title: 'Image' }, shownImage(call), media),
   step: namedStep
 }
 
 /** The browser tools (`browser_navigate`, `browser_vision`…): a screenshot shows as its image. */
 export const browserView: ToolView<'browser'> = {
   ...plain(call => ({ name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), 'browser'),
-  card: (call, d) => browserBlockCard(genericCard(call, d, { name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), call),
+  card: (call, d, _now, _context, media) => browserBlockCard(genericCard(call, d, { name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }, media), call),
   hubIcon: name => (name === 'browser_navigate' ? 'web' : 'wrench')
 }
 
@@ -127,11 +129,11 @@ export const listPullRequestsView: ToolView<'list_pull_requests'> = { ...plain(o
  * The generic card: a tool by the omp tool it resembles (`look`). A browser screenshot shows its
  * image; a process wait, poll or log its process's chart; the rest their result, folded.
  */
-export function genericCard(call: ToolCall, d: GenericFields, look: Look): Card {
+export function genericCard(call: ToolCall, d: GenericFields, look: Look, media?: MediaDelivery): Card {
   const src = shownImage(call)
 
   if (src) {
-    return imageCard(call, d, look, src)
+    return imageCard(call, d, look, src, media)
   }
 
   // A process wait, poll or log shows its process's chart, as omp's `wait` card tiles its jobs.

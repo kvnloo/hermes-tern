@@ -10,19 +10,21 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../../core/assert.js'
+import type { MediaDelivery } from '../../media-delivery.js'
 import type { ToolCall } from '../../model.js'
 import { tookMs } from '../../transcript/calls.js'
 import { duration } from '../format.js'
 import { age } from '../time.js'
 import type { LspLinkContext } from './lsp-links.js'
 
+import { toolMediaNode } from './media.js'
 import { browserFocusButton, type BrowserFocus } from './cards/browser.js'
 import { type ErrorReader, withView } from './registry.js'
 import type { CallView } from './types.js'
 
 /** The `tool` node of one call; the generic card when its view throws. */
-export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element {
-  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context, focusBrowser))
+export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element {
+  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context, focusBrowser, media))
 }
 
 /**
@@ -30,22 +32,23 @@ export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, 
  * and its output, a diff, a file), and why it failed or stopped; the generic card's body when
  * its view throws.
  */
-export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element[] {
-  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context, focusBrowser))
+export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element[] {
+  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context, focusBrowser, media))
 }
 
 /** The `tool` node of `call` as `view` draws it. */
-function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element {
+function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element {
   const solo = view.replaces(now)
 
   if (solo) {
     return solo
   }
 
-  const card = view.card(now, context)
+  const card = view.card(now, context, media)
   const status = card.status ?? call.outcome.kind
   const running = status === 'running'
-  const body = [...card.body]
+  const native = toolMediaNode(call, media)
+  const body = [...(native ? [native] : []), ...card.body]
   const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined
 
   if (focus) {
@@ -66,7 +69,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 
   // A failure with output unfolds to show it (omp's failed bash); one without
   // says why in the head (omp's failed read).
-  const collapsed = call.outcome.kind === 'error' ? false : card.folded
+  const collapsed = call.outcome.kind === 'error' || native ? false : card.folded
 
   // boundary: Tern's ToolProps has no `lang` yet (an upstream ask), so it rides in one unchecked spread.
   const lang = { lang: card.lang }
@@ -98,9 +101,10 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 }
 
 /** What `call`'s step opens to, as `view` draws it. */
-function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element[] {
-  const card = view.card(now, context)
-  const body = [...card.body]
+function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element[] {
+  const card = view.card(now, context, media)
+  const native = toolMediaNode(call, media)
+  const body = [...(native ? [native] : []), ...card.body]
   const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined
 
   if (focus) {
