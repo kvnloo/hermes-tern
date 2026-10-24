@@ -14,10 +14,12 @@ import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
 import { type EffortHost, openEffortPicker } from '../overlays/effort.js'
 import { type ModelsHost, openModelPicker, switchModel } from '../overlays/models.js'
+import { openModelHub } from '../overlays/modelHub.js'
 import { type PlanReviewHost, openPlanReview } from '../overlays/plan.js'
 import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
+import { openSettings } from '../overlays/settings.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
 import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
 import { LEVELS } from '../session/effort.js'
@@ -45,6 +47,7 @@ export type CommandHost = Pick<
   | 'open'
   | 'openHelp'
   | 'openPalette'
+  | 'overlays'
   | 'quit'
   | 'resume'
   | 'session'
@@ -127,6 +130,21 @@ const COMMANDS: readonly LocalCommand[] = [
     name: 'palette',
     help: 'Search and run commands, or insert one into the composer',
     run: host => host.openPalette()
+  },
+  {
+    name: 'settings',
+    help: 'Native Hermes profile preferences and live-session controls',
+    run: host => openSettings(host)
+  },
+  {
+    name: 'prefs',
+    help: 'Open Hermes settings (alias of /settings)',
+    run: host => openSettings(host)
+  },
+  {
+    name: 'models',
+    help: 'Inspect Hermes providers and profile model-management availability',
+    run: host => openModelHub(host)
   },
   {
     name: 'model',
