@@ -42,6 +42,8 @@ import { onTernEvent } from '../surface/actions.js'
 import { INPUT_ID, SurfaceHost } from '../surface/host.js'
 import { runInput } from '../surface/input.js'
 import type { Transcript } from '../transcript/store.js'
+import { hermesTableChartPlanner } from '../transcript/tableChartPlanner.js'
+import { TableCharts } from '../transcript/tableCharts.js'
 import type { Busy } from '../turn/activity.js'
 import { IMAGE_ONLY_PROMPT } from '../turn/prompt.js'
 import { Retention } from '../view/retention.js'
@@ -63,6 +65,8 @@ export class App implements ChatPorts {
   // The stores the ports lend (ChatPorts; app/stores.ts says what each one holds).
   readonly session: SessionState
   readonly transcript: Transcript
+  /** Session-scoped derived charts; never changes transcript or answer copy. */
+  readonly tableCharts: TableCharts
   readonly liveVoice: LiveVoice
   readonly agents: Agents
   readonly processes: Processes
@@ -98,6 +102,10 @@ export class App implements ChatPorts {
     this.#tern = tern
     this.#gw = gw
     this.#launch = launch
+    this.tableCharts = new TableCharts({
+      policy: async () => settings.load().tableCharts ?? 'off',
+      plan: hermesTableChartPlanner()
+    }, () => this.changed())
     this.#hostLifecycle = new HostLifecycle(writeHost ?? (text => {
       if (launch.pane) {
         process.stdout.write(text)
@@ -169,6 +177,7 @@ export class App implements ChatPorts {
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      charts: this.tableCharts,
       ...(this.#orb ? { orb: this.#orb } : {}),
       gateway: this.#gw,
       surface: this.#surface,
@@ -191,6 +200,8 @@ export class App implements ChatPorts {
       s.queue.hold({ images: [], kind: 'app', text: query || IMAGE_ONLY_PROMPT })
     }
 
+    // Exit retires the owning transport even before a reconnect adopts a new runtime id.
+    this.#gw.on('exit', () => this.tableCharts.transportLost())
     followGateway(this.#gw, {
       ...s,
       drain: () => s.queue.drain(),
@@ -251,6 +262,7 @@ export class App implements ChatPorts {
    * Quitting calls it once the sessions detached (or the wait gave up), before Tern closes.
    */
   dispose() {
+    this.tableCharts.close()
     this.#orb?.close()
     this.#surface?.dispose()
     this.#act.dispose()
@@ -277,6 +289,7 @@ export class App implements ChatPorts {
       return
     }
     try {
+      this.tableCharts.session(this.session.ref.live ?? '')
       drawFrame(this.#view)
       this.#surface.rendered()
     } catch (error) {

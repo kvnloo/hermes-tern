@@ -13,6 +13,7 @@ import type { Overlay, OverlayStack } from '../overlays/overlay.js'
 import type { PrAside } from '../prs/aside.js'
 import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TableCharts } from '../transcript/tableCharts.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
 import type { Retention } from '../view/retention.js'
@@ -30,6 +31,7 @@ export interface FrameCx extends DockSources {
   readonly gateway?: Pick<GatewayClient, 'attached'>
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
+  readonly charts: TableCharts
   readonly overlays: readonly Overlay[]
   readonly stack: Pick<OverlayStack, 'rootOf'>
   readonly transcript: Pick<Transcript, 'changedEntries' | 'currentTodos' | 'entries'>
@@ -84,11 +86,12 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts'>>, now: number): TranscriptContext {
   const info = cx.session.info
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
   return {
+    ...(cx.charts ? { charts: cx.charts } : {}),
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
