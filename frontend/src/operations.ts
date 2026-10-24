@@ -5,7 +5,7 @@ import type { Overlay } from './overlays/overlay.js'
 import { openOperationalOverlay } from './overlays/operational.js'
 import { operationalText, operationalView, type Report } from './reports.js'
 import { rpc } from './wire/rpc.js'
-import { readOperational } from './wire/side.js'
+import { PluginGatewayUnavailable, readOperational } from './wire/side.js'
 
 type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'scroll' | 'session'>
 
@@ -173,8 +173,10 @@ export class OperationalSheets {
       try {
         const result = await readOperational(this.host.gw, sid, view)
         this.finish(ticket, operationalText(result), result.state, result.scope)
-      } catch {
-        this.finish(ticket, 'Hermes inventory service is unavailable. No connection or mutation was attempted.', 'unavailable')
+      } catch (reason) {
+        this.finish(ticket, reason instanceof PluginGatewayUnavailable
+          ? 'Needs Hermes plugin gateway methods for inventory. No connection or mutation was attempted.'
+          : 'Hermes inventory service is unavailable. No connection or mutation was attempted.', 'unavailable')
       }
     })()
   }

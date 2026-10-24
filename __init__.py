@@ -107,3 +107,8 @@ def register(ctx) -> None:
     pull_requests.register(ctx)
     connections.register(ctx)
     tern_env.register(ctx)
+    # Older Hermes has no public gateway registration; do not synthesize
+    # a JSON-RPC method or change its pinned runtime.
+    if callable(getattr(ctx, "register_gateway_method", None)):
+        from . import gateway_operations
+        gateway_operations.register(ctx)

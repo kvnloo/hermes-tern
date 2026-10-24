@@ -5,7 +5,7 @@ import { Composer } from './draft/composer.js'
 import type { EventOf } from './gateway/dispatch.js'
 import { openBtwOverlay } from './overlays/btw.js'
 import type { Overlay } from './overlays/overlay.js'
-import { btwEvent, cancelBtw, listBtw, submitBtw, type BtwThread } from './wire/side.js'
+import { PluginGatewayUnavailable, btwEvent, cancelBtw, listBtw, submitBtw, type BtwThread } from './wire/side.js'
 
 type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | 'scroll' | 'session'>
 
@@ -251,15 +251,19 @@ export class BtwThreads {
   }
 
   /** The gateway event is already tagged to a conversation; never append it to main history. */
-  onEvent(raw: unknown) {
+  onEvent(raw: unknown): boolean {
     const parsed = btwEvent(raw)
 
     if (!parsed.success || parsed.data.session_id !== this.#sid ||
         parsed.data.session_id !== this.host.session.ref.live) {
-      return
+      return false
     }
 
-    this.update(parsed.data.payload.thread, true)
+    const thread = parsed.data.type === 'plugin.event'
+      ? parsed.data.payload.data.thread : parsed.data.payload.thread
+    this.update(thread, true)
+
+    return true
   }
 
   async show(question = '', selectedThread?: string) {
@@ -341,11 +345,12 @@ export class BtwThreads {
           this.draft.revision === autoSubmit.revision) {
         await this.submit()
       }
-    } catch {
+    } catch (reason) {
       if (this.#current(sid, epoch, sheet)) {
-        // The pinned gateway may not yet implement BTW history. Do not send a
-        // legacy prompt.btw request that would change conversation semantics.
-        this.error = 'Side-thread history is unavailable on this Hermes gateway.'
+        // No legacy prompt.btw fallback: it changes main-session semantics.
+        this.error = reason instanceof PluginGatewayUnavailable
+          ? 'Needs Hermes plugin gateway methods for BTW history. Your question remains unsent.'
+          : 'Side-thread history is unavailable on this Hermes gateway.'
         this.state = 'idle'
       }
     }
