@@ -1,28 +1,30 @@
 name: Fettl changed-code gate
 
-# Ready PRs only: draft creation/updates skip the local scanner.
+# Draft PR events stay skipped; manual dispatch permits the shadow evaluation.
 on:
   pull_request:
     types: [opened, ready_for_review, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   fettl:
-    if: ${{ !github.event.pull_request.draft }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       FETTL_VERSION: 0.19.78
       FETTL_ARCHIVE_SHA256: b989a935f10418c9d2058a8009f11675dae17c5891e134037a0771feeb326d4d
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - name: Check out event-pinned PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1; existing fork convention
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -54,6 +56,11 @@ jobs:
           mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME"
 
           # Missing event commits/history fail closed; never fall back to full.
+          # Manual events have no pull_request object. Resolve the fetched
+          # default branch once, then use the exact commit for comparison.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            BASE_SHA="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"
+          fi
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
           git cat-file -e "${BASE_SHA}^{commit}"
           git cat-file -e "${HEAD_SHA}^{commit}"
