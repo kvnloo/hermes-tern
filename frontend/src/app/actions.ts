@@ -60,6 +60,7 @@ import type { GateState, PromptRouter } from '../turn/router.js'
 import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
+import type { LiveVoice } from '../voice/live.js'
 import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
@@ -83,6 +84,7 @@ export interface ActionsCx {
   readonly completion: Completion
   readonly hud: Hud
   readonly composer: Composer
+  readonly liveVoice: LiveVoice
   readonly transcript: Transcript
   readonly todoHud: TodoHud
   readonly media: Media
@@ -128,7 +130,6 @@ export class AppActions {
       changed,
       notice: text => chat.notice(text, 'warning')
     })
-
     this.dock = {
       onBtwView: notice => cx.btw.viewNotice(notice),
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
@@ -175,6 +176,7 @@ export class AppActions {
       close: overlay => chat.close(overlay),
       completion: cx.completion,
       composer,
+      liveVoice: cx.liveVoice,
       vim: composer.vim,
       cycleEffort: () => cycleEffort(chat),
       fork: () => void forkSession(chat),
@@ -261,6 +263,7 @@ export class AppActions {
 
   /** Sends the composer's draft, with the pastes it holds. */
   submitDraft() {
+    if (this.#cx.liveVoice.blocked) return
     const pasted = [...this.#cx.composer.pasted]
 
     this.submit(this.#cx.composer.take(), true, this.#cx.state.busyMode, pasted)
@@ -274,6 +277,10 @@ export class AppActions {
    */
   submit(raw: string, draft = true, busy: BusyMode = draft ? this.#cx.state.busyMode : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
+    // Tern native Send and keyboard Enter never take the draft while voice owns input.
+    if (draft && this.#cx.liveVoice.blocked) {
+      return
+    }
     const text = raw.trim()
 
     // An image still uploading would miss the prompt: the words wait in the composer for it.

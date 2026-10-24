@@ -18,9 +18,11 @@ import type { Retention } from '../view/retention.js'
 import { lspLinkContext } from '../view/tools/lsp-links.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
+import type { LiveVoice } from '../voice/live.js'
 
 /** What a frame reads and the three things it changes: the pills' focus, the completion and the surface. */
 export interface FrameCx extends DockSources {
+  readonly liveVoice: Pick<LiveVoice, 'node' | 'blocked'>
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
   readonly retention?: Retention | undefined
   /** The active gateway transport: attached gateways never attest file-locality. */
@@ -59,8 +61,9 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
     cx.completion.update(cx.composer)
   }
 
+  const voice = cx.liveVoice.node()
   const chrome = {
-    dock: dockNodes(dockModel(cx, now), cx.actions),
+    dock: [...(voice ? [voice] : []), ...dockNodes(dockModel(cx, now), cx.actions)],
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
       ...cx.overlays.map(o => o.node(cx.stack.rootOf(o))),

@@ -200,6 +200,7 @@ describe('the fork shortcut', () => {
     const ctx = stub<KeyCx>({
       completion: { onKey: () => false },
       fork: called,
+      liveVoice: { blocked: false },
       hud: () => false
     })
     const shortcut = key('f', { alt: true, shift: true })

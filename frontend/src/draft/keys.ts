@@ -9,6 +9,8 @@ import type { Completion } from '../overlays/completion.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { Transcript } from '../transcript/store.js'
 import type { PromptQueue } from '../turn/queue.js'
+import type { LiveVoice } from '../voice/live.js'
+import { HOLD_UNAVAILABLE, isHoldInfoKey } from '../voice/hold.js'
 
 import type { Attachments } from './attachments.js'
 import type { Composer } from './composer.js'
@@ -96,6 +98,7 @@ export interface KeyCx {
   readonly queue: Pick<PromptQueue, 'count' | 'dequeue' | 'steer'>
   readonly transcript: Pick<Transcript, 'notice'>
   readonly presses: Presses
+  readonly liveVoice: Pick<LiveVoice, 'blocked' | 'toggle' | 'control'>
   now(): number
   /** A turn (or a send's `{!cmd}`s) runs. */
   busy(): boolean
@@ -188,11 +191,33 @@ const cancel: KeyRule = (key, cx, top) => {
   return true
 }
 
+/** Esc/Ctrl+C release live audio before clearing the composer or interrupting a turn. */
+const liveCancel: KeyRule = (key, cx) => {
+  if (!cx.liveVoice.blocked || (key.name !== 'escape' && !matches(key, KEYS.cancel))) {
+    return false
+  }
+  void cx.liveVoice.control('stop')
+  return true
+}
+
 /** The top overlay's own keys. */
 const overlay: KeyRule = (key, _cx, top) => top?.onKey(key) === true
 
 /** A modal sheet takes every key, used or not. */
 const modal: KeyRule = (_key, _cx, top) => top?.modal === true
+
+/** Shortcuts request consent or report missing hold support; neither records a key gesture. */
+const liveKeys: KeyRule = (key, cx) => {
+  if (key.name === 'v' && key.alt && key.shift && !key.ctrl && !key.meta) {
+    cx.liveVoice.toggle()
+    return true
+  }
+  if (isHoldInfoKey(key)) {
+    cx.transcript.notice(HOLD_UNAVAILABLE, 'warning')
+    return true
+  }
+  return false
+}
 
 /** The pills, before the completion: Enter on a focused pill opens it. */
 const hud: KeyRule = (key, cx) => cx.hud(key)
@@ -343,9 +368,11 @@ const composer: KeyRule = (key, cx) => {
 
 /** The chain, in the order the rules run. */
 export const KEY_RULES: readonly KeyRule[] = [
+  liveCancel,
   cancel,
   overlay,
   modal,
+  liveKeys,
   hud,
   completion,
   externalEditor,

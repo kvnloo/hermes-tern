@@ -79,6 +79,7 @@ function pane(over: Partial<Pane> = {}) {
     fork: did('fork'),
     hud: () => state.hud,
     interrupt: did('interrupt'),
+    liveVoice: { blocked: false, toggle: did('live voice'), control: async () => undefined },
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
@@ -123,9 +124,11 @@ const alt = (name: string) => key(name, { alt: true })
 describe('the key rules', () => {
   it('run in this order', () => {
     expect(KEY_RULES.map(rule => rule.name)).toEqual([
+      'liveCancel',
       'cancel',
       'overlay',
       'modal',
+      'liveKeys',
       'hud',
       'completion',
       'externalEditor',
