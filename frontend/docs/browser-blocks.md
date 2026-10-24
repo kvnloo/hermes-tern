@@ -121,7 +121,11 @@ revoked scope or acquire that task/page. Listing reports
 `available=false, reason=permanently_quarantined` without Tern I/O; drive is
 unsupported. No later original-caller cleanup is promised: that original
 registration is disposed. No forced close, guessed target, replacement lease,
-or fallback browser is permitted. Native model schema availability also needs
+or fallback browser is permitted. A refused scope, consent, handler or
+CDP check before a late-open reply is not a CLI failure: it cannot consume
+the pending process, clear its status or trigger cleanup. On unload that
+original claim stays quarantined without any additional native I/O.
+Native model schema availability also needs
 the exact current task-local durable key and agent tool SID, never another
 session's profile-wide browser claim; non-native checks retain their original
 Hermes guardrails.

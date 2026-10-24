@@ -371,6 +371,29 @@ def test_native_backend_errors_are_secret_safe():
     assert "token=" not in raw and "https://" not in raw
 
 
+@pytest.mark.parametrize("kind", [
+    "operator_consent_required",
+    "needs_plugin_reload",
+    "task_authority_unavailable",
+    "permanently_quarantined",
+])
+def test_bounded_authority_error_kinds_are_preserved_without_raw_data(kind):
+    error = NativeBrowserError(kind)
+    assert error.kind == kind
+    assert str(error) == f"Tern browser {kind}"
+    payload = json.loads(backend._error(error.kind))
+    assert payload == {
+        "success": False,
+        "error_kind": kind,
+        "error": f"Native Tern browser {kind}; no other browser was selected",
+    }
+    assert "token=" not in json.dumps(payload) and "https://" not in json.dumps(payload)
+
+    # Unknown CLI-provided values must never become diagnostic output.
+    unknown = NativeBrowserError("token=private https://secret.example")
+    assert unknown.kind == "failed" and str(unknown) == "Tern browser failed"
+
+
 def test_true_id_domains_and_unbuilt_agent_read_only(system):
     ctx, actor, owner, clients = system
     ctx.consent = ctx.native_installed = True

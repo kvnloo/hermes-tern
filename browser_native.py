@@ -175,13 +175,14 @@ class BrowserDriver:
                 if self.unknown_open:
                     raise NativeBrowserError("open_unknown")
                 return
+            # Authorization is not a native CLI answer: a denied late read
+            # must not consume the original process or change its open state.
+            # Scope, consent, handler and CDP checks precede reply handling.
+            self.scope.require_current()
+            checker = _EFFECT_FENCE.get()
+            if checker is not None:
+                checker()
             try:
-                # The late-response poll is also Tern I/O; it must observe
-                # live original scope, selected handlers, consent and CDP.
-                self.scope.require_current()
-                checker = _EFFECT_FENCE.get()
-                if checker is not None:
-                    checker()
                 answer = self.scope.cli.reconcile_open()
                 block = exact_block(answer)
                 if self._taken(block):

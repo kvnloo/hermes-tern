@@ -244,6 +244,57 @@ def test_exact_late_open_cleanup_no_discovery_guess(rig):
     assert 7 in cli.entries
 
 
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("operator_consent_required", id="consent-revoked"),
+        pytest.param("needs_plugin_reload", id="handler-replaced"),
+        pytest.param("ownership", id="cdp-selected"),
+    ],
+)
+def test_late_open_refusal_retains_original_process_lease_and_quarantine(
+    rig, monkeypatch, kind,
+):
+    driver, cli, lease = rig
+    cli.entries[73] = {
+        "block": 73, "title": "Late", "url": "about:blank", "driven": True,
+    }
+    driver.pending_open = True
+    cli.late = {"block": 73}
+    scope = driver.scope
+    window = scope.window_scope
+    before = list(cli.calls)
+    polled = []
+
+    def poll_exact_reply():
+        polled.append(True)
+        return cli.late
+
+    monkeypatch.setattr(cli, "reconcile_open", poll_exact_reply)
+
+    def refuse_io():
+        raise NativeBrowserError(kind)
+
+    with native.effect_fence(refuse_io):
+        with pytest.raises(NativeBrowserError, match=kind):
+            driver.reconcile_open()
+        assert driver.pending_open and not driver.unknown_open and driver.target is None
+        assert polled == [] and cli.calls == before
+        native.unload_profile("work")
+
+    assert driver.retired and driver.pending_open
+    assert not driver.unknown_open and driver.target is None
+    assert driver.scope is scope and driver.scope.window_scope == window
+    assert driver.scope.lease is lease and not lease.closed
+    assert native.get_driver("work", "s1") is driver
+    assert native.has_quarantined_task("work", "task-one")
+    assert cli.entries[73]["url"] == "about:blank"
+    assert polled == [] and cli.calls == before  # no poll, close or fallback
+    with pytest.raises(NativeBrowserError, match="permanently_quarantined"):
+        driver.reconcile_open()
+    assert polled == [] and cli.calls == before
+
+
 def test_unknown_open_quarantines_every_peer_in_window(rig):
     driver, cli, _ = rig
     driver.pending_open = True

@@ -17,7 +17,9 @@ class NativeBrowserError(RuntimeError):
         self.kind = kind if kind in {
             "failed", "timeout", "open_pending", "open_unknown", "unsupported",
             "invalid", "no_window", "not_found", "closed", "ownership", "busy",
-            "unavailable", "js", "protocol",
+            "unavailable", "js", "protocol", "operator_consent_required",
+            "needs_plugin_reload", "task_authority_unavailable",
+            "permanently_quarantined",
         } else "failed"
         super().__init__(f"Tern browser {self.kind}")
 

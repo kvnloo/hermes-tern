@@ -843,6 +843,7 @@ class PendingOpenCLI(ActiveCLI):
     def __init__(self, *_args):
         super().__init__(*_args)
         self.late_reply = None
+        self.reconcile_attempts = 0
 
     def __call__(self, op):
         if op["op"] == "open":
@@ -851,6 +852,7 @@ class PendingOpenCLI(ActiveCLI):
         return super().__call__(op)
 
     def reconcile_open(self):
+        self.reconcile_attempts += 1
         if self.late_reply is None:
             raise NativeBrowserError("open_pending")
         return self.late_reply
@@ -887,6 +889,7 @@ def test_real_revoked_unload_keeps_late_open_and_unknown_quarantine(
     assert manager.unload("hermes-tern")
     assert driver.pending_open and driver.scope.lease is lease
     assert native.get_driver("default", "s1") is driver
+    assert cli.reconcile_attempts == 0  # denied before reading the late reply
     assert cli.calls == [{"op": "blocks"}, opened]  # never force cleanup
 
     _consent(home, True)
@@ -899,6 +902,7 @@ def test_real_revoked_unload_keeps_late_open_and_unknown_quarantine(
     }
     assert driver.retired and driver.pending_open and driver.target is None
     assert not driver.unknown_open  # no unauthorized late reply reconciliation
+    assert cli.reconcile_attempts == 0
     assert cli.calls == [{"op": "blocks"}, opened]
     assert native.get_driver("default", "s1") is driver
     assert driver.scope.lease is lease
