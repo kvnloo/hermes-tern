@@ -77,7 +77,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome'>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'>, now: number): TranscriptContext {
   const info = cx.session.info
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
