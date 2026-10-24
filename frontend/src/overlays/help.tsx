@@ -55,6 +55,7 @@ export const HOTKEYS: readonly { group: string; rows: [string[], string][] }[] =
       [[KEYS.prs.label], 'Pull requests Hermes linked (/prs)'],
       [[KEYS.plan.label], 'Review latest plan (/plan; /plan <task> generates via Hermes)'],
       [[KEYS.sidebar.label], 'Session sidebar: branch, PRs, changes (/sidebar)'],
+      [[KEYS.fork.label], 'Fork this session into a new Tern pane (/fork [durable-message-id])'],
       [[KEYS.clipboardImage.label], 'Attach the clipboard image (also ⌘V of an image, a dropped image file, /paste)'],
       [['down'], 'Focus the agents / shells / PR pills (empty prompt); ← → switch, Enter opens, Esc returns'],
       [[KEYS.cancel.label], 'Answer no to the open sheet / clear the draft and images / interrupt / exit (twice)'],

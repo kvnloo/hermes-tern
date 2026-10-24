@@ -103,6 +103,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
   const used = usage?.context_used ?? 0
   const max = usage?.context_max ?? 0
   const list = shownTodos(src)
+  const agents = src.agents.running()
 
   return {
     activity: dockActivity(src.activity),
@@ -115,7 +116,8 @@ export function dockModel(src: DockSources, now: number): DockContext {
     },
     now,
     pills: {
-      agents: src.agents.running().length,
+      agents: agents.length,
+      agentTiles: agents,
       automation: { goal: src.automation.goal, loop: src.automation.loop(now), loopOwner: src.automation.loopSnapshot },
       focused: modal ? undefined : src.hud.focused,
       prs: prsPill(src.prs.entries()),

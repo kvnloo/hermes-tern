@@ -305,7 +305,7 @@ const COMMANDS: readonly SessionCommand[] = [
   { name: 'undo', run: host => rewind(host, 'undo') },
   { name: 'retry', run: host => rewind(host, 'retry') },
   { aliases: ['compact'], name: 'compress', run: compress },
-  { aliases: ['fork'], name: 'branch', run: branch },
+  { name: 'branch', run: branch },
   { name: 'save', run: save },
   { name: 'reload', run: reloadEnv },
   { aliases: ['reload_skills'], name: 'reload-skills', run: reloadSkills },
