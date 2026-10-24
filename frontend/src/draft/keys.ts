@@ -37,6 +37,8 @@ export type KeyAction =
   | 'clipboardImage'
   | 'dequeue'
   | 'effort'
+  | 'plan'
+  | 'fork'
   | 'prs'
   | 'quit'
   | 'sidebar'
@@ -57,7 +59,9 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
-  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta'] },
+  fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
+  plan: { label: 'alt+shift+p', name: 'p', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
+  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta', 'shift'] },
   quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'] },
   sidebar: { label: 'alt+s', name: 's', with: ['alt'], without: ['ctrl', 'meta'] },
   steer: { label: 'alt+enter', name: 'enter', with: ['alt'] }
@@ -97,6 +101,8 @@ export interface KeyCx {
   openAgents(): void
   openBackground(): void
   openPrs(): void
+  openPlan(): void
+  fork(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
@@ -234,12 +240,14 @@ const effort: KeyRule = (key, cx) => {
   return true
 }
 
-/** The sheets Alt+A/J/S/P open. */
+/** Global actions, after modal guards and before the composer. */
 const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
   [KEYS.agents, cx => cx.openAgents()],
   [KEYS.background, cx => cx.openBackground()],
   [KEYS.sidebar, cx => cx.toggleSidebar()],
-  [KEYS.prs, cx => cx.openPrs()]
+  [KEYS.prs, cx => cx.openPrs()],
+  [KEYS.plan, cx => cx.openPlan()],
+  [KEYS.fork, cx => cx.fork()]
 ]
 
 const sheets: KeyRule = (key, cx) => {
@@ -330,3 +338,90 @@ export const KEY_RULES: readonly KeyRule[] = [
 export function onKey(key: Key, cx: KeyCx, top: Overlay | undefined) {
   KEY_RULES.some(rule => rule(key, cx, top))
 }
+
+/** The composer's UTF-16 caret and word boundaries for editing keys. */
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const WORD = /[\p{L}\p{N}_]/u
+
+export function lineStart(text: string, at: number): number {
+  // lastIndexOf clamps a negative start to 0, so it would find a newline at 0 from offset 0.
+  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1
+}
+
+export function lineEnd(text: string, at: number): number {
+  const i = text.indexOf('\n', at)
+
+  return i < 0 ? text.length : i
+}
+
+/** `at` when it is a grapheme boundary of `text`, else the boundary before it. */
+export function boundaryAt(text: string, at: number): number {
+  if (at >= text.length) {
+    return text.length
+  }
+
+  let floor = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index > at) {
+      break
+    }
+
+    floor = index
+  }
+
+  return floor
+}
+
+export function prevGrapheme(text: string, at: number): number {
+  let prev = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index >= at) {
+      break
+    }
+
+    prev = index
+  }
+
+  return prev
+}
+
+export function nextGrapheme(text: string, at: number): number {
+  for (const { index, segment } of graphemes.segment(text)) {
+    if (index >= at) {
+      return index + segment.length
+    }
+  }
+
+  return text.length
+}
+
+export function prevWord(text: string, at: number): number {
+  let i = at
+
+  while (i > 0 && !WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  while (i > 0 && WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  return i
+}
+
+export function nextWord(text: string, at: number): number {
+  let i = at
+
+  while (i < text.length && !WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  while (i < text.length && WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  return i
+}
+

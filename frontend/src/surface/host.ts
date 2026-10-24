@@ -21,6 +21,11 @@ export class SurfaceHost {
     this.#surface.stylesheet('hermes-tern', styles)
   }
 
+  /** Public SDK surface for the optional TSP retention writer. */
+  get raw(): Surface {
+    return this.#surface
+  }
+
   /** Whether Tern dropped the surface or it was closed: it draws nothing more. */
   get closed(): boolean {
     return this.#surface.closed

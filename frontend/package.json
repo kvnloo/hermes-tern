@@ -4,6 +4,10 @@
   "private": true,
   "description": "Hermes for Tern: the chat UI described over the Tern Surface Protocol instead of painted cells",
   "type": "module",
+  "workspaces": {
+    "packages": ["openui/openui-generation"],
+    "selfContained": ["openui/openui-generation"]
+  },
   "scripts": {
     "setup": "node scripts/hermes-src.mjs && bun install",
     "bundle": "node scripts/hermes-src.mjs && node scripts/build.mjs",

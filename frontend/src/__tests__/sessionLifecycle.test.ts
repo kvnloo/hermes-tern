@@ -150,15 +150,18 @@ function recordingHost() {
   const host: AdoptHost = {
     activity: { busy: null, endCompaction: rec('activity.endCompaction'), set: rec('activity.set') },
     agents: { adopt: sid => void log.push(`agents.adopt ${sid}`), scan: rec('agents.scan') },
+    btw: { adopt: sid => void log.push(`btw.adopt ${sid}`) },
     automation: { adopt: sid => void log.push(`automation.adopt ${sid}`) },
     changed: rec('changed'),
     connect: { watch: rec('connect.watch') },
     forgetStatusNote: rec('forgetStatusNote'),
+    hud: { adopt: sid => void log.push(`hud.adopt ${sid}`) },
     imageLanded: rec('imageLanded'),
     markPane: id => void log.push(`markPane ${id}`),
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
     media: { showAll: rec('media.showAll') },
     notices: { reset: rec('notices.reset') },
+    operations: { adopt: sid => void log.push(`operations.adopt ${sid}`) },
     processes: { poke: rec('processes.poke') },
     prs: { adopt: rec('prs.adopt') },
     queue: { adopt: ref => void log.push(`queue.adopt ${ref.live}`), server: { reset: rec('queue.reset') } },
@@ -170,10 +173,12 @@ function recordingHost() {
     showThoughts: sid => void log.push(`showThoughts ${sid}`),
     state: new RecordingState(log),
     title: { adopt: title => void log.push(`title.adopt ${title}`) },
+    todoHud: { adopt: sid => void log.push(`todoHud.adopt ${sid}`) },
     transcript: {
       get entries() {
         return transcript.entries
       },
+      currentTodos: () => transcript.currentTodos(),
       inflight: rec('transcript.inflight'),
       load: rec('transcript.load'),
       reset: ({ session }) => void log.push(`transcript.reset ${session}`)
@@ -202,6 +207,8 @@ describe('adoptSteps', () => {
 
     expect(log).toEqual([
       'ref b',
+      'btw.adopt b',
+      'operations.adopt b',
       // Another session: the transcript starts over at once, and the last one's sheets and busy-input mode go.
       'transcript.reset other',
       'sheets.dropAll',
@@ -226,6 +233,8 @@ describe('adoptSteps', () => {
       'transcript.load',
       'agents.scan',
       'media.showAll',
+      'todoHud.adopt sb',
+      'hud.adopt sb',
       // Held prompts for another session go back after the history, so their notice stays.
       'queue.adopt b',
       'processes.poke',
@@ -249,6 +258,8 @@ describe('adoptSteps', () => {
     // It does not discard sheets or replay history that the snapshot does not provide.
     expect(log).toEqual([
       'ref a',
+      'btw.adopt a',
+      'operations.adopt a',
       'transcript.reset same',
       'readBusyMode',
       'readShortcuts',

@@ -1,0 +1,14 @@
+schema = 1
+id = "hermes-openui"
+name = "Hermes OpenUI Preview"
+version = "0.1.0"
+description = "Opt-in native preview of host-prepared OpenUI selections. Never grants publication approval."
+host = "host.luau"
+window = "window.luau"
+styles = ["visual.css"]
+
+[[blocks]]
+id = "reply"
+title = "Hermes OpenUI Preview"
+files = ["*.hvisual.json"]
+palette = false
