@@ -74,7 +74,7 @@ The existing optional gateway methods are unchanged:
   terminal/completed `session_admissions` receipt whose
   `attachments_v1.media` **path, digest and size** plus
   corresponding MIME match the requested bytes. A new file with the
-  same content, a typed image hint, a malformed/queued/failed receipt,
+  same content at an unproven path, a typed image hint, a malformed/queued/failed receipt,
   a different session, an unproven staging file, or a supplied
   `tool_call_id` never grants permission.
 - The retained file is read through a **bounded (16 MiB),
@@ -89,6 +89,15 @@ The existing optional gateway methods are unchanged:
 - Core may prune a terminal attachment's retained bytes; missing
   committed bytes always refuse (never reopen the original staging
   path or recreate media).
+
+Retained previews are bounded by core's approximately 24-hour media
+and witness cleanup, not permanent image storage. Committed files are
+bound by their exact receipt path, digest and size; the receipt does not
+retain an original committed inode. Identical-content replacement at
+that same committed path is therefore not an inode-authenticity claim.
+A non-vision turn that persists no image-attachment marker, or an image
+no longer present in the active conversation rows after compaction,
+is refused rather than granted from a typed hint or inferred lineage.
 
 The plugin does not inspect private session tables, runtime actors,
 transports or tool-call host identities. It never uses a client-supplied
@@ -142,6 +151,12 @@ Frontend attachment regressions live in `mediaAttachments.test.ts`;
 cross-host delivery remains in `media-delivery.test.ts`. Both reuse
 `mediaDeliveryFixtures.ts`, keeping each suite below the unchanged
 600-line ceiling without removing assertions.
+
+The Python admission regression uses the actual dispatcher, attachment
+capture/restore, content builder and persistence flush/reload, but drives
+those stages in sequence with a test-authorized connection. It does not
+exercise WebSocket login, a scheduled provider turn, or native signed-in
+window acceptance. Those remain distinct qualification gates.
 
 ```sh
 # From kvnloo/hermes-tern, on the NEW exact PR #24 head
