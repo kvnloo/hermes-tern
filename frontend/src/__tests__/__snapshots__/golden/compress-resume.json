@@ -3826,6 +3826,13 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1"
+   }
+  },
+  {
    "method": "config.set",
    "params": {
     "key": "show_reasoning",
@@ -3885,6 +3892,13 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1"
+   }
+  },
+  {
    "method": "config.set",
    "params": {
     "key": "show_reasoning",
@@ -3931,6 +3945,13 @@
    "method": "config.get",
    "params": {
     "key": "busy",
+    "session_id": "old"
+   }
+  },
+  {
+   "method": "config.get",
+   "params": {
+    "key": "full",
     "session_id": "old"
    }
   },

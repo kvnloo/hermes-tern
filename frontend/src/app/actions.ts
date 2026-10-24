@@ -8,7 +8,6 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
-import { agentName } from '../agents/rows.js'
 import { Artifacts } from '../artifacts.js'
 import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
@@ -46,7 +45,6 @@ import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
 import { BindingPreferences } from '../shortcuts/binding-preferences.js'
 import { cycleModel } from '../shortcuts/model-cycle.js'
-import { openCommandPalette } from '../shortcuts/palette.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
@@ -62,9 +60,10 @@ import type { GateState, PromptRouter } from '../turn/router.js'
 import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
-import { openSidebar, specOf } from '../watch/spec.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAgentPane } from './agent-pane.js'
+import { openAppPalette } from './palette.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -135,6 +134,7 @@ export class AppActions {
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
+        if (composer.vim.enabled) return
         composer.edit(ev)
         changed()
       },
@@ -152,6 +152,7 @@ export class AppActions {
       onQueueSteer: i => queue.steer(i),
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
+        if (composer.vim.enabled) return
         this.submit(ev.text)
         changed()
       },
@@ -162,6 +163,7 @@ export class AppActions {
       },
       onTodos: () => cx.hud.toggleTodos(),
       onUndo: () => {
+        if (composer.vim.enabled) return
         composer.undo()
         changed()
       }
@@ -173,6 +175,7 @@ export class AppActions {
       close: overlay => chat.close(overlay),
       completion: cx.completion,
       composer,
+      vim: composer.vim,
       cycleEffort: () => cycleEffort(chat),
       fork: () => void forkSession(chat),
       hud: key => this.hudKey(key),
@@ -180,6 +183,7 @@ export class AppActions {
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
+      openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
       openModel: () => openModelPicker(chat),
       openPalette: () => this.openPalette(),
@@ -233,17 +237,7 @@ export class AppActions {
 
   /** The native command palette dispatches through the existing command route. */
   openPalette() {
-    const { chat, composer } = this.#cx
-    openCommandPalette({
-      changed: () => chat.changed(),
-      close: overlay => chat.close(overlay),
-      composer,
-      gw: chat.gw,
-      open: overlay => chat.open(overlay),
-      run: command => this.submit(command, false),
-      session: chat.session,
-      transcript: chat.transcript
-    })
+    openAppPalette(this.#cx, command => this.submit(command, false))
   }
 
   /** The entry whose Copy button reads Copied. */
@@ -594,18 +588,6 @@ export class AppActions {
 
   /** Shows subagent `id` beside the chat in a Tern split; its timeline sheet where no split can open. */
   async openAgent(id: string) {
-    const { chat, state } = this.#cx
-    const a = chat.agents.all().find(x => x.id === id)
-    const sid = state.ref.live
-
-    if (!a || !sid) {
-      return
-    }
-
-    const cwd = state.info?.cwd || this.#cx.launch.home || '/'
-
-    if (!(await openSidebar(specOf(a, agentName(a), sid, state.ref.stored), cwd))) {
-      openAgents(chat, { id, watch: true })
-    }
+    return openAgentPane(this.#cx, id)
   }
 }

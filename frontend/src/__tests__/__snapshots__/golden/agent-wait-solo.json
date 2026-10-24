@@ -3895,6 +3895,13 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1"
+   }
+  },
+  {
    "method": "config.set",
    "params": {
     "key": "show_reasoning",
@@ -3912,6 +3919,14 @@
    "method": "session.control.read",
    "params": {
     "session_id": "s1"
+   }
+  },
+  {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1",
+    "profile": "work"
    }
   },
   {
