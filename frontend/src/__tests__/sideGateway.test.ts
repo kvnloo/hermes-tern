@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { BtwThreads } from '../btw.js'
-import { PluginGatewayUnavailable, btwEvent, listBtw, readOperational } from '../wire/side.js'
+import { PluginGatewayUnavailable, btwEvent, cancelBtw, listBtw, readOperational, submitBtw } from '../wire/side.js'
 
 import { FakeGateway } from './fakes.js'
 import { sideSetup } from './sideSetup.js'
@@ -31,6 +31,18 @@ describe('public registered Hermes gateway methods', () => {
     gw.handlers.set('gateway.capabilities', () => { throw new Error('not attached') })
     await expect(listBtw(gw.client, 'live-a')).rejects.toBeInstanceOf(PluginGatewayUnavailable)
     expect(gw.methods('hermes-tern.btw.list')).toHaveLength(0)
+  })
+
+  it('refuses submit, cancel and reports without their exact registered capability', async () => {
+    const gw = new FakeGateway()
+    await expect(submitBtw(gw.client, 'live-a', 'Unsent question')).rejects.toBeInstanceOf(PluginGatewayUnavailable)
+    await expect(cancelBtw(gw.client, 'live-a', 'side-a', 'turn-a')).rejects.toBeInstanceOf(PluginGatewayUnavailable)
+    await expect(readOperational(gw.client, 'live-a', 'mcp-list')).rejects.toBeInstanceOf(PluginGatewayUnavailable)
+    expect(gw.calls.map(call => call.method)).toEqual([
+      'gateway.capabilities', 'gateway.capabilities', 'gateway.capabilities'
+    ])
+    expect(gw.methods('prompt.btw')).toHaveLength(0)
+    expect(gw.methods('prompt.submit')).toHaveLength(0)
   })
 
   it('reads only registered operational report, and rejects mismatched views', async () => {

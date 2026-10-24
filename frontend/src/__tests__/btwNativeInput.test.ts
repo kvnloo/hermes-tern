@@ -369,6 +369,11 @@ describe('BTW native SDK editor focus and ownership', () => {
   it('retains already-bound Send/Stop/Copy fences even before another selection renders', async () => {
     await withNativeApp(async h => {
       vi.mocked(copyToClipboard).mockClear()
+      // This test owns a working Stop capability; unsupported runtimes are
+      // exercised separately and must never receive a cancel request.
+      h.gw.handlers.set('hermes-tern.btw.cancel', () => ({
+        thread: thread('b', 'cancelled', 3), turn_id: 'b-turn'
+      }))
       const { model } = await selectedAB(h)
       const beforeA = h.wire().length
       model.select('a')
