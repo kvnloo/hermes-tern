@@ -7,6 +7,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { copyToClipboard } from '../clipboard.js'
 import { storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
+import { forkSession } from '../fork-session.js'
 import { type AgentsSheetHost, openAgents } from '../overlays/agents.js'
 import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
@@ -225,6 +226,11 @@ const COMMANDS: readonly LocalCommand[] = [
     // Hermes' `/image <path>`: that file on the next prompt.
     name: 'image',
     run: (host, arg) => (arg.trim() ? host.attachImagePath(arg) : host.transcript.notice('Usage: /image <path>', 'warning'))
+  },
+  {
+    name: 'fork',
+    help: 'Fork the conversation into another Tern pane [/fork [durable-message-id]]',
+    run: (host, arg) => forkSession(host, arg)
   },
   {
     aliases: ['side'],

@@ -22,6 +22,7 @@ import { RenderScheduler } from '../core/scheduler.js'
 import { onKey } from '../draft/keys.js'
 import { followGateway } from '../gateway/follow.js'
 import type { PullRequests } from '../github/store.js'
+import { HostLifecycle } from '../host-lifecycle.js'
 import type { NoticeEntry } from '../model.js'
 import { openHelp } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
@@ -69,6 +70,7 @@ export class App implements ChatPorts {
   readonly #tern: Session
   readonly #gw: GatewayClient
   readonly #launch: LaunchEnv
+  readonly #hostLifecycle: HostLifecycle
   /** What the user starts and the stores call back into, bound once. */
   readonly #act: AppActions
   #surface!: SurfaceHost
@@ -76,10 +78,15 @@ export class App implements ChatPorts {
   #view: FrameCx | undefined
 
   /** `launch` and `settings` are what entry.ts read once at startup; unset, each reads its default. */
-  constructor(tern: Session, gw: GatewayClient, version: string, { launch = readLaunchEnv(), settings = fileSettings() }: { launch?: LaunchEnv; settings?: SettingsSource } = {}) {
+  constructor(tern: Session, gw: GatewayClient, version: string, { launch = readLaunchEnv(), settings = fileSettings(), writeHost }: { launch?: LaunchEnv; settings?: SettingsSource; writeHost?: (text: string) => void } = {}) {
     this.#tern = tern
     this.#gw = gw
     this.#launch = launch
+    this.#hostLifecycle = new HostLifecycle(writeHost ?? (text => {
+      if (launch.pane) {
+        process.stdout.write(text)
+      }
+    }))
     const s = chatStores(this, { act: () => this.#act, gw, launch, settings, surface: () => this.#surface, tern, version })
     this.stores = s
     this.session = s.session
@@ -142,6 +149,7 @@ export class App implements ChatPorts {
       drain: () => s.queue.drain(),
       eventLog: this.#launch.eventLog,
       gw: this.#gw,
+      hostLifecycle: this.#hostLifecycle,
       labels: { busy: busyLabel, preparing: preparingLabel },
       reportCwd: () => this.#act.reportCwd(),
       request: req => this.#act.onRequest(req),
@@ -196,6 +204,15 @@ export class App implements ChatPorts {
   }
 
   changed() {
+    if (this.session && this.stores) {
+      this.#hostLifecycle.project({
+        sid: this.session.ref.live,
+        working: this.busy !== null || Boolean(this.stores.activity.compacting),
+        submitting: this.stores.queue.count() > 0,
+        waiting: this.overlays.some(o => o.key.startsWith('prompt:'))
+      })
+    }
+
     this.#renders.request()
   }
 
@@ -254,6 +271,7 @@ export class App implements ChatPorts {
    * pane's session, which `hermes tern` resumes if it starts again in the pane.
    */
   #end(code = 0) {
+    this.#hostLifecycle.project({ sid: null, waiting: false, working: false })
     markViewer(null, durable(this.session.ref))
     this.#done.resolve(code)
   }

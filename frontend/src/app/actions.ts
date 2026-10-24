@@ -25,6 +25,7 @@ import type { Attachments } from '../draft/attachments.js'
 import type { Composer } from '../draft/composer.js'
 import type { KeyCx, Presses } from '../draft/keys.js'
 import { storedCompactions } from '../hermes/compactions.js'
+import { forkSession } from '../fork-session.js'
 import { shellError, shellExec, shellLines } from '../hermes/shell.js'
 import type { Media } from '../media.js'
 import type { ToolCall } from '../model.js'
@@ -154,6 +155,7 @@ export class AppActions {
       completion: cx.completion,
       composer,
       cycleEffort: () => cycleEffort(chat),
+      fork: () => void forkSession(chat),
       hud: key => this.hudKey(key),
       interrupt: () => this.interrupt(),
       now: Date.now,
