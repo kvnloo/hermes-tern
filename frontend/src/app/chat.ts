@@ -128,10 +128,28 @@ export class App implements ChatPorts {
 
   async run(): Promise<number> {
     const s = this.stores
-    this.#surface = new SurfaceHost(this.#tern, 'hermes', STYLES)
+    this.#surface = new SurfaceHost(this.#tern, 'hermes', STYLES, {
+      changed: () => this.changed(),
+      recovered: surface => {
+        // The new document uses the same stores, transcript, held requests and draft.
+        this.#retention = this.#tern.caps.features.includes('settle')
+          ? new Retention(surface, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
+          : undefined
+        if (this.#view) {
+          this.#view = { ...this.#view, retention: this.#retention }
+        }
+        this.#surface.guardHandlers(Boolean(this.#retention))
+      },
+      report: message => {
+        process.stderr.write('hermes tern: ' + message + '\n')
+        this.transcript.notice(message, 'error')
+        this.changed()
+      }
+    })
     if (this.#tern.caps.features.includes('settle')) {
       this.#retention = new Retention(this.#surface.raw, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
     }
+    this.#surface.guardHandlers(Boolean(this.#retention))
     this.#view = {
       ...s,
       actions: this.#act.dock,
@@ -179,12 +197,17 @@ export class App implements ChatPorts {
     // Keys and Tern events until the pane closes, each followed by a render; then the app quits.
     void runInput(this.#tern, {
       after: () => this.changed(),
-      onError: error => this.transcript.notice(`Input failed: ${errorText(error)}`, 'error'),
+      onError: error => this.#surface.failure(new Error(`Tern input failed: ${errorText(error)}`)),
       onEvent: event => {
-        this.#retention?.gone(event)
-        onTernEvent(event, this.#act.events)
+        if (this.#surface.event(event)) {
+          this.#retention?.gone(event)
+          onTernEvent(event, this.#act.events)
+        }
       },
       onKey: key => {
+        if (this.#surface.state !== 'visible') {
+          return
+        }
         if (this.#retention && key.ctrl && key.name === 'home' && !this.overlays.at(-1)?.modal) {
           this.#retention.request(true)
         } else {
@@ -208,14 +231,21 @@ export class App implements ChatPorts {
    * Quitting calls it once the sessions detached (or the wait gave up), before Tern closes.
    */
   dispose() {
+    this.#surface?.dispose()
     this.#act.dispose()
     disposeStores(this.stores)
   }
 
   /** One frame of the whole view, once run() opened the surface. */
   #frame() {
-    if (this.#view) {
+    if (!this.#view || this.#surface.closed) {
+      return
+    }
+    try {
       drawFrame(this.#view)
+      this.#surface.rendered()
+    } catch (error) {
+      this.#surface.failure(error)
     }
   }
 
