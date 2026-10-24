@@ -33,8 +33,6 @@ export class Composer {
   #decor: { text: string; decor: Decor[] } = { decor: [], text: '' }
   /** Pasted text that holds `{!…}` or starts with `!`: what it says is not the user's command. */
   #pasted: string[] = []
-  /** A monotonic identity for draft state, including edit/undo/redo ABA. */
-  #revision = 0nn
 
   /** The draft; only the composer's own edits change it. */
   get text(): string {
