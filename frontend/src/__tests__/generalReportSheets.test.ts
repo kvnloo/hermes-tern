@@ -50,7 +50,7 @@ describe('native general report sheets', () => {
     const input = new EventEmitter()
     const tern = new Session(input, { write() {} }, { exitHooks: false, record: '' })
     const connecting = tern.handshake()
-    input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\x1b\\`)
+    input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0', credits: 64 })}\x1b\\`)
     expect(await connecting).toBe(true)
 
     const gw = new FakeGateway()
