@@ -24,7 +24,7 @@ describe('verified Hermes written artifacts', () => {
     const confirmed = confirmedWriteArtifact(c, '/repo', true)
     expect(confirmed).toMatchObject({ kind: 'source', language: 'svg', source: svg })
 
-    const treeJson = tree(toolNode(c, 0, local))
+    const treeJson = tree(toolNode(c, 0, undefined, undefined, undefined, local))
     expect(treeJson.p).toMatchObject({ href: 'file:///repo/chart.svg', name: 'write', target: '/repo/chart.svg' })
     expect(treeJson.c).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -76,20 +76,20 @@ describe('verified Hermes written artifacts', () => {
     expect(tree(must(writtenArtifactNode(model, true)))).toMatchObject({ k: 'media', p: { path: '/repo/scene.glb' } })
     expect(writtenArtifactNode(model, false)).toBeUndefined()
     expect(confirmedWriteArtifact(c, '/repo', false)).toBeUndefined()
-    expect(JSON.stringify(tree(toolNode(c, 0, { ...local, media: false })))).not.toContain('"k":"media"')
+    expect(JSON.stringify(tree(toolNode(c, 0, undefined, undefined, undefined, { ...local, media: false })))).not.toContain('"k":"media"')
   })
 
   it('does not create host-local file hrefs for remote tool results', () => {
     const c = written('chart.svg', svg)
     const card = artifactCard(c, { body: [], name: 'write', title: 'Write' }, remote)
     expect(card.href).toBeUndefined()
-    expect(JSON.stringify(tree(toolNode(c, 0, remote)))).not.toContain('file:///repo/')
-    expect(JSON.stringify(tree(toolNode(c, 0, remote)))).toContain('omp.tool.write.figure')
+    expect(JSON.stringify(tree(toolNode(c, 0, undefined, undefined, undefined, remote)))).not.toContain('file:///repo/')
+    expect(JSON.stringify(tree(toolNode(c, 0, undefined, undefined, undefined, remote)))).toContain('omp.tool.write.figure')
   })
 
   it('adds numbered read links only from real returned row numbers', () => {
     const c = call('read_file', { path: 'a.ts' }, { result: { content: '  12|x', total_lines: 30 } })
-    expect(tree(toolNode(c, 0, local)).p?.['href']).toBe('file:///repo/a.ts#L12')
-    expect(tree(toolNode(c, 0, remote)).p?.['href']).toBeUndefined()
+    expect(tree(toolNode(c, 0, undefined, undefined, undefined, local)).p?.['href']).toBe('file:///repo/a.ts#L12')
+    expect(tree(toolNode(c, 0, undefined, undefined, undefined, remote)).p?.['href']).toBeUndefined()
   })
 })

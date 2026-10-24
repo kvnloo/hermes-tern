@@ -69,6 +69,7 @@ describe('Tern image-paste payloads', () => {
       focusComposer: () => undefined,
       modal: () => false,
       openAgent: () => undefined,
+      openAgents: () => undefined,
       openProcess: () => undefined,
       openUrl: () => undefined
     }

@@ -12,8 +12,6 @@ import { Artifacts } from '../artifacts.js'
 import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
-import { nativePathIsLocal } from '../artifacts/attachments.js'
-import { clipboardDraft } from '../artifacts/clipboard.js'
 import { copyToClipboard } from '../clipboard.js'
 import type { SessionHostCx } from '../commands/host.js'
 import { CommandCatalog } from '../commands/resolve.js'
@@ -69,6 +67,7 @@ import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
+import { copyComposer, attachNativeImage } from './native-artifacts.js'
 import { toolBlob } from './tool-blob.js'
 import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
@@ -182,16 +181,7 @@ export class AppActions {
     this.keys = {
       attachClipboardImage: () => void attachments.fromClipboard(false),
       attachments,
-      copyDraft: currentLine => {
-        const text = clipboardDraft(composer.text, composer.cursor, currentLine)
-
-        try {
-          copyToClipboard(text)
-          chat.notice('Composer text sent to the terminal clipboard (OSC 52).')
-        } catch {
-          chat.notice('Could not copy the composer text to the clipboard.', 'warning')
-        }
-      },
+      copyDraft: currentLine => copyComposer(cx, currentLine),
       busy: () => cx.activity.busy !== null,
       close: overlay => chat.close(overlay),
       completion: cx.completion,
@@ -223,16 +213,7 @@ export class AppActions {
       transcript
     }
     this.events = {
-      attachNativeImage: image => {
-        if (image.kind === 'rejected') {
-          transcript.notice(image.reason, 'warning')
-          changed()
-        } else if (image.kind === 'path') {
-          void attachments.fromNativePath(image.path, nativePathIsLocal(gw))
-        } else {
-          void attachments.fromDataUrl(image.data, image.name)
-        }
-      },
+      attachNativeImage: image => attachNativeImage(cx, image),
       connect: cx.connect,
       focusComposer: () => {
         cx.hud.release()
