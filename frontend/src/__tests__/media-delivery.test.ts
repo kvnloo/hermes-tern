@@ -69,10 +69,10 @@ describe('cross-host previews', () => {
     for (const attached of [false, true]) {
       const { delivery, blob, gw } = setup({ attached, backend, native: true })
       const read = call('read_file', { path: '/gateway/same.png' }, { result: { mime: 'image/png' } })
-      const card = tree(toolNode(read, 0, delivery))
+      const card = tree(toolNode(read, 0, undefined, undefined, delivery))
       const browser = tree(toolNode(call('browser_vision', {}, {
         result: { success: true, screenshot_path: '/gateway/same.png' }
-      }), 0, delivery))
+      }), 0, undefined, undefined, delivery))
 
       expect(delivery.context()).toMatchObject({ local: false, native: true, remoteHost: 'unknown' })
       expect(projectToolMedia(read, delivery.context())).toEqual({ kind: 'unavailable' })
@@ -108,7 +108,7 @@ describe('cross-host previews', () => {
   it('renders native paths only with positive local proof, and keeps host controls distinct', () => {
     const tool = call('read_file', { path: 'same.png' })
     const known = setup({ attached: false, native: true })
-    const localTree = tree(toolNode(tool, 0, known.delivery))
+    const localTree = tree(toolNode(tool, 0, undefined, undefined, known.delivery))
     expect(nodes(localTree).some(n => n.k === 'media' && n.p?.['path'] === '/gateway/same.png')).toBe(true)
     expect(known.blob).not.toHaveBeenCalled()
 
@@ -119,7 +119,7 @@ describe('cross-host previews', () => {
     ]) {
       const { delivery } = setup(opts)
       expect(delivery.context().local).toBe(false)
-      const shown = tree(toolNode(tool, 0, delivery))
+      const shown = tree(toolNode(tool, 0, undefined, undefined, delivery))
       expect(nodes(shown).some(n => n.k === 'media' || (n.k === 'image' && n.p?.['path']))).toBe(false)
     }
   })
@@ -127,7 +127,7 @@ describe('cross-host previews', () => {
   it('rebuilds actual read cards across unknown -> local -> gateway -> compute without blob resurrection', async () => {
     const { delivery, backend, blob, gw } = setup({ attached: false, backend: undefined, native: true })
     const tool = call('read_file', { path: 'same.png' })
-    const render = () => tree(toolNode(tool, 0, delivery))
+    const render = () => tree(toolNode(tool, 0, undefined, undefined, delivery))
     const hasPath = () => nodes(render()).some(n => n.k === 'media' && n.p?.['path'] === '/gateway/same.png')
 
     expect(hasPath()).toBe(false)
@@ -195,7 +195,7 @@ describe('cross-host previews', () => {
     const tool = call('read_file', { path: '/gateway/photo.png' }, { result: { mime: 'image/png' } })
 
     expect(delivery.context()).toMatchObject({ local: false, remoteHost: 'gateway' })
-    expect(JSON.stringify(tree(toolNode(tool, 0, delivery)))).toContain('Load image preview')
+    expect(JSON.stringify(tree(toolNode(tool, 0, undefined, undefined, delivery)))).toContain('Load image preview')
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(0)
 
     const plan = projectToolMedia(tool, delivery.context())
@@ -207,7 +207,7 @@ describe('cross-host previews', () => {
         session_id: 'session-1', path: '/gateway/photo.png', mime: 'image/png', tool_call_id: String(tool.id)
       }])
       expect(delivery.preview(plan.source)).toEqual({ status: 'ready', blob: 'tern-blob' })
-      expect(nodes(tree(toolNode(tool, 0, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+      expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
       await delivery.load(plan.source)
       expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
       expect(blob).toHaveBeenCalledOnce()
@@ -243,7 +243,7 @@ describe('cross-host previews', () => {
   it('routes browser screenshots through a completed tool call, never a local image path', async () => {
     const { delivery, gw } = setup()
     const tool = call('browser_vision', {}, { result: { success: true, screenshot_path: '/gateway/screenshot.png' } })
-    const before = tree(toolNode(tool, 0, delivery))
+    const before = tree(toolNode(tool, 0, undefined, undefined, delivery))
 
     expect(JSON.stringify(before)).toContain('Load image preview')
     expect(nodes(before).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
@@ -255,13 +255,13 @@ describe('cross-host previews', () => {
     expect(gw.sent('hermes-tern.media.image')).toEqual([{
       session_id: 'session-1', path: '/gateway/screenshot.png', tool_call_id: String(tool.id)
     }])
-    expect(nodes(tree(toolNode(tool, 0, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+    expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
   })
 
   it('keeps remote image_generation paths inert without backend tool authorization', () => {
     const { delivery, gw } = setup()
     const tool = call('image_generate', { prompt: 'Sunrise' }, { result: { image: '/gateway/model.png', success: true } })
-    const shown = JSON.stringify(tree(toolNode(tool, 0, delivery)))
+    const shown = JSON.stringify(tree(toolNode(tool, 0, undefined, undefined, delivery)))
 
     expect(shown).toContain('cannot authorize its file path')
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(0)
@@ -285,7 +285,7 @@ describe('cross-host previews', () => {
   it('never tries to load remote video/3D/PDF as the Tern host local files', () => {
     const { delivery } = setup()
     for (const path of ['a.pdf', 'a.mp4', 'a.glb']) {
-      const n = tree(toolNode(call('read_file', { path }), 0, delivery))
+      const n = tree(toolNode(call('read_file', { path }), 0, undefined, undefined, delivery))
       expect(nodes(n).some(node => node.k === 'media')).toBe(false)
       expect(JSON.stringify(n)).toContain('not host-local')
     }
@@ -307,7 +307,7 @@ describe('cross-host previews', () => {
 
     expect(blob).toHaveBeenCalledWith(png, 'image/png')
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(0)
-    expect(nodes(tree(toolNode(tool, 0, delivery))).some(n => n.k === 'media')).toBe(false)
+    expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'media')).toBe(false)
   })
 
   it('keeps host-local media on the native path without blob transfers', () => {
@@ -315,7 +315,7 @@ describe('cross-host previews', () => {
     const tool = call('read_file', { path: 'a.png' })
 
     expect(delivery.context().local).toBe(true)
-    expect(nodes(tree(toolNode(tool, 0, delivery))).some(n => n.k === 'image' && n.p?.['path'] === '/gateway/a.png')).toBe(true)
+    expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'image' && n.p?.['path'] === '/gateway/a.png')).toBe(true)
     expect(blob).not.toHaveBeenCalled()
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(0)
   })

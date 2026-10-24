@@ -85,17 +85,22 @@ def conn(tmp_path, monkeypatch):
     module.lists, module.accounts, module.lineages = lists, accounts, lineages
     module.root = tmp_path
     module.watcher_threads = owned_threads
-    yield module
+    try:
+        yield module
+    finally:
+        # Stop and join owned workers before monkeypatch restores shared imports.
+        with module._lock:
+            for card in module._cards.values():
+                card.settle("fixture_teardown")
+        for worker in owned_threads:
+            worker.join(timeout=3)
+        assert all(not worker.is_alive() for worker in owned_threads), "a prior fixture's watcher survived teardown"
 
-    # This runs before monkeypatch restores sys.modules: old workers must never
-    # resolve their dynamic plugin_data_dir import against the next test's home.
-    with module._lock:
-        for card in module._cards.values():
-            card.settle("fixture_teardown")
-    for worker in owned_threads:
-        worker.join(timeout=3)
-    assert all(not worker.is_alive() for worker in owned_threads), "a prior fixture's watcher survived teardown"
-    assert not module._cards, "a completed watcher retained an active card"
+        def stopped():
+            with module._lock:
+                return not module._cards
+
+        assert wait_for(stopped), "Fixture-owned connection watchers did not stop"
 
 
 def view(conn, sid, pid=None):

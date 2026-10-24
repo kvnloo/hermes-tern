@@ -7,14 +7,18 @@ import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../core/assert.js'
 import type { MediaDelivery } from '../media-delivery.js'
+import type { SessionIds } from '../core/ids.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
+import type { TableCharts } from '../transcript/tableCharts.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
 
 import { duration } from './format.js'
 import { attachmentImagePath, imagePreviewNode } from './media.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
+import type { BrowserFocus } from './tools/cards/browser.js'
+import type { LspLinkContext } from './tools/lsp-links.js'
 import { toolNode } from './tools/shell.js'
 import { foldSection, headedCard } from './ui/fold.js'
 import { shimmerText } from './ui/live.js'
@@ -24,8 +28,16 @@ import { parts, pieces } from './workLogModel.js'
 
 /** What entry views need from the app. */
 export interface TranscriptContext {
+  /** Presentation-only, session-scoped Markdown table charts. */
+  charts?: TableCharts
   now: number
+  /** SDK actions bound to the session instance that rendered this entry. */
+  focusBrowser?: BrowserFocus | undefined
+  /** The exact instance whose SDK handlers are cached with this entry. */
+  browserSource?: Pick<SessionIds, 'live'> | undefined
   welcome: WelcomeContext
+  /** File-host evidence from the current frame, never a replayed tool result. */
+  lspContext?: LspLinkContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
   /** The entry copied a moment ago, whose copy button shows a check. */
@@ -37,9 +49,16 @@ export interface TranscriptContext {
 
 const kNode = Symbol('tsp.node')
 
+/** Release a cold entry's JSX and handler closures without changing Hermes history. */
+export function forgetEntryNode(entry: Entry): void {
+  const holder: object = entry
+  const built: Built = holder
+  delete built[kNode]
+}
+
 /** An entry carrying its last built node and the revision it was built at. */
 interface Built {
-  [kNode]?: { rev: string; node: JSX.Element }
+  [kNode]?: { rev: string; browserSource?: Pick<SessionIds, 'live'> | undefined; node: JSX.Element }
 }
 
 /**
@@ -55,15 +74,17 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}:${cx.mediaRev ?? ''}`
+  // Authority is presentation state: a cached local href must not survive a host/cwd switch.
+  const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
+    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? ''])
   const cached = built[kNode]
 
-  if (cached?.rev === rev) {
+  if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
     return cached.node
   }
 
   const node = buildEntry(e, id, cx)
-  built[kNode] = { node, rev }
+  built[kNode] = { browserSource: cx.browserSource, node, rev }
 
   return node
 }
@@ -244,7 +265,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.media)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser, cx.media)
     }
 
     const b = p.block
@@ -253,12 +274,12 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {b.text}
+            {live ? b.text : (cx.charts?.markdown(b.text, turn.end.status === 'done') ?? b.text)}
           </md>
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now, cx.media)
+        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser, cx.media)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

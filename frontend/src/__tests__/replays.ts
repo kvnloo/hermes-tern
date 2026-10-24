@@ -23,8 +23,8 @@ export interface Replay {
 
 /** The session the gateway starts on ready. */
 const started: Record<string, Reply> = {
-  'session.create': () => ({ info: { stored_session_id: 's1' }, session_id: 's1', subscription_id: 'sub1' }),
-  'session.resume': p => ({ execution_generation: 1, info: { stored_session_id: p['session_id'] }, revision: 1, session_id: p['session_id'] }),
+  'session.create': () => ({ info: { profile_name: 'work', stored_session_id: 's1' }, session_id: 's1', subscription_id: 'sub1' }),
+  'session.resume': p => ({ execution_generation: 1, info: { profile_name: 'work', stored_session_id: p['session_id'] }, revision: 1, session_id: p['session_id'] }),
   'setup.status': () => ({ provider_configured: true })
 }
 
@@ -71,7 +71,7 @@ export const replays: Record<string, Replay> = {
         p['session_id'] === 'old'
           ? {
               execution_generation: 1,
-              info: { stored_session_id: 'old', title: 'Old chat' },
+              info: { profile_name: 'work', stored_session_id: 'old', title: 'Old chat' },
               messages: [
                 { content: 'what changed?', role: 'user' },
                 { content: 'Nothing yet.', role: 'assistant' }
@@ -79,7 +79,7 @@ export const replays: Record<string, Replay> = {
               session_id: 'old',
               subscription_id: 'sub-old'
             }
-          : { execution_generation: 1, info: { stored_session_id: p['session_id'] }, revision: 1, session_id: p['session_id'] }
+          : { execution_generation: 1, info: { profile_name: 'work', stored_session_id: p['session_id'] }, revision: 1, session_id: p['session_id'] }
     },
     steps: [
       { feed: 1 },
@@ -94,6 +94,31 @@ export const replays: Record<string, Replay> = {
       { press: 'enter' },
       { feed: 1 }
     ]
+  },
+
+  'agent wait tiles: fan-out overflow, progress and completion': {
+    fixture: 'agent-wait-tiles',
+    replies: started,
+    steps: [
+      { feed: 1 },
+      { type: 'delegate the audit' },
+      { press: 'enter' },
+      { feed: 4 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 4 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 4 }
+    ]
+  },
+
+  'agent wait tiles: solo pending, active and settled': {
+    fixture: 'agent-wait-solo',
+    replies: started,
+    steps: [{ feed: 1 }, { type: 'delegate one audit' }, { press: 'enter' }, { feed: 3 }, { feed: 1 }, { feed: 1 }, { feed: 1 }, { feed: 1 }]
   },
 
   'an approval and a clarify question': {
