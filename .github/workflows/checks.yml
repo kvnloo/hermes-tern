@@ -24,24 +24,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: lock
-        # The lock comes from the PR: accept only a full commit SHA as checkout's ref.
-        run: |
-          sha=$(tr -d '[:space:]' < frontend/hermes-src.lock)
-          [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error file=frontend/hermes-src.lock::not a commit SHA"; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      # Python RPC dispatch tests require the separately reviewed public plugin seam.
+      # This test-only core pin does not change frontend/hermes-src.lock or runtime installs.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: NousResearch/hermes-agent
-          ref: ${{ steps.lock.outputs.sha }}
+          repository: kvnloo/hermes-agent
+          ref: 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5
           path: .hermes-agent
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       # The plugin runs inside Hermes' own environment, so its tests import Hermes core
-      # (hermes_cli, pydantic, httpx, ruamel). Test against the pinned Hermes lock rather
+      # (hermes_cli, pydantic, httpx, ruamel). Test against the qualified core lock rather
       # than adding dependencies to the plugin; Hermes' lock covers Python 3.14 only.
       - run: uv sync --project .hermes-agent --frozen --python 3.14
-      - run: uv run --project .hermes-agent --frozen --no-sync --with pytest python -m pytest -q
+      - run: uv run --project .hermes-agent --frozen --no-sync --with pytest --with pytest-asyncio python -m pytest -q
 
   frontend:
     name: frontend

@@ -96,6 +96,11 @@ export class SurfaceHost {
     return accepted
   }
 
+  /** Yield the alternate screen while an external terminal editor owns stdio. */
+  suspend() { this.raw.suspend() }
+
+  resume() { this.raw.resume() }
+
   /** The non-retention writer uses the same real Surface credits, not a second scheduler. */
   render(view: Renderable) {
     if (this.closed) {

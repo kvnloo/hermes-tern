@@ -36,7 +36,7 @@ def ctx():
 def test_registers_only_public_plugin_apis(ctx):
     assert {n for n, _, _ in ctx.calls} == {
         "register_cli_command", "register_auxiliary_task", "register_tool", "register_system_prompt_section",
-        "register_hook", "register_middleware"}
+        "register_hook", "register_middleware", "register_gateway_method"}
 
 
 def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
@@ -60,3 +60,25 @@ def test_the_tern_command_hands_its_flags_to_hermes_chat(ctx):
 def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
     ((args, kwargs),) = ctx.of("register_auxiliary_task")
     assert args[0] == "tern_charts" and kwargs["display_name"]
+
+def test_plan_methods_use_only_owned_public_gateway_registration(ctx):
+    methods = [(args[0], args[1], kwargs["schema"])
+               for args, kwargs in ctx.of("register_gateway_method")]
+    assert [name for name, _, _ in methods] == [
+        "hermes-tern.plan.status", "hermes-tern.plan.mode", "hermes-tern.plan.edit",
+        "hermes-tern.plan.annotate", "hermes-tern.plan.decide",
+    ]
+    assert all(callable(handler) and schema is not None
+               for _, handler, schema in methods)
+
+
+def test_older_plugin_context_does_not_advertise_plan_authority():
+    class OldCtx(RecordingCtx):
+        def __getattr__(self, name):
+            if name == "register_gateway_method":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    old = OldCtx()
+    hermes_tern_plugin.register(old)
+    assert not old.of("register_gateway_method")
