@@ -128,3 +128,39 @@ lock in its own commit.
 
 The Tern SDK is [`@stencil-hq/tern`](https://www.npmjs.com/package/@stencil-hq/tern) from npm
 ([stencil-hq/tern-sdk](https://github.com/stencil-hq/tern-sdk)), pinned like every other dependency.
+
+## Missing Tern documents
+
+The presentation surface recovers from an explicit whole-surface `gone` while visible, at most
+three times per frontend lifetime. Every replacement has a new `hermes.recovery-N` id and a
+fresh stylesheet, palette, view/retention writer and handler epoch; the gateway session, current
+transcript, queued prompts, draft/caret and open request overlays are **not** restarted. If a
+surface disappears while hidden, only a subsequent explicit visible event can reopen it.
+
+Child `gone` reports reconcile just the missing view IDs; retained settled history remains cold
+until explicit reload. No stale handler, focus or raw operation may target an evicted child.
+ACKs are real Tern credits; hidden frames pause. A blocked visible surface reports a five-second
+stall once without sending an escape frame, creating credit, or reopening on a timer. Protocol
+rejection, malformed ACK/error/gone, or view failure reports to stderr/transcript and stops the
+surface. Reconnect the frontend to recover from a failure or an exhausted three-replacement
+budget. Normal shutdown still uses the SDK's original kept-scrollback close behavior.
+
+Verification: `cd frontend && bun install --prefer-offline --frozen-lockfile && bun run check &&
+bun run test -- src/__tests__/surfaceRecovery.test.ts src/__tests__/watchRecovery.test.ts src/__tests__/watch.test.ts src/__tests__/retention.test.ts
+src/__tests__/appDispose.test.ts && bun run bundle`. These tests use the real pinned
+`@stencil-hq/tern` SDK with a strict simulated TSP document peer. They do not prove a
+native Tern window-loss/re-attach: run that separately in an owned isolated headless Tern pane.
+
+
+### Watch pane recovery
+
+The subagent Watch pane uses the same bounded visible-surface recovery, native
+callback epoch fences, stylesheet and palette restoration as chat. Its existing
+single render scheduler and subagent poller continue from the same agent state,
+child transcript and unsent draft. Child node loss is reconciled even while
+hidden; an explicit show redraws it without reopening the gateway session.
+The running dock exposes Stop, not a separate Send button. Steering uses native
+editor Send or composer Enter; both commands stay bound to the visible current epoch.
+The watch input loop reports protocol/render failures and disposes surface
+diagnostics before closing Tern. No native window-loss injection is claimed by
+the SDK-peer tests; verify separately in an owned isolated Tern pane.
