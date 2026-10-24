@@ -14,6 +14,7 @@ import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
 import { type EffortHost, openEffortPicker } from '../overlays/effort.js'
 import { type ModelsHost, openModelPicker, switchModel } from '../overlays/models.js'
+import { type PlanReviewHost, openPlanReview } from '../overlays/plan.js'
 import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
@@ -57,6 +58,7 @@ export type CommandHost = Pick<
   EffortHost &
   FastHost &
   ModelsHost &
+  PlanReviewHost &
   PullRequestsSheetHost &
   RefusedHost &
   SessionsHost &
@@ -163,6 +165,11 @@ const COMMANDS: readonly LocalCommand[] = [
 
       host.setTheme(arg)
     }
+  },
+  {
+    name: 'plan',
+    help: 'Review the latest plan; /plan <task> still generates a plan via Hermes',
+    run: (host, arg) => (arg.trim() ? false : openPlanReview(host))
   },
   {
     // Ink's `/agents pause|resume|status`: the shared gateway's slash.exec refuses them.
