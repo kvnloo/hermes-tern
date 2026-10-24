@@ -83,6 +83,7 @@ function pane(over: Partial<Pane> = {}) {
     openBackground: did('background'),
     openExternalEditor: did('editor'),
     openPrs: did('prs'),
+    openPlan: did('plan'),
     presses: { esc: 0, exit: 0 },
     queue: {
       count: () => state.queued,
@@ -391,6 +392,8 @@ describe('KEYS', () => {
     expect(matches(key('tab'), KEYS.effort)).toBe(false)
     expect(matches(key('up', { alt: true, shift: true }), KEYS.dequeue)).toBe(true)
     expect(matches(key('p', { alt: true, meta: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.plan)).toBe(true)
   })
 
   it('are the shortcuts the help sheet lists', () => {

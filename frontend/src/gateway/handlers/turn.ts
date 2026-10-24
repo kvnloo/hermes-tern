@@ -10,6 +10,8 @@ import type { SessionState } from '../../session/state.js'
 import { statusEffect } from '../../status.js'
 import type { Compactions } from '../../transcript/compactions.js'
 import type { Transcript } from '../../transcript/store.js'
+import { toTodos } from '../../transcript/todos.js'
+import type { TodoHud } from '../../todo-hud.js'
 import type { Activity } from '../../turn/activity.js'
 import { afterMessageComplete, afterToolComplete, type MessageFanout, type ToolFanout } from '../../turn/fanout.js'
 import type { PromptQueue } from '../../turn/queue.js'
@@ -36,6 +38,7 @@ export interface TurnCx extends ToolFanout, MessageFanout {
     | 'toolComplete'
     | 'toolStart'
   > & { readonly compactions: Pick<Compactions, 'compacted' | 'compacting' | 'uncompact'> }
+  readonly todoHud: Pick<TodoHud, 'update'>
   readonly activity: Pick<Activity, 'endBusy' | 'endCompaction' | 'relabel' | 'turnStarted'>
   readonly agents: Pick<Agents, 'scan' | 'settle'>
   readonly prs: Pick<PullRequests, 'onCall' | 'poke' | 'relink'>
@@ -159,7 +162,9 @@ export const turnHandlers = {
   },
 
   'todo.updated': (ev, cx) => {
-    cx.transcript.todos(ev.payload?.todos ?? [])
+    const snapshot = toTodos(ev.payload?.todos ?? [])
+    cx.todoHud.update(snapshot)
+    cx.transcript.todos(snapshot)
 
     return 'render'
   },
