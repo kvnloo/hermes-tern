@@ -66,6 +66,7 @@ import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
+import { toolBlob } from './tool-blob.js'
 import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
 
@@ -506,15 +507,7 @@ export class AppActions {
 
   /** `bytes` sent to Tern as a blob; undefined where it takes none, or for more than a blob holds. */
   blob(bytes: Uint8Array, mime: string): string | undefined {
-    if (!this.#cx.tern.caps.features.includes('blobs')) {
-      return undefined
-    }
-
-    try {
-      return this.#cx.tern.blob(bytes, mime)
-    } catch {
-      return undefined
-    }
+    return toolBlob(this.#cx.tern, bytes, mime)
   }
 
   /** Has `call`'s image (a URL's) fetched; its card shows it once it lands. */
