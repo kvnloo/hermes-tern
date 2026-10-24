@@ -704,4 +704,70 @@ export const STYLES = css`
     font-size: 12px;
   }
 
+  /* The composer's completion list, readable like t3code's: it sits above the composer (anchored in
+     overlays/completion.tsx) and is as wide, names in the UI face (paths stay mono), and descriptions
+     one step brighter. The list places rows at fixed
+     steps, so a long description shows whole in a footer under the list, not in its row. */
+  .sf-overlay[data-role='omp.autocomplete'] .sf-ov-card {
+    width: min(736px, calc(100% - 8px)) !important;
+    max-width: min(736px, calc(100% - 8px)) !important;
+  }
+
+  .sf-overlay[data-role='omp.autocomplete'] .sf-item-label {
+    max-width: 40% !important;
+    font: 550 13.5px/1.35 var(--sans) !important;
+  }
+
+  .sf-overlay[data-role='omp.autocomplete'] [data-role='hermes.complete.path'] .sf-item-label {
+    font: 13px/1.35 var(--mono) !important;
+  }
+
+  .sf-overlay[data-role='omp.autocomplete'] .sf-item-detail {
+    font: 13px/1.35 var(--sans) !important;
+    color: var(--t2) !important;
+  }
+
+  .sf-overlay[data-role='omp.autocomplete'] .sf-item-label .sf-t-mark {
+    background: none !important;
+    box-shadow: none !important;
+    color: var(--accent) !important;
+  }
+
+  [data-role='hermes.complete.more'] {
+    margin: 4px 0 0;
+    padding: 8px 11px 4px;
+    box-shadow: inset 0 1px 0 var(--l2);
+    font: 13px/1.45 var(--sans);
+    color: var(--t2);
+  }
+
+  /* The session picker gives its preview the room: the list about 40%, the preview about 60%,
+     where whole prompts, replies and the conversation are read. */
+  :is(.sf-picker[data-role='hermes.sessions'], .sf-picker[data-id='layer.sessions']) .pk-pv {
+    width: 60% !important;
+  }
+
+  /* Prompts and replies in the preview read as prose (the UI face); their code stays mono. */
+  .pk-pv-slot .sf-md:is([data-role='hermes.sessions.prompt'], [data-role='hermes.sessions.reply'], [data-role='hermes.sessions.user']) {
+    font: 13px/1.55 var(--sans) !important;
+  }
+
+  .pk-pv-slot .sf-md:is([data-role='hermes.sessions.prompt'], [data-role='hermes.sessions.reply'], [data-role='hermes.sessions.user']) :is(code, pre) {
+    font-family: var(--mono) !important;
+    font-size: 12px !important;
+  }
+
+  /* The whole session id, on its own lines, wrapped anywhere, never cut. */
+  [data-role='hermes.sessions.id'] {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--l1);
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  [data-role='hermes.sessions.tool'] {
+    font: 12.5px/1.45 var(--mono);
+  }
 `

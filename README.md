@@ -42,7 +42,10 @@ Then, in a Tern pane:
 ```sh
 hermes tern        # the chat, drawn by Tern
 hermes tern -c     # every `hermes chat` flag works: -m, -q, --image, --resume, --worktree, …
+hermes tern --new  # a new session, where the pane would resume its last one
 ```
+
+A pane remembers its conversation. If `hermes tern` dies in a pane (a crash, a kill, or a restart of Tern's session daemon), the next `hermes tern` in that pane resumes the conversation and says so. It does this only when you give no session flag, the shell is in the same folder (or the session's folder), and no other live pane shows that conversation. If you quit (Ctrl+D, Ctrl+C twice or `/quit`), the next `hermes tern` starts a new session.
 
 > [!TIP]
 > To open Hermes in Tern's agent pane, set `agent_command` in Tern's settings to `hermes tern`.
@@ -98,7 +101,7 @@ A turn shows what the agent does while it works: its reasoning, short notes, and
 | Command | Does |
 | --- | --- |
 | `/model`, `/effort` | Pick the model and the reasoning effort (also the chips on the composer) |
-| `/sessions` | Resume a session from this project, or from any folder |
+| `/sessions` | Search and resume a session from this project, or from any folder. <kbd>→</kbd> browses the selected conversation; <kbd>Alt</kbd>+<kbd>C</kbd> copies its id |
 | `/ps` | Background processes and cron jobs |
 | `/agents` | Subagents |
 | `/changes` | The working tree's diff |
@@ -198,8 +201,8 @@ flowchart LR
   A -->|shell commands, with<br/>the pane's TERN_PANE| T
 ```
 
-- **`__init__.py`** registers `hermes tern`. It runs `hermes chat --tui <flags>` with `HERMES_TUI_DIR` pointing at `frontend/`, so Hermes' own launcher still handles the profile, the working folder, resume, worktrees, the gateway attach and the exit summary. Exit code 75 (no TSP) reruns `hermes chat --tui` without the plugin's frontend.
-- **`frontend/`** is the TSP frontend: a TypeScript app on [`@stencil-hq/tern`](https://www.npmjs.com/package/@stencil-hq/tern). It talks to the profile's shared Hermes gateway (`hermes-gateway-v1`) through Hermes' own gateway client. `frontend/dist/entry.js` is committed, so an install needs no build step. [`frontend/README.md`](frontend/README.md) maps its modules.
+- **`__init__.py`** registers `hermes tern`. It runs `hermes chat --tui <flags>` with `HERMES_TUI_DIR` pointing at `frontend/`, so Hermes' own launcher still handles the profile, the working folder, resume, worktrees, the gateway attach and the exit summary. Exit code 75 (no TSP) reruns `hermes chat --tui` without the plugin's frontend. In a Tern pane whose last chat died, **`panes.py`** adds `--resume <root id>` to the flags: the frontend records each pane's conversation in `$HERMES_HOME/plugin-data/hermes-tern/panes/<TERN_PANE>.json`, because Tern's daemon restarts only omp after a crash.
+- **`frontend/`** is the TSP frontend: a TypeScript app on [`@stencil-hq/tern`](https://www.npmjs.com/package/@stencil-hq/tern). It talks to the profile's shared Hermes gateway (`hermes-gateway-v1`) through Hermes' own gateway client. `frontend/dist/entry.js` is committed, so an install needs no build step. CI builds it on `main` after each merge (`.github/workflows/bundle.yml`); pull requests carry source only. [`frontend/README.md`](frontend/README.md) maps its modules.
 - **`tern_env.py`** is needed because the agent's tools run in that shared gateway, not in the chat's pane. This `tool_request` middleware puts an `export` of the pane's `TERN_PANE` and window variables before each shell command that the agent runs: in the foreground, in the background, and from a Python cell. It reads them from the pane's marker when the call is made. The model's history keeps the command as the model wrote it, and the frontend leaves the prefix out of what it shows. So plain `tern open`, `tern split` and the rest of Tern's CLI act beside the chat. [`docs/tern-blocks.md`](docs/tern-blocks.md) is a short guide to scripting blocks that way: split, run, capture, wait and close.
 - **`widget_author.py`** runs in Hermes' interpreter when the frontend asks for a background process's chart rules. It calls the auxiliary model (task `tern_charts`) and prints the answer. The frontend validates the rules and runs them (`frontend/src/processes/widgets/`, ported from omp's job widgets). It uses Node's linear-time regex engine, so no rule can stall the chat.
 
@@ -215,7 +218,7 @@ uv run --with pytest pytest -q                    # the Python side (no Hermes c
 cd frontend
 HERMES_SRC=~/path/to/hermes-agent bun run setup   # links .hermes-src, installs (bun)
 bun run check                                     # typecheck, tests, lint, size and strictness ratchets
-bun run bundle                                    # rebuilds dist/entry.js: commit it with the change
+bun run bundle                                    # rebuilds dist/entry.js for local runs: do not commit it
 ```
 
 <details>
