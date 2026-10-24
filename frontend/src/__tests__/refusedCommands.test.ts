@@ -346,7 +346,7 @@ describe('hidden commands', () => {
   it('drops them from completion', () => {
     const items = slashItems([row('/pet'), row('/personality'), row('/pause'), row('/platform'), row('/plugins')], '/p')
 
-    expect(items.map(i => i.text)).toEqual(['/personality', '/plugins', '/palette', '/plan', '/prefs', '/ps', '/prs'])
+    expect(items.map(i => i.text)).toEqual(['/personality', '/plugins', '/palette', '/prefs', '/plan', '/ps', '/prs'])
   })
 
   it('never resolves a prefix to one', () => {
