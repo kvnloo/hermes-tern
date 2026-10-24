@@ -71,7 +71,19 @@ def conn(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "POLL_SECONDS", 0.01)
     module.lists, module.accounts, module.lineages = lists, accounts, lineages
     module.root = tmp_path
-    return module
+    try:
+        yield module
+    finally:
+        # Old module instances must stop before the next test swaps global storage mocks.
+        with module._lock:
+            for pending in module._cards.values():
+                pending.settle("test_teardown")
+
+        def stopped():
+            with module._lock:
+                return not module._cards
+
+        assert wait_for(stopped), "Fixture-owned connection watchers did not stop"
 
 
 def view(conn, sid, pid=None):
