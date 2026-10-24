@@ -4,6 +4,7 @@
 // gateway's `slash.exec`.
 
 import type { ChatPorts } from '../app/ports.js'
+import { openArtifact } from '../artifacts.js'
 import { copyToClipboard } from '../clipboard.js'
 import { storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
@@ -41,6 +42,7 @@ export type CommandHost = Pick<
   | 'openHelp'
   | 'quit'
   | 'resume'
+  | 'session'
   | 'setEffort'
   | 'setTheme'
   | 'theme'
@@ -76,6 +78,22 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    help: 'Open a rotatable model beside the chat: /view3d PATH|URL',
+    name: 'view3d',
+    run: async (host, arg) => {
+      const source = arg.trim().replace(/^(["'])(.*)\1$/, '$2')
+      if (!source) {
+        host.transcript.notice('Usage: /view3d PATH|URL (.glb, .gltf, .obj, .fbx, .usdz)', 'warning')
+        return
+      }
+      try {
+        await openArtifact(source, host.session.info?.cwd)
+      } catch {
+        host.transcript.notice('Could not open the 3D model. Check the path, format, or public download URL.', 'warning')
+      }
+    }
+  },
   {
     // `/q` is Hermes' /queue.
     aliases: ['exit'],
