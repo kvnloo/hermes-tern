@@ -130,7 +130,6 @@ export class AppActions {
       changed,
       notice: text => chat.notice(text, 'warning')
     })
-
     this.dock = {
       onBtwView: notice => cx.btw.viewNotice(notice),
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
@@ -264,9 +263,7 @@ export class AppActions {
 
   /** Sends the composer's draft, with the pastes it holds. */
   submitDraft() {
-    if (this.#cx.liveVoice.blocked) {
-      return
-    }
+    if (this.#cx.liveVoice.blocked) return
     const pasted = [...this.#cx.composer.pasted]
 
     this.submit(this.#cx.composer.take(), true, this.#cx.state.busyMode, pasted)
