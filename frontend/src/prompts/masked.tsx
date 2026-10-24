@@ -4,6 +4,7 @@
 import type { ValueResult } from '@hermes/shared/gateway-events'
 
 import { Composer } from '../draft/composer.js'
+import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
 import { withoutTernEnv } from '../tools/terminal.js'
 import { actionsRow } from '../view/ui/button.js'
@@ -79,8 +80,8 @@ export function maskedOverlay(host: OverlayHost, prompt: MaskedPrompt): Overlay 
     modal: true,
     cancel: () => finish(true),
     focus: id => `${id}.body.${fields[at]?.id ?? 'value'}`,
-    node: () => (
-      <overlay anchor="bottom" key={key} modal role="omp.overlay.ask" size="md">
+    node: id => (
+      <overlay anchor="bottom" key={nativeOverlayKey(id)} modal role="omp.overlay.ask" size="md">
         <col gap="md" key="body">
           <md key="question" role="omp.ask.question" text={title} />
           {note ? (

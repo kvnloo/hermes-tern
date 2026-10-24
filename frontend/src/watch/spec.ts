@@ -57,7 +57,7 @@ let sidebar: string | undefined
  * This pane and `hermes <args>` as a split's command line, `vars` set first. Undefined when this
  * isn't a Tern pane Tern's CLI can reach (over ssh, say) or the launcher named no interpreter.
  */
-function hermesSplit(env: NodeJS.ProcessEnv, vars: readonly string[], args: readonly string[]) {
+export function hermesSplit(env: NodeJS.ProcessEnv, vars: readonly string[], args: readonly string[]) {
   const pane = env['TERN_PANE']
   const python = env['HERMES_PYTHON']
   // The `hermes` wrapper puts its checkout on sys.path; the bare interpreter needs it said.

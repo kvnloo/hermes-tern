@@ -8,7 +8,8 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
-import { agentName } from '../agents/rows.js'
+import { Artifacts } from '../artifacts.js'
+import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { copyToClipboard } from '../clipboard.js'
@@ -25,6 +26,7 @@ import type { Attachments } from '../draft/attachments.js'
 import type { Composer } from '../draft/composer.js'
 import type { KeyCx, Presses } from '../draft/keys.js'
 import { storedCompactions } from '../hermes/compactions.js'
+import { forkSession } from '../fork-session.js'
 import { shellError, shellExec, shellLines } from '../hermes/shell.js'
 import type { Media } from '../media.js'
 import type { ToolCall } from '../model.js'
@@ -35,19 +37,24 @@ import { openBrowserBlocks } from '../overlays/browser.js'
 import type { Completion } from '../overlays/completion.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
+import { openPlanReview } from '../overlays/plan.js'
 import { promptOverlay } from '../overlays/prompts.js'
 import { openPrMenu, openPrSheet, openUrl } from '../overlays/pullRequests.js'
 import { parsePrompt } from '../prompts/parse.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
+import { BindingPreferences } from '../shortcuts/binding-preferences.js'
+import { cycleModel } from '../shortcuts/model-cycle.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
 import { INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
+import { BusyDraft, busyIntent } from '../turn/busyInput.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
 import type { PromptQueue } from '../turn/queue.js'
@@ -55,9 +62,13 @@ import type { GateState, PromptRouter } from '../turn/router.js'
 import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
-import { openSidebar, specOf } from '../watch/spec.js'
+import type { LiveVoice } from '../voice/live.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAgentPane } from './agent-pane.js'
+import { openAppPalette } from './palette.js'
+import { toolBlob } from './tool-blob.js'
+import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -67,6 +78,7 @@ export interface ActionsCx {
   readonly gw: GatewayClient
   readonly launch: Pick<LaunchEnv, 'home'>
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'viewNotice' | 'dismissNotice'>
   readonly activity: Activity
   readonly attachments: Attachments
   readonly queue: PromptQueue
@@ -76,7 +88,9 @@ export interface ActionsCx {
   readonly completion: Completion
   readonly hud: Hud
   readonly composer: Composer
+  readonly liveVoice: LiveVoice
   readonly transcript: Transcript
+  readonly todoHud: TodoHud
   readonly media: Media
   readonly connect: ConnectWatcher
   readonly sidebar: Sidebar
@@ -93,14 +107,17 @@ export interface ActionsCx {
 /** The app's actions and the contexts its entry points reach, made once. */
 export class AppActions {
   readonly #cx: ActionsCx
+  readonly #busyDraft: BusyDraft
   /** The entry whose Copy button reads Copied, until its time is up. */
   readonly #copied = new Flash<string>(() => this.#cx.changed())
   /** The folder last reported to Tern by OSC 7. */
   #reportedCwd: string | undefined
+  readonly #artifacts = new Artifacts()
   /** What the dock's buttons and fields do. */
   readonly dock: DockActions
   /** What the key rules (draft/keys.ts) reach. */
   readonly keys: KeyCx
+  readonly bindings: BindingPreferences
   /** What the Tern actions (surface/actions.ts) reach. */
   readonly events: ActionCx
   /** What a slash command reaches (commands/slash.ts). */
@@ -112,10 +129,21 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    const admit = () => !isModal(chat.overlays) && !life.switching && !attachments.any && !attachments.uploading
+    this.#busyDraft = new BusyDraft({ activity: cx.activity, admit, composer, gw, router: cx.router, session: cx.state, transcript, changed })
 
+    this.bindings = new BindingPreferences({
+      gw,
+      session: cx.state,
+      changed,
+      notice: text => chat.notice(text, 'warning')
+    })
     this.dock = {
+      onBtwView: notice => cx.btw.viewNotice(notice),
+      onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
+        if (composer.vim.enabled) return
         composer.edit(ev)
         changed()
       },
@@ -133,7 +161,8 @@ export class AppActions {
       onQueueSteer: i => queue.steer(i),
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
-        this.submit(ev.text)
+        if (composer.vim.enabled) return
+        this.submitNative(ev.text)
         changed()
       },
       onShells: () => openBackground(chat),
@@ -143,6 +172,7 @@ export class AppActions {
       },
       onTodos: () => cx.hud.toggleTodos(),
       onUndo: () => {
+        if (composer.vim.enabled) return
         composer.undo()
         changed()
       }
@@ -154,18 +184,29 @@ export class AppActions {
       close: overlay => chat.close(overlay),
       completion: cx.completion,
       composer,
+      liveVoice: cx.liveVoice,
+      vim: composer.vim,
       cycleEffort: () => cycleEffort(chat),
+      fork: () => void forkSession(chat),
       hud: key => this.hudKey(key),
       interrupt: () => this.interrupt(),
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
       openBrowserBlocks: () => openBrowserBlocks(chat),
+      openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
+      openModel: () => openModelPicker(chat),
+      openPalette: () => this.openPalette(),
+      openHelp: () => void chat.openHelp(),
+      cycleModel: direction => void cycleModel(chat, direction),
+      shortcut: (id, key) => this.bindings.matches(id, key),
+      openPlan: () => openPlanReview(chat),
       presses: cx.presses,
       queue,
       quit: () => chat.quit(),
       submitDraft: () => this.submitDraft(),
+      steerDraft: () => this.submitDraft(true),
       toggleSidebar: () => this.toggleSidebar(),
       transcript
     }
@@ -177,6 +218,7 @@ export class AppActions {
       },
       modal: () => isModal(chat.overlays),
       openAgent: id => void this.openAgent(id),
+      openAgents: () => openAgents(chat),
       openProcess: id => openBackground(chat, id),
       openUrl
     }
@@ -188,7 +230,7 @@ export class AppActions {
       gw,
       host: chat,
       life,
-      prompt: item => cx.router.route(item, cx.state.busyMode),
+      prompt: item => cx.router.route(item, 'queue'),
       transcript
     }
     this.host = {
@@ -203,6 +245,11 @@ export class AppActions {
       submit: text => this.submit(text, true, 'queue'),
       transcript
     }
+  }
+
+  /** The native command palette dispatches through the existing command route. */
+  openPalette() {
+    openAppPalette(this.#cx, command => this.submit(command, false))
   }
 
   /** The entry whose Copy button reads Copied. */
@@ -225,11 +272,34 @@ export class AppActions {
   // ── Prompts and commands ───────────────────────────────────────────
 
   /** Sends the composer's draft, with the pastes it holds. */
-  submitDraft() {
-    const pasted = [...this.#cx.composer.pasted]
+  submitDraft(alternate = false) {
+    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    const raw = this.#cx.composer.text
 
-    this.submit(this.#cx.composer.take(), true, this.#cx.state.busyMode, pasted)
+    if (shouldSteer(this.#cx, raw, alternate)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    const pasted = [...this.#cx.composer.pasted]
+    this.submit(this.#cx.composer.take(), true, 'queue', pasted)
   }
+
+  /** Tern native Send obeys the same busy intent as keyboard Enter. */
+  submitNative(raw: string) {
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    if (shouldSteer(this.#cx, raw, false)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
+  }
+
 
   /**
    * Sends or queues a prompt, or runs a command; `draft`: the user entered it (it takes the draft's
@@ -237,8 +307,12 @@ export class AppActions {
    * a typed one; a message the app writes (a connect result) waits behind the turn. `pasted`:
    * the draft's pastes, whose `{!cmd}`s and leading `!` stay as written.
    */
-  submit(raw: string, draft = true, busy: BusyMode = draft ? this.#cx.state.busyMode : 'queue', pasted: readonly string[] = []) {
+  submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
+    // Tern native Send and keyboard Enter never take the draft while voice owns input.
+    if (draft && this.#cx.liveVoice.blocked) {
+      return
+    }
     const text = raw.trim()
 
     // An image still uploading would miss the prompt: the words wait in the composer for it.
@@ -435,22 +509,20 @@ export class AppActions {
 
   /** `bytes` sent to Tern as a blob; undefined where it takes none, or for more than a blob holds. */
   blob(bytes: Uint8Array, mime: string): string | undefined {
-    if (!this.#cx.tern.caps.features.includes('blobs')) {
-      return undefined
-    }
-
-    try {
-      return this.#cx.tern.blob(bytes, mime)
-    } catch {
-      return undefined
-    }
+    return toolBlob(this.#cx.tern, bytes, mime)
   }
 
   /** Has `call`'s image (a URL's) fetched; its card shows it once it lands. */
   showImage(call: ToolCall | undefined) {
-    if (call) {
-      this.#cx.media.show(call, () => this.imageLanded(call))
-    }
+    if (call) this.#cx.media.show(call, () => this.imageLanded(call))
+  }
+
+  /** Opens model outputs beside the live chat. */
+  showArtifacts(call: ToolCall | undefined) {
+    this.#artifacts.show(call, this.#cx.state.info?.cwd ?? process.cwd(), text => {
+      this.#cx.transcript.notice(text, 'warning')
+      this.#cx.changed()
+    })
   }
 
   /** A tool call's image landed: its card draws again. */
@@ -473,42 +545,22 @@ export class AppActions {
 
   /** Down from an empty prompt focuses the pills; ←/→, Enter and Esc/↑ while one holds the keys. */
   hudKey(key: Key): boolean {
-    const { activity, chat, completion, composer, transcript } = this.#cx
+    const { activity, chat, completion, composer, transcript, todoHud } = this.#cx
     const { agents, automation, processes, prs } = chat
 
     return this.#cx.hud.key(key, {
       idle: !composer.text && !composer.browsing && !completion.open,
-      pills: shownPills({ activity, agents, automation, processes, prs, transcript }, Date.now())
+      pills: shownPills({ activity, agents, automation, processes, prs, todoHud, transcript }, Date.now())
     })
   }
 
   /** Opens the sheet behind a pill. */
   openPill(pill: SheetPill) {
-    const { chat } = this.#cx
-
-    switch (pill) {
-      case 'agents':
-        openAgents(chat)
-
-        break
-
-      case 'shells':
-        openBackground(chat)
-
-        break
-
-      case 'prs':
-        openPrMenu(chat)
-
-        break
-
-      case 'goal':
-
-      case 'loop':
-        openAutomation(chat, pill)
-
-        break
-    }
+    const chat = this.#cx.chat
+    if (pill === 'agents') openAgents(chat)
+    else if (pill === 'shells') openBackground(chat)
+    else if (pill === 'prs') openPrMenu(chat)
+    else openAutomation(chat, pill)
   }
 
   /** Opens or closes the session sidebar (Tern's aside); says why where Tern has none. */
@@ -545,18 +597,6 @@ export class AppActions {
 
   /** Shows subagent `id` beside the chat in a Tern split; its timeline sheet where no split can open. */
   async openAgent(id: string) {
-    const { chat, state } = this.#cx
-    const a = chat.agents.all().find(x => x.id === id)
-    const sid = state.ref.live
-
-    if (!a || !sid) {
-      return
-    }
-
-    const cwd = state.info?.cwd || this.#cx.launch.home || '/'
-
-    if (!(await openSidebar(specOf(a, agentName(a), sid, state.ref.stored), cwd))) {
-      openAgents(chat, { id, watch: true })
-    }
+    return openAgentPane(this.#cx, id)
   }
 }

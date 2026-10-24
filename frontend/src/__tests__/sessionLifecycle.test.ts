@@ -150,29 +150,36 @@ function recordingHost() {
   const host: AdoptHost = {
     activity: { busy: null, endCompaction: rec('activity.endCompaction'), set: rec('activity.set') },
     agents: { adopt: sid => void log.push(`agents.adopt ${sid}`), scan: rec('agents.scan') },
+    btw: { adopt: sid => void log.push(`btw.adopt ${sid}`) },
     automation: { adopt: sid => void log.push(`automation.adopt ${sid}`) },
     changed: rec('changed'),
     connect: { watch: rec('connect.watch') },
     forgetStatusNote: rec('forgetStatusNote'),
+    hud: { adopt: sid => void log.push(`hud.adopt ${sid}`) },
     imageLanded: rec('imageLanded'),
     markPane: id => void log.push(`markPane ${id}`),
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
     media: { showAll: rec('media.showAll') },
     notices: { reset: rec('notices.reset') },
+    operations: { adopt: sid => void log.push(`operations.adopt ${sid}`) },
     processes: { poke: rec('processes.poke') },
     prs: { adopt: rec('prs.adopt') },
     queue: { adopt: ref => void log.push(`queue.adopt ${ref.live}`), server: { reset: rec('queue.reset') } },
     readBusyMode: rec('readBusyMode'),
+    readShortcuts: rec('readShortcuts'),
+    readVimPreference: rec('readVimPreference'),
     reportCwd: rec('reportCwd'),
     sheets: { dropAll: rec('sheets.dropAll') },
     sidebar: { adopt: sid => void log.push(`sidebar.adopt ${sid}`) },
     showThoughts: sid => void log.push(`showThoughts ${sid}`),
     state: new RecordingState(log),
     title: { adopt: title => void log.push(`title.adopt ${title}`) },
+    todoHud: { adopt: sid => void log.push(`todoHud.adopt ${sid}`) },
     transcript: {
       get entries() {
         return transcript.entries
       },
+      currentTodos: () => transcript.currentTodos(),
       inflight: rec('transcript.inflight'),
       load: rec('transcript.load'),
       reset: ({ session }) => void log.push(`transcript.reset ${session}`)
@@ -201,11 +208,15 @@ describe('adoptSteps', () => {
 
     expect(log).toEqual([
       'ref b',
+      'btw.adopt b',
+      'operations.adopt b',
       // Another session: the transcript starts over at once, and the last one's sheets and busy-input mode go.
       'transcript.reset other',
       'sheets.dropAll',
       'busyMode queue',
       'readBusyMode',
+      'readShortcuts',
+      'readVimPreference',
       'queue.reset',
       'showThoughts b',
       'markViewer sb sa',
@@ -224,6 +235,8 @@ describe('adoptSteps', () => {
       'transcript.load',
       'agents.scan',
       'media.showAll',
+      'todoHud.adopt sb',
+      'hud.adopt sb',
       // Held prompts for another session go back after the history, so their notice stays.
       'queue.adopt b',
       'processes.poke',
@@ -243,12 +256,40 @@ describe('adoptSteps', () => {
 
     adoptAll(adoptSteps(host), { previous: host.state.ref, r: { session_id: 'a' }, ref: { live: a, stored: storedSessionId('sa') } })
 
-    expect(log).not.toContain('sheets.dropAll')
-    expect(log).not.toContain('busyMode queue')
-    expect(log).not.toContain('transcript.load')
-    expect(log).not.toContain('transcript.inflight')
-    expect(log.slice(0, 4)).toEqual(['ref a', 'transcript.reset same', 'readBusyMode', 'queue.reset'])
-    expect(log.at(-1)).toBe('changed')
+    // Reconnecting to the same runtime session still reloads gateway-owned shortcuts.
+    // It does not discard sheets or replay history that the snapshot does not provide.
+    expect(log).toEqual([
+      'ref a',
+      'btw.adopt a',
+      'operations.adopt a',
+      'transcript.reset same',
+      'readBusyMode',
+      'readShortcuts',
+      'readVimPreference',
+      'queue.reset',
+      'showThoughts a',
+      'markViewer sa sa',
+      'writeActiveSession sa',
+      'markPane sa',
+      'info',
+      'usage',
+      'title.adopt undefined',
+      'reportCwd',
+      'activity.set',
+      'notices.reset',
+      'activity.endCompaction',
+      'forgetStatusNote',
+      'agents.adopt a',
+      'todoHud.adopt sa',
+      'hud.adopt sa',
+      'queue.adopt a',
+      'processes.poke',
+      'connect.watch',
+      'prs.adopt',
+      'sidebar.adopt a',
+      'automation.adopt a',
+      'changed'
+    ])
   })
 })
 

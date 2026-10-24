@@ -32,6 +32,7 @@ import { briefOf } from '../view/tools/cards/task.js'
 import { hubIconOf } from '../view/tools/registry.js'
 import { facts } from '../view/ui/facts.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { countSummary, reportError, tickWhileOpen } from './sheet.js'
 
@@ -137,11 +138,11 @@ export function openAgents(host: AgentsSheetHost, focus?: { id: string; watch?: 
     cancel: close,
     // Ends with the sheet, however it closed (Esc, a session switch replacing the overlays).
     onClose: stopTicking,
-    node: () => {
+    node: id => {
       const now = Date.now()
       const watched = state.view.kind === 'timeline' ? currentAgent(state, agents()) : undefined
 
-      return watched ? timelineNode(watched, now) : hubNode(now)
+      return watched ? timelineNode(watched, now, id) : hubNode(now, id)
     },
     onKey: (k: Key) => {
       act(hubKey(state, k, agents()))
@@ -186,7 +187,7 @@ export function openAgents(host: AgentsSheetHost, focus?: { id: string; watch?: 
 
   const stopping = () => state.ask.kind === 'confirmStop'
 
-  function hubNode(now: number): JSX.Element {
+  function hubNode(now: number, id: string): JSX.Element {
     const all = agents()
     const list = shownAgents(state, all)
     const running = all.filter(isRunning).length
@@ -203,7 +204,7 @@ export function openAgents(host: AgentsSheetHost, focus?: { id: string; watch?: 
       <picker
         actions={actions(a, false)}
         columns={columns}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         {...optional('confirm', stopping() && a ? { act: 'confirm', label: 'Stop', text: `Stop ${agentName(a)}? Its partial work returns to Hermes.` } : undefined)}
         empty={state.tab === 'running' ? 'No agents running. Tab shows finished ones.' : 'No subagents in this session yet'}
         icon="agents"
@@ -235,7 +236,7 @@ export function openAgents(host: AgentsSheetHost, focus?: { id: string; watch?: 
     )
   }
 
-  function timelineNode(a: Subagent, now: number): JSX.Element {
+  function timelineNode(a: Subagent, now: number, id: string): JSX.Element {
     const entries = a.log?.entries ?? []
     const ids = stepIds(a)
     const step = state.view.kind === 'timeline' ? state.view.step : undefined
@@ -250,7 +251,7 @@ export function openAgents(host: AgentsSheetHost, focus?: { id: string; watch?: 
           { format: 'dim', head: 'At', id: 'at', min: 8, priority: 2 },
           { format: 'elapsed', head: 'Took', id: 'took', priority: 4 }
         ]}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         {...optional('confirm', stopping() ? { act: 'confirm', label: 'Stop', text: `Stop ${agentName(a)}? Its partial work returns to Hermes.` } : undefined)}
         empty={a.logPath || a.log ? 'Nothing logged yet' : 'This agent has no live transcript'}
         icon="agent"

@@ -39,7 +39,8 @@ const settingsFile: z.ZodMiniType<Settings> = z.catch(
   z.object({
     theme: loose(z.enum(['tern', 'nous', 'skin'])),
     thoughts: loose(z.boolean()),
-    jobCharts: loose(z.boolean())
+    jobCharts: loose(z.boolean()),
+    tableCharts: loose(z.enum(['off', 'always', 'smart']))
   }),
   {}
 )

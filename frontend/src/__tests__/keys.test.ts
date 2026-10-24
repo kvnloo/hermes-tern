@@ -6,11 +6,12 @@ import { describe, expect, it } from 'vitest'
 import { sessionHost, type SessionHostCx } from '../commands/host.js'
 import { commandEnvelope } from '../commands/slash.js'
 import { liveSessionId, storedSessionId } from '../core/ids.js'
-import { DOUBLE_ESC_MS, EXIT_ARM_MS, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
+import { DOUBLE_ESC_MS, EXIT_ARM_MS, EXTERNAL_EDITOR_KEY, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
 import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
 import { INPUT_ID } from '../surface/host.js'
+import { APP_SHORTCUTS, effectiveShortcuts, shortcutGroups, shortcutMatches } from '../shortcuts/actions.js'
 import type { Busy } from '../turn/activity.js'
 
 import { FakeGateway, key } from './fakes.js'
@@ -75,13 +76,17 @@ function pane(over: Partial<Pane> = {}) {
       }
     },
     cycleEffort: did('effort'),
+    fork: did('fork'),
     hud: () => state.hud,
     interrupt: did('interrupt'),
+    liveVoice: { blocked: false, toggle: did('live voice'), control: async () => undefined },
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
     openBrowserBlocks: did('browser blocks'),
+    openExternalEditor: did('editor'),
     openPrs: did('prs'),
+    openPlan: did('plan'),
     presses: { esc: 0, exit: 0 },
     queue: {
       count: () => state.queued,
@@ -90,6 +95,7 @@ function pane(over: Partial<Pane> = {}) {
     },
     quit: did('quit'),
     submitDraft: did('submit'),
+    steerDraft: did('steer draft'),
     toggleSidebar: did('sidebar'),
     transcript: { notice: text => void log.push(`notice ${text}`) }
   }
@@ -120,11 +126,16 @@ const alt = (name: string) => key(name, { alt: true })
 describe('the key rules', () => {
   it('run in this order', () => {
     expect(KEY_RULES.map(rule => rule.name)).toEqual([
+      'liveCancel',
       'cancel',
       'overlay',
       'modal',
+      'liveKeys',
       'hud',
       'completion',
+      'externalEditor',
+      'appShortcuts',
+      'vim',
       'doubleEsc',
       'effort',
       'sheets',
@@ -135,6 +146,37 @@ describe('the key rules', () => {
       'clipboardImage',
       'composer'
     ])
+  })
+
+  it('routes rebindable keys only after modal, HUD, and completion ownership', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({ 'app.model.select': 'alt+i' })
+    p.cx.shortcut = (id, pressed) => {
+      const action = actions.find(item => item.id === id)
+
+      return action ? shortcutMatches(action, pressed) : false
+    }
+    p.cx.openModel = () => p.log.push('models')
+    p.cx.openPalette = () => p.log.push('palette')
+    p.cx.openHelp = () => p.log.push('help')
+    p.cx.cycleModel = dir => p.log.push(`cycle ${dir}`)
+
+    onKey(alt('m'), p.cx, undefined)
+    onKey(alt('i'), p.cx, undefined)
+    onKey(key('p', { ctrl: true }), p.cx, undefined)
+    onKey(key('p', { ctrl: true, alt: true }), p.cx, undefined)
+    onKey(alt('k'), p.cx, undefined)
+    expect(p.log).toEqual(['composer', 'models', 'cycle 1', 'cycle -1', 'palette'])
+
+    onKey(alt('i'), p.cx, sheet({ modal: true }))
+    expect(p.log).toHaveLength(5)
+    p.state.hud = true
+    onKey(alt('i'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(alt('i'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
   })
 
   it('1. Ctrl+C: the top sheet cancels, else closes; with none it clears the draft, interrupts or arms the exit', () => {
@@ -211,6 +253,25 @@ describe('the key rules', () => {
     onKey(key('tab'), p.cx, undefined)
     expect(p.log).toEqual([])
     expect(p.cx.presses.esc).toBe(0)
+  })
+
+  it('Ctrl+G opens the existing draft after overlays, HUD and completion, without clearing it', () => {
+    const p = pane({ text: 'unsent' })
+    onKey(ctrl('g'), p.cx, sheet({ takes: true }))
+    onKey(ctrl('g'), p.cx, sheet({ modal: true }))
+    p.state.hud = true
+    onKey(ctrl('g'), p.cx, undefined)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual([])
+    p.state.completion = false
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual(['editor'])
+    expect(p.state.text).toBe('unsent')
+    onKey(key('g', { ctrl: true, shift: true }), p.cx, undefined)
+    expect(p.log).toEqual(['editor', 'composer'])
+    expect(matches(ctrl('g'), EXTERNAL_EDITOR_KEY)).toBe(true)
   })
 
   it('6. Esc Esc clears a draft into the history, else stops the turn; one Esc does nothing', () => {
@@ -291,12 +352,15 @@ describe('the key rules', () => {
     onKey(alt('enter'), p.cx, undefined)
     expect(p.log).toEqual(['steer 0'])
 
-    for (const over of [{ busy: false }, { queued: 0 }, { text: 'x' }]) {
+    for (const over of [{ busy: false }, { queued: 0 }]) {
       const q = pane({ busy: true, queued: 1, ...over })
 
       onKey(alt('enter'), q.cx, undefined)
       expect(q.log).toEqual(['composer'])
     }
+    const typed = pane({ busy: true, queued: 1, text: 'x' })
+    onKey(alt('enter'), typed.cx, undefined)
+    expect(typed.log).toEqual(['steer draft'])
   })
 
   it('11. Ctrl+D quits on an empty prompt, and is the composer key over a draft', () => {
@@ -372,15 +436,27 @@ describe('the key rules', () => {
 })
 
 describe('KEYS', () => {
+  it('keeps fixed plan and fork chords active with profile shortcuts loaded', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({})
+    p.cx.shortcut = (id, event) => actions.some(action => action.id === id && shortcutMatches(action, event))
+    onKey(key('p', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('f', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('p', { alt: true }), p.cx, undefined)
+    expect(p.log).toEqual(['plan', 'fork', 'prs'])
+  })
+
   it('matches the modifiers each shortcut needs and refuses those it must not have', () => {
     expect(matches(key('tab', { shift: true }), KEYS.effort)).toBe(true)
     expect(matches(key('tab'), KEYS.effort)).toBe(false)
     expect(matches(key('up', { alt: true, shift: true }), KEYS.dequeue)).toBe(true)
     expect(matches(key('p', { alt: true, meta: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.plan)).toBe(true)
   })
 
   it('are the shortcuts the help sheet lists', () => {
-    const listed = HOTKEYS.flatMap(g => g.rows.flatMap(([keys]) => keys))
+    const listed = [...HOTKEYS, ...shortcutGroups(APP_SHORTCUTS)].flatMap(g => g.rows.flatMap(([keys]) => keys))
 
     for (const match of Object.values(KEYS)) {
       expect(listed).toContain(match.label)
@@ -404,6 +480,7 @@ describe('the Tern actions', () => {
       focusComposer: () => void log.push('focus'),
       modal: () => modal,
       openAgent: id => void log.push(`agent ${id}`),
+      openAgents: () => void log.push('agents'),
       openProcess: id => void log.push(`process ${id}`),
       openUrl: url => void log.push(`url ${url}`)
     }
@@ -417,12 +494,13 @@ describe('the Tern actions', () => {
     const { cx, log } = actions()
 
     onTernEvent(action('open-agent', 'a1'), cx)
+    onTernEvent(action('open-agents', 'all'), cx)
     onTernEvent(action('open-process', 'p1'), cx)
     onTernEvent(action('open-url', 'https://x.test'), cx)
     onTernEvent(action('connect-continue', 'card-1'), cx)
     onTernEvent(action('connect-open', 'call:1:github'), cx)
-    expect(log).toEqual(['agent a1', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
-    expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-process', 'open-url'])
+    expect(log).toEqual(['agent a1', 'agents', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
+    expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-agents', 'open-process', 'open-url'])
   })
 
   it('do nothing without a value, or for an act with no handler', () => {
@@ -430,6 +508,8 @@ describe('the Tern actions', () => {
 
     onTernEvent(action('open-agent'), cx)
     onTernEvent(action('open-agent', ''), cx)
+    onTernEvent(action('open-agents'), cx)
+    onTernEvent(action('open-agents', ''), cx)
     onTernEvent(action('toString', 'x'), cx)
     onTernEvent(action('select', 'x'), cx)
     expect(log).toEqual([])
