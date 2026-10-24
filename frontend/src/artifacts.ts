@@ -127,7 +127,9 @@ async function download(source: string, target: string): Promise<void> {
     const file = await open(target, 'w', 0o600)
     try {
       let bytes = 0
-      for await (const chunk of response.body as AsyncIterable<unknown>) {
+      // undici types body chunks as any; read them as unknown and narrow.
+      const chunks: AsyncIterable<unknown> = response.body
+      for await (const chunk of chunks) {
         if (!(chunk instanceof Uint8Array)) {
           throw new Error('Model download returned a non-byte chunk')
         }
