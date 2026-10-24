@@ -53,6 +53,7 @@ import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
 import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
+import { BusyDraft, busyIntent } from '../turn/busyInput.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
 import type { PromptQueue } from '../turn/queue.js'
@@ -65,6 +66,8 @@ import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
+import { toolBlob } from './tool-blob.js'
+import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -103,6 +106,7 @@ export interface ActionsCx {
 /** The app's actions and the contexts its entry points reach, made once. */
 export class AppActions {
   readonly #cx: ActionsCx
+  readonly #busyDraft: BusyDraft
   /** The entry whose Copy button reads Copied, until its time is up. */
   readonly #copied = new Flash<string>(() => this.#cx.changed())
   /** The folder last reported to Tern by OSC 7. */
@@ -124,6 +128,9 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    const admit = () => !isModal(chat.overlays) && !life.switching && !attachments.any && !attachments.uploading
+    this.#busyDraft = new BusyDraft({ activity: cx.activity, admit, composer, gw, router: cx.router, session: cx.state, transcript, changed })
+
     this.bindings = new BindingPreferences({
       gw,
       session: cx.state,
@@ -154,7 +161,7 @@ export class AppActions {
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
         if (composer.vim.enabled) return
-        this.submit(ev.text)
+        this.submitNative(ev.text)
         changed()
       },
       onShells: () => openBackground(chat),
@@ -197,6 +204,7 @@ export class AppActions {
       queue,
       quit: () => chat.quit(),
       submitDraft: () => this.submitDraft(),
+      steerDraft: () => this.submitDraft(true),
       toggleSidebar: () => this.toggleSidebar(),
       transcript
     }
@@ -220,7 +228,7 @@ export class AppActions {
       gw,
       host: chat,
       life,
-      prompt: item => cx.router.route(item, cx.state.busyMode),
+      prompt: item => cx.router.route(item, 'queue'),
       transcript
     }
     this.host = {
@@ -262,12 +270,34 @@ export class AppActions {
   // ── Prompts and commands ───────────────────────────────────────────
 
   /** Sends the composer's draft, with the pastes it holds. */
-  submitDraft() {
-    if (this.#cx.liveVoice.blocked) return
-    const pasted = [...this.#cx.composer.pasted]
+  submitDraft(alternate = false) {
+    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    const raw = this.#cx.composer.text
 
-    this.submit(this.#cx.composer.take(), true, this.#cx.state.busyMode, pasted)
+    if (shouldSteer(this.#cx, raw, alternate)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    const pasted = [...this.#cx.composer.pasted]
+    this.submit(this.#cx.composer.take(), true, 'queue', pasted)
   }
+
+  /** Tern native Send obeys the same busy intent as keyboard Enter. */
+  submitNative(raw: string) {
+    if (isModal(this.#cx.chat.overlays)) {
+      return
+    }
+    if (shouldSteer(this.#cx, raw, false)) {
+      void this.#busyDraft.steer(raw)
+      return
+    }
+
+    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
+  }
+
 
   /**
    * Sends or queues a prompt, or runs a command; `draft`: the user entered it (it takes the draft's
@@ -275,7 +305,7 @@ export class AppActions {
    * a typed one; a message the app writes (a connect result) waits behind the turn. `pasted`:
    * the draft's pastes, whose `{!cmd}`s and leading `!` stay as written.
    */
-  submit(raw: string, draft = true, busy: BusyMode = draft ? this.#cx.state.busyMode : 'queue', pasted: readonly string[] = []) {
+  submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     // Tern native Send and keyboard Enter never take the draft while voice owns input.
     if (draft && this.#cx.liveVoice.blocked) {
@@ -477,22 +507,12 @@ export class AppActions {
 
   /** `bytes` sent to Tern as a blob; undefined where it takes none, or for more than a blob holds. */
   blob(bytes: Uint8Array, mime: string): string | undefined {
-    if (!this.#cx.tern.caps.features.includes('blobs')) {
-      return undefined
-    }
-
-    try {
-      return this.#cx.tern.blob(bytes, mime)
-    } catch {
-      return undefined
-    }
+    return toolBlob(this.#cx.tern, bytes, mime)
   }
 
   /** Has `call`'s image (a URL's) fetched; its card shows it once it lands. */
   showImage(call: ToolCall | undefined) {
-    if (call) {
-      this.#cx.media.show(call, () => this.imageLanded(call))
-    }
+    if (call) this.#cx.media.show(call, () => this.imageLanded(call))
   }
 
   /** Opens model outputs beside the live chat. */
@@ -534,31 +554,11 @@ export class AppActions {
 
   /** Opens the sheet behind a pill. */
   openPill(pill: SheetPill) {
-    const { chat } = this.#cx
-
-    switch (pill) {
-      case 'agents':
-        openAgents(chat)
-
-        break
-
-      case 'shells':
-        openBackground(chat)
-
-        break
-
-      case 'prs':
-        openPrMenu(chat)
-
-        break
-
-      case 'goal':
-
-      case 'loop':
-        openAutomation(chat, pill)
-
-        break
-    }
+    const chat = this.#cx.chat
+    if (pill === 'agents') openAgents(chat)
+    else if (pill === 'shells') openBackground(chat)
+    else if (pill === 'prs') openPrMenu(chat)
+    else openAutomation(chat, pill)
   }
 
   /** Opens or closes the session sidebar (Tern's aside); says why where Tern has none. */

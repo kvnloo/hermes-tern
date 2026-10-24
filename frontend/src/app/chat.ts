@@ -6,12 +6,14 @@
 // and the actions over them (app/actions.ts), lends them as ChatPorts, and
 // runs the pane until it quits.
 
-import type { ScrollTo, Session } from '@stencil-hq/tern'
+import type { ScrollTo, Session, TspEvent } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
+import type { AnyGatewayEvent } from '@tui/gatewayTypes.js'
 
 import logo from '../../assets/logo.png'
 import type { BtwThreads } from '../btw.js'
 import type { Agents } from '../agents/store.js'
+import { OrbActivity, ThinkingOrb } from '../chrome/orb.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
 import type { SessionHost } from '../commands/session.js'
@@ -82,6 +84,10 @@ export class App implements ChatPorts {
   /** What the user starts and the stores call back into, bound once. */
   readonly #act: AppActions
   #surface!: SurfaceHost
+  readonly #orbActivity = new OrbActivity()
+  #orb: ThinkingOrb | undefined
+  #orbSid: string | null = null
+  #visible = true
   #editingExternal = false
   #retention: Retention | undefined
   /** What each frame draws from (app/frame.ts); set once run() opened the surface. */
@@ -155,11 +161,15 @@ export class App implements ChatPorts {
     }
     this.#surface.guardHandlers(Boolean(this.#retention))
     this.#guardOverlayHandlers()
+    if (this.#tern.caps.features.includes('blobs')) {
+      this.#orb = new ThinkingOrb(this.#tern, this.#surface.motion)
+    }
     this.#view = {
       ...s,
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      ...(this.#orb ? { orb: this.#orb } : {}),
       gateway: this.#gw,
       surface: this.#surface,
       retention: this.#retention
@@ -186,6 +196,8 @@ export class App implements ChatPorts {
       drain: () => s.queue.drain(),
       eventLog: this.#launch.eventLog,
       gw: this.#gw,
+      onShown: ev => this.#onShown(ev, s),
+      onLost: () => this.#orbActivity.reset(),
       hostLifecycle: this.#hostLifecycle,
       labels: { busy: busyLabel, preparing: preparingLabel },
       reportCwd: () => this.#act.reportCwd(),
@@ -204,6 +216,7 @@ export class App implements ChatPorts {
       after: () => this.changed(),
       onError: error => this.#surface.failure(new Error(`Tern input failed: ${errorText(error)}`)),
       onEvent: event => {
+        this.#onSurfaceEvent(event)
         if (this.#surface.event(event)) {
           this.#retention?.gone(event)
           if (this.stores.stack.nativeReceipt(event).allowed) {
@@ -238,6 +251,7 @@ export class App implements ChatPorts {
    * Quitting calls it once the sessions detached (or the wait gave up), before Tern closes.
    */
   dispose() {
+    this.#orb?.close()
     this.#surface?.dispose()
     this.#act.dispose()
     disposeStores(this.stores)
@@ -245,6 +259,20 @@ export class App implements ChatPorts {
 
   /** One frame of the whole view, once run() opened the surface. */
   #frame() {
+    const sid = this.session.ref.live
+    if (sid !== this.#orbSid) {
+      this.#orbSid = sid
+      this.#orbActivity.reset(Boolean(this.busy))
+    }
+
+    if (!this.#visible) {
+      return
+    }
+
+    this.#orb?.update(
+      this.#orbActivity.state(this.overlays.some(o => o.key.startsWith('prompt:'))),
+      this.overlays.at(-1)?.modal === true
+    )
     if (!this.#view || this.#surface.closed) {
       return
     }
@@ -279,6 +307,65 @@ export class App implements ChatPorts {
           return handler()
         }
       })
+    }
+  }
+
+  /** Only routed events for the shown session affect the orb or hidden-pane completion notices. */
+  #onShown(ev: AnyGatewayEvent, s: ChatStores) {
+    const sid = this.session.ref.live
+    if (sid !== this.#orbSid) {
+      this.#orbSid = sid
+      this.#orbActivity.reset(Boolean(this.busy))
+    }
+    const wasActive = this.#orbActivity.state(false) !== 'idle'
+    this.#orbActivity.event(ev)
+
+    if (!this.#visible && ev.type === 'message.complete' && wasActive) {
+      s.notices.show({
+        key: `turn:${sid}`,
+        kind: 'ttl',
+        level: ev.payload?.status === 'error' ? 'error' : 'info',
+        text: ev.payload?.status === 'error'
+          ? 'A Hermes turn failed while this pane was hidden.'
+          : ev.payload?.status === 'interrupted'
+            ? 'A Hermes turn was stopped while this pane was hidden.'
+            : 'A Hermes turn finished while this pane was hidden.'
+      })
+    }
+
+    if (!this.#visible && ev.type === 'background.complete' && ev.payload?.task_id) {
+      s.notices.show({
+        key: `task:${ev.payload.task_id}`,
+        kind: 'ttl',
+        level: 'info',
+        text: 'A background task finished while this pane was hidden.'
+      })
+    }
+
+    if (ev.type === 'voice.status') {
+      this.changed()
+    }
+  }
+
+  /** Tern owns visibility, theme and motion; stop animation and expiry work while hidden. */
+  #onSurfaceEvent(ev: TspEvent) {
+    if ('sf' in ev && ev.sf && ev.sf !== 'hermes') {
+      return
+    }
+
+    if ((ev.ev === 'visible' || ev.ev === 'resize') && ev.visible !== undefined) {
+      this.#visible = ev.visible
+      this.#orb?.environment({ visible: ev.visible })
+      this.stores.notices.visible(ev.visible)
+    }
+    if (ev.ev === 'theme') {
+      this.#orb?.environment({ dark: ev.dark })
+    }
+    if (ev.ev === 'motion') {
+      this.#orb?.environment({ reduce: ev.reduce })
+    }
+    if (ev.ev === 'gone' && this.#surface.closed) {
+      this.#orb?.close()
     }
   }
 

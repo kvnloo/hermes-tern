@@ -6,6 +6,7 @@
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import type { Hud } from '../chrome/hud.js'
+import type { ThinkingOrb } from '../chrome/orb.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { Completion } from '../overlays/completion.js'
 import type { Overlay, OverlayStack } from '../overlays/overlay.js'
@@ -42,6 +43,8 @@ export interface FrameCx extends DockSources {
   readonly welcome: WelcomeContext
   /** The Copy buttons: the entry whose button reads Copied, and what a click does. */
   readonly copies: Pick<TranscriptContext, 'copied' | 'copy'>
+  /** Optional SDK image on the composer line, updated by its own lifecycle-safe animator. */
+  readonly orb?: Pick<ThinkingOrb, 'props'>
 }
 
 /** Draws one frame at `now`; nothing once the surface closed. */
@@ -63,7 +66,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 
   const voice = cx.liveVoice.node()
   const chrome = {
-    dock: [...(voice ? [voice] : []), ...dockNodes(dockModel(cx, now), cx.actions)],
+    dock: [...(voice ? [voice] : []), ...dockNodes({ ...dockModel(cx, now), ...(cx.orb ? { orb: cx.orb.props() } : {}) }, cx.actions)],
     layer: [
       ...(cx.aside() ? [cx.prAside.open ? cx.prAside.node('layer.prs') : cx.sidebar.node('layer.sidebar')].filter(n => n !== null) : []),
       ...cx.overlays.map(o => o.node(cx.stack.rootOf(o))),

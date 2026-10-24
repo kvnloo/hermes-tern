@@ -4,7 +4,7 @@
 // What it shows is data (DockContext, view/dockModel.ts builds it); what its
 // buttons do is DockActions, bound once.
 
-import type { EditEvent, JSX, SendEvent, Tone } from '@stencil-hq/tern'
+import type { EditEvent, ImageProps, JSX, SendEvent, Tone } from '@stencil-hq/tern'
 
 import { agentHovercard } from '../agents/tiles.js'
 import type { BtwNotice } from '../btw.js'
@@ -33,6 +33,7 @@ import { pill } from './ui/pill.js'
 /** What the dock shows, by part; dockModel() builds it each frame. */
 export interface DockContext {
   readonly now: number
+  readonly orb?: ImageProps | undefined
   /** What holds the session: the working row's state. */
   readonly activity: DockActivity
   readonly composer: DockComposer
@@ -104,6 +105,7 @@ export interface DockPills {
 /** The prompts waiting behind the turn. */
 export interface DockQueue {
   readonly rows: readonly QueuedRow[]
+  readonly hint: string
   /** A turn runs, so a row's Steer can inject it. */
   readonly canSteer: boolean
 }
@@ -354,6 +356,9 @@ function statusLine(cx: DockContext, on: DockActions): JSX.Element {
         />
       ) : null}
       {s.cost ? <seg key="cost" priority={3} side="right" spans={[{ t: `$${s.cost.toFixed(2)}` }]} title="Session cost" /> : null}
+      {cx.activity.kind === 'turn' ? (
+        <seg key="busyhint" priority={1} role="omp.composer.hint" side="right" spans={[{ s: 'muted', t: cx.queue.hint }]} />
+      ) : null}
       <seg key="newline" priority={1} side="right" spans={[{ s: 'muted', t: '⇧⏎ newline' }]} />
       {cx.activity.kind === 'turn' ? (
         <seg key="action" onClick={on.onInterrupt} priority={10} role="hermes.statusline.stop" side="right" spans={[{ t: 'esc esc stop' }]} />
@@ -507,6 +512,7 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
         {attachments.map((a, i) => imageChip(a, i, on.onRemoveAttachment))}
       </row>
       <row align="start" gap="sm" key="line" role="omp.composer.line">
+        {cx.orb ? <image key="orb" role="hermes.agent.orb" {...cx.orb} /> : null}
         <editor
           key="input"
           {...optional('anchor', draft.vim.enabled ? draft.vim.selection.anchor : draft.anchor)}

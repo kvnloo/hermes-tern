@@ -22,6 +22,7 @@ export class Composer {
   /** Revision of the draft, for rejecting stale external-editor results (including ABA changes). */
   rev = 0
   #text = ''
+  #revision = 0n
   #cursor = 0
   #anchor: number | undefined
   readonly #steps = new UndoHistory()
@@ -32,8 +33,6 @@ export class Composer {
   #decor: { text: string; decor: Decor[] } = { decor: [], text: '' }
   /** Pasted text that holds `{!…}` or starts with `!`: what it says is not the user's command. */
   #pasted: string[] = []
-  /** A monotonic identity for draft state, including edit/undo/redo ABA. */
-  #revision = 0n
 
   /** The draft; only the composer's own edits change it. */
   get text(): string {
@@ -477,6 +476,7 @@ export class Composer {
       this.#browse = -1
     }
 
+    ++this.#revision
     this.#text = text
     this.#cursor = text.length
     this.#anchor = undefined

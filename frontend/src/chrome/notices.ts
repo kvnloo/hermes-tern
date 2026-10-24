@@ -1,19 +1,14 @@
 // The gateway's keyed `notification.show` notices (credits, a slow start) on the status strip.
 // Mirrors Hermes' ui-tui/src/app/createGatewayEventHandler.ts (notification.show/clear) and
-// turnController's keyed notice. Notices is the list; NoticeStrip owns it with the timer that
-// re-renders when a `ttl` one expires, so the strip drops it on time.
+// turnController's keyed notice. Notices projects bounded gateway attention; NoticeStrip owns
+// the single expiry timer and freezes short-lived arrivals while the Tern pane is hidden.
 
 import type { NoticeEntry } from '../model.js'
 
+import { Dispatches, type AttentionPayload } from './attention.js'
+
 /** A `notification.show` payload. */
-export interface NoticePayload {
-  text?: string
-  level?: string
-  kind?: string
-  ttl_ms?: number | null
-  key?: string | null
-  id?: string | null
-}
+export type NoticePayload = AttentionPayload
 
 /** A notice on the status strip. */
 export interface Notice {
@@ -24,58 +19,49 @@ export interface Notice {
   expires?: number
 }
 
-const TONES: Record<string, NoticeEntry['tone']> = { error: 'error', success: 'success', warn: 'warning', warning: 'warning' }
-
-/**
- * The session's out-of-band notices, by key: a show replaces the notice with its key, a clear
- * drops only its key (a late clear never wipes a newer notice), and a `ttl` one expires. The
- * newest live one is the one shown.
- */
+/** One projection for notices, backed by the bounded Hermes attention reducer. */
 export class Notices {
-  #list: Notice[] = []
-  #seq = 0
+  readonly #items = new Dispatches()
 
-  /** Adds or replaces the notice; returns it (undefined for an empty one). */
-  show(p: NoticePayload, now = Date.now()): Notice | undefined {
-    const text = p.text?.trim()
+  show(p: NoticePayload, now = Date.now(), hidden = false): Notice | undefined {
+    if (!p.text?.trim()) {
+      return undefined
+    }
+    this.#items.show(p, now, hidden)
 
-    if (!text) {
+    return this.current(now)
+  }
+
+  /** Clear a visible or deferred key; unkeyed clears never erase other notices. */
+  clear(key: string | undefined): boolean {
+    return key !== undefined && this.#items.clear(key)
+  }
+
+  current(now = Date.now()): Notice | undefined {
+    const item = this.#items.active(now).at(-1)
+
+    if (!item) {
       return undefined
     }
 
-    const key = p.key || p.id || `n${++this.#seq}`
-    const ttl = p.kind === 'ttl' && typeof p.ttl_ms === 'number' && p.ttl_ms > 0 ? p.ttl_ms : undefined
-    const notice: Notice = { key, text, tone: TONES[p.level ?? ''] ?? 'info', ...(ttl ? { expires: now + ttl } : {}) }
-    this.#list = [...this.#list.filter(n => n.key !== key), notice]
-
-    return notice
+    return {
+      key: item.key,
+      text: item.text,
+      tone: item.level === 'warn' ? 'warning' : item.level,
+      ...(item.expiresAt !== null ? { expires: item.expiresAt } : {})
+    }
   }
 
-  /** Drops the notice with `key`; true when one went. */
-  clear(key: string | undefined): boolean {
-    const before = this.#list.length
-    this.#list = this.#list.filter(n => n.key !== key)
-
-    return this.#list.length !== before
+  nextExpiry(now = Number.NEGATIVE_INFINITY): number | undefined {
+    return this.#items.nextExpiry(now) ?? undefined
   }
 
-  /** The newest notice still live at `now`. */
-  current(now = Date.now()): Notice | undefined {
-    this.#list = this.#list.filter(n => !n.expires || n.expires > now)
-
-    return this.#list.at(-1)
+  resume(now = Date.now()) {
+    this.#items.resume(now)
   }
 
-  /** When the next `ttl` notice expires, if one is live. */
-  nextExpiry(): number | undefined {
-    const at = this.#list.flatMap(n => (n.expires ? [n.expires] : []))
-
-    return at.length ? Math.min(...at) : undefined
-  }
-
-  /** Forgets every notice (another session is shown). */
   reset() {
-    this.#list = []
+    this.#items.reset()
   }
 }
 
@@ -95,6 +81,7 @@ export class NoticeStrip {
   readonly #host: NoticeStripHost
   readonly #notices = new Notices()
   #timer: NodeJS.Timeout | undefined
+  #visible = true
 
   constructor(host: NoticeStripHost) {
     this.#host = host
@@ -102,13 +89,14 @@ export class NoticeStrip {
 
   /** Adds or replaces the notice, and re-arms the expiry render. */
   show(p: NoticePayload) {
-    this.#notices.show(p)
+    this.#notices.show(p, Date.now(), !this.#visible)
     this.#arm()
   }
 
   /** Drops the notice with `key`. */
   clear(key: string | undefined) {
     this.#notices.clear(key)
+    this.#arm()
   }
 
   /** The notice the strip shows at `now`. */
@@ -119,17 +107,37 @@ export class NoticeStrip {
   /** Forgets every notice (another session is shown). */
   reset() {
     this.#notices.reset()
+    this.#arm()
+  }
+
+  /** Visibility is host-owned; held notifications start their TTL when the pane returns. */
+  visible(shown: boolean) {
+    if (shown === this.#visible) {
+      return
+    }
+
+    this.#visible = shown
+    if (shown) {
+      this.#notices.resume()
+    }
+
+    this.#arm()
+    if (shown) {
+      this.#host.changed()
+    }
   }
 
   /** Stops the expiry render. */
   dispose() {
     clearTimeout(this.#timer)
+    this.#timer = undefined
   }
 
   /** Re-renders when the next `ttl` notice expires, so the strip drops it on time. */
   #arm() {
     clearTimeout(this.#timer)
-    const at = this.#notices.nextExpiry()
+    this.#timer = undefined
+    const at = this.#visible ? this.#notices.nextExpiry(Date.now()) : undefined
 
     if (at !== undefined) {
       this.#timer = setTimeout(() => {

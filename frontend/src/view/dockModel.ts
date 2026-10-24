@@ -26,6 +26,8 @@ import type { SessionTitle } from '../session/title.js'
 import type { Transcript } from '../transcript/store.js'
 import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
+import { busyHint } from '../turn/busyInput.js'
+import type { BusyMode } from '../turn/serverQueue.js'
 import type { PromptQueue } from '../turn/queue.js'
 import type { LiveVoice } from '../voice/live.js'
 
@@ -37,7 +39,7 @@ export const PLACEHOLDER = 'Ask Hermes — / commands · @ files'
 /** What the dock reads, each part a narrow view of the store that owns it. */
 export interface DockSources {
   readonly btw: Pick<BtwThreads, 'notices'>
-  readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null }
+  readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null; readonly busyMode: BusyMode }
   readonly activity: Pick<Activity, 'busy' | 'compacting'>
   readonly composer: Composer
   readonly liveVoice: Pick<LiveVoice, 'blocked'>
@@ -130,7 +132,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
       shells: shellsOf(src.processes, now),
       todos: list ? { list, open: src.hud.todosOpen } : undefined
     },
-    queue: { canSteer: src.activity.busy !== null, rows: src.queue.rows() },
+    queue: { canSteer: src.activity.busy !== null, hint: busyHint(src.session.busyMode), rows: src.queue.rows() },
     route: {
       effort: info?.reasoning_effort ?? '',
       effortWire: info?.reasoning_effort_wire || undefined,

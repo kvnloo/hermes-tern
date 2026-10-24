@@ -92,13 +92,15 @@ Each active agent tile shows its current tool and its latest two assistant or to
 
 | Key | Does |
 | --- | --- |
-| <kbd>Enter</kbd> · <kbd>Shift</kbd>+<kbd>Enter</kbd> | Send · new line |
-| <kbd>Alt</kbd>+<kbd>Enter</kbd> | Steer: send into the running turn |
+| <kbd>Enter</kbd> · <kbd>Shift</kbd>+<kbd>Enter</kbd> | Send (queue while busy by default) · new line |
+| <kbd>Alt</kbd>+<kbd>Enter</kbd> | Steer a running turn (queue instead when busy mode is `steer`) |
 | <kbd>Alt</kbd>+<kbd>↑</kbd> | Edit a queued prompt |
 | <kbd>Esc</kbd> <kbd>Esc</kbd> · <kbd>Ctrl</kbd>+<kbd>C</kbd> | Stop the turn |
 | <kbd>Shift</kbd>+<kbd>Tab</kbd> | Reasoning effort |
 | <kbd>Alt</kbd>+<kbd>S</kbd> · <kbd>Alt</kbd>+<kbd>P</kbd> · <kbd>Alt</kbd>+<kbd>J</kbd> · <kbd>Alt</kbd>+<kbd>A</kbd> | Sidebar · pull requests · background processes · subagents |
 | <kbd>Ctrl</kbd>+<kbd>V</kbd> | Paste an image |
+
+While an agent turn runs, **Enter queues** a follow-up and **Alt+Enter steers** the current turn. Setting `display.busy_input_mode` to `steer` swaps these two actions; native Tern Send follows Enter's mode. An open modal blocks Send without consuming your draft or caret. Typed inline `{!cmd}` commands expand before a correction is steered, but pasted commands remain literal. Failed expansion or rejected steering keeps your editable draft.
 
 | Command | Does |
 | --- | --- |

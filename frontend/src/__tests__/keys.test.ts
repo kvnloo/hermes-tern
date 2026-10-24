@@ -94,6 +94,7 @@ function pane(over: Partial<Pane> = {}) {
     },
     quit: did('quit'),
     submitDraft: did('submit'),
+    steerDraft: did('steer draft'),
     toggleSidebar: did('sidebar'),
     transcript: { notice: text => void log.push(`notice ${text}`) }
   }
@@ -342,12 +343,15 @@ describe('the key rules', () => {
     onKey(alt('enter'), p.cx, undefined)
     expect(p.log).toEqual(['steer 0'])
 
-    for (const over of [{ busy: false }, { queued: 0 }, { text: 'x' }]) {
+    for (const over of [{ busy: false }, { queued: 0 }]) {
       const q = pane({ busy: true, queued: 1, ...over })
 
       onKey(alt('enter'), q.cx, undefined)
       expect(q.log).toEqual(['composer'])
     }
+    const typed = pane({ busy: true, queued: 1, text: 'x' })
+    onKey(alt('enter'), typed.cx, undefined)
+    expect(typed.log).toEqual(['steer draft'])
   })
 
   it('11. Ctrl+D quits on an empty prompt, and is the composer key over a draft', () => {

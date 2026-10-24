@@ -124,6 +124,8 @@ export interface KeyCx {
   cycleModel?(direction: -1 | 1): void
   /** Sends the composer's draft. */
   submitDraft(): void
+  /** An alternate busy Enter (Alt+Enter) steers or queues the current draft. */
+  steerDraft(): void
 }
 
 /** The default matcher is for tests and before the first owning-profile read. */
@@ -323,12 +325,20 @@ const dequeue: KeyRule = (key, cx) => {
 
 /** Alt+Enter on an empty prompt: the oldest queued prompt steers the running turn. */
 const steer: KeyRule = (key, cx) => {
-  if (!bound(cx, 'app.message.alternate', key, KEYS.steer) || !cx.busy() || !cx.queue.count() || cx.composer.text) {
+  if (!bound(cx, 'app.message.alternate', key, KEYS.steer) || !cx.busy()) {
+    return false
+  }
+
+  if (cx.composer.text) {
+    cx.steerDraft()
+    return true
+  }
+
+  if (!cx.queue.count()) {
     return false
   }
 
   cx.queue.steer(0)
-
   return true
 }
 

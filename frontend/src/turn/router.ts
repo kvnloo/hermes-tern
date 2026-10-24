@@ -13,7 +13,7 @@ import { rpc } from '../wire/rpc.js'
 
 import type { Activity } from './activity.js'
 import { redirectTurn, steerTurn } from './control.js'
-import { EXPANDING_LABEL, expand, type Expanded, hasCommands } from './expand.js'
+import { EXPANDING_LABEL, expand, type Expanded, type ExpandOptions, hasCommands } from './expand.js'
 import { IMAGE_ONLY_PROMPT, type Prompt, shownText, userImages } from './prompt.js'
 import type { HeldTarget, PromptQueue } from './queue.js'
 import type { BusyMode } from './serverQueue.js'
@@ -219,9 +219,9 @@ export class PromptRouter {
     void host.queue.admit(gate.sid, prompt)
   }
 
-  /** `prompt` with its `{!cmd}`s run (a typed prompt's); undefined when one failed (the prompt is back in the composer). */
-  expanded(sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
-    return expand(this.#host, sid, prompt)
+  /** `prompt` with its `{!cmd}`s run; undefined on failure (a retained busy draft needs no restoration). */
+  expanded(sid: LiveSessionId, prompt: Prompt, options: ExpandOptions = {}): Promise<Expanded | undefined> {
+    return expand(this.#host, sid, prompt, options)
   }
 
   /**

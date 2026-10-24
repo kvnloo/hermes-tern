@@ -51,6 +51,12 @@ export class SurfaceHost {
     return this.#life.state
   }
 
+  /** Raw SDK surface for lifecycle-aware image updates; the host still owns frames. */
+  get motion(): Surface {
+    return this.raw
+  }
+
+  /** Whether Tern dropped the surface or it was closed: it draws nothing more. */
   get closed(): boolean {
     return this.#life.state !== 'visible' || this.raw.closed
   }
