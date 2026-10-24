@@ -409,9 +409,9 @@ describe('BTW native SDK editor focus and ownership', () => {
       await h.event({
         ev: 'action', sf: surface.id, id: nativeButtonId(h, 'cancel'), act: 'click', raw: {}
       })
-      expect(h.gw.sent('hermes-tern.btw.cancel')).toEqual([{
+      await vi.waitFor(() => expect(h.gw.sent('hermes-tern.btw.cancel')).toEqual([{
         session_id: 's1', thread_id: 'b', turn_id: 'b-turn'
-      }])
+      }]))
       expect(h.gw.methods('prompt.submit')).toEqual([])
     })
   })

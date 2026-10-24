@@ -63,7 +63,8 @@ def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
 
 
 def test_only_real_safe_report_is_registered_until_btw_owner_seam(ctx):
-    ((args, kwargs),) = ctx.of("register_gateway_method")
+    ((args, kwargs),) = [(args, kwargs) for args, kwargs in ctx.of("register_gateway_method")
+                        if not args[0].startswith("hermes-tern.plan.")]
     assert args[0] == "hermes-tern.operations.report"
     assert callable(args[1]) and kwargs["schema"].model_config["extra"] == "forbid"
 
@@ -79,3 +80,25 @@ def test_an_old_runtime_still_registers_its_normal_plugin_commands():
     hermes_tern_plugin.register(old)
     assert not old.of("register_gateway_method")
     assert old.of("register_cli_command")
+def test_plan_methods_use_only_owned_public_gateway_registration(ctx):
+    methods = [(args[0], args[1], kwargs["schema"])
+               for args, kwargs in ctx.of("register_gateway_method")
+               if args[0].startswith("hermes-tern.plan.")]
+    assert [name for name, _, _ in methods] == [
+        "hermes-tern.plan.status", "hermes-tern.plan.mode", "hermes-tern.plan.edit",
+        "hermes-tern.plan.annotate", "hermes-tern.plan.decide",
+    ]
+    assert all(callable(handler) and schema is not None
+               for _, handler, schema in methods)
+
+
+def test_older_plugin_context_does_not_advertise_plan_authority():
+    class OldCtx(RecordingCtx):
+        def __getattr__(self, name):
+            if name == "register_gateway_method":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    old = OldCtx()
+    hermes_tern_plugin.register(old)
+    assert not old.of("register_gateway_method")

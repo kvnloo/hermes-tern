@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import connections, panes, pull_requests, tern_env
+from . import connections, panes, plan_gateway, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
 
@@ -114,3 +114,4 @@ def register(ctx) -> None:
     if callable(getattr(ctx, "register_gateway_method", None)):
         from . import gateway_operations
         gateway_operations.register(ctx)
+    plan_gateway.register(ctx)
