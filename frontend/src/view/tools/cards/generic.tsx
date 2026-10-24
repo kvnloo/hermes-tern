@@ -60,7 +60,7 @@ export const imageGenerateView: ToolView<'image_generate'> = {
 /** The browser tools (`browser_navigate`, `browser_vision`…): a screenshot shows as its image. */
 export const browserView: ToolView<'browser'> = {
   ...plain(call => ({ name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), 'browser'),
-  card: (call, d) => browserBlockCard(genericCard(call, d, { name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }), call),
+  card: (call, d, _now, _context, media) => browserBlockCard(genericCard(call, d, { name: 'browser', title: humanize(call.name.replace(/^browser_?/, '')) || 'Browser' }, media), call),
   hubIcon: name => (name === 'browser_navigate' ? 'web' : 'wrench')
 }
 
