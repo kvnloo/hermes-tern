@@ -37,6 +37,7 @@ export type KeyAction =
   | 'clipboardImage'
   | 'dequeue'
   | 'effort'
+  | 'fork'
   | 'prs'
   | 'quit'
   | 'sidebar'
@@ -57,6 +58,7 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
+  fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
   prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta'] },
   quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'] },
   sidebar: { label: 'alt+s', name: 's', with: ['alt'], without: ['ctrl', 'meta'] },
@@ -97,6 +99,7 @@ export interface KeyCx {
   openAgents(): void
   openBackground(): void
   openPrs(): void
+  fork(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
@@ -234,12 +237,13 @@ const effort: KeyRule = (key, cx) => {
   return true
 }
 
-/** The sheets Alt+A/J/S/P open. */
+/** Global actions, after modal guards and before the composer. */
 const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
   [KEYS.agents, cx => cx.openAgents()],
   [KEYS.background, cx => cx.openBackground()],
   [KEYS.sidebar, cx => cx.toggleSidebar()],
-  [KEYS.prs, cx => cx.openPrs()]
+  [KEYS.prs, cx => cx.openPrs()],
+  [KEYS.fork, cx => cx.fork()]
 ]
 
 const sheets: KeyRule = (key, cx) => {

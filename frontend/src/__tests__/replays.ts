@@ -96,6 +96,31 @@ export const replays: Record<string, Replay> = {
     ]
   },
 
+  'agent wait tiles: fan-out overflow, progress and completion': {
+    fixture: 'agent-wait-tiles',
+    replies: started,
+    steps: [
+      { feed: 1 },
+      { type: 'delegate the audit' },
+      { press: 'enter' },
+      { feed: 4 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 4 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 1 },
+      { feed: 4 }
+    ]
+  },
+
+  'agent wait tiles: solo pending, active and settled': {
+    fixture: 'agent-wait-solo',
+    replies: started,
+    steps: [{ feed: 1 }, { type: 'delegate one audit' }, { press: 'enter' }, { feed: 3 }, { feed: 1 }, { feed: 1 }, { feed: 1 }, { feed: 1 }]
+  },
+
   'an approval and a clarify question': {
     fixture: 'approval-clarify',
     replies: {

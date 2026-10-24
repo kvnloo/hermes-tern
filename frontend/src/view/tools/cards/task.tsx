@@ -1,8 +1,9 @@
-// The delegate_task tool: omp's task card (one agent row each), or one agent's own row in its place.
+// The delegate_task tool: a live agent tile frame, then the existing settled result rows.
 
 import type { JSX } from '@stencil-hq/tern'
 
 import { agentNode } from '../../../agents/agentRow.js'
+import { agentWaitNode } from '../../../agents/tiles.js'
 import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
@@ -11,7 +12,7 @@ import type { TaskDetail, TaskResult } from '../../../tools/task.js'
 import { namedStep } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
 
-/** The delegate_task tool's view: the Task card, or one agent's row in place of the whole card. */
+/** The delegate_task tool's view: a live Task card, or a settled solo agent's row. */
 export const taskView: ToolView<'delegate_task'> = {
   action: 'other',
   card: taskCard,
@@ -19,7 +20,7 @@ export const taskView: ToolView<'delegate_task'> = {
   step: namedStep
 }
 
-/** A delegation: its agents' rows (or the requested goals before they report), and the brief they share. */
+/** A delegation: its active agents' tiles (result rows once settled), and the shared brief. */
 function taskCard(call: ToolCall, d: TaskDetail, now: number): Card {
   const tasks = d.tasks
   const goals = tasks.length ? tasks.map(t => t.goal ?? '') : d.goal ? [d.goal] : []
@@ -27,11 +28,14 @@ function taskCard(call: ToolCall, d: TaskDetail, now: number): Card {
   const agents = call.subagents ?? []
 
   // Until the first subagent event, the requested tasks stand in as pending rows.
-  const rows = agents.length
-    ? agents.map(a => agentNode(a, now))
-    : call.outcome.kind === 'running' || d.dispatched
-      ? goals.map((g, i) => <agent key={`p${i}`} name={`Agent ${i + 1}`} status="pending" task={g} />)
-      : settledRows(goals, d.results)
+  const wait = agentWaitNode(agents, now)
+  const rows = wait
+    ? [wait]
+    : agents.length
+      ? agents.map(a => agentNode(a, now))
+      : call.outcome.kind === 'running' || d.dispatched
+        ? goals.map((g, i) => <agent key={`p${i}`} name={`Agent ${i + 1}`} status="pending" task={g} />)
+        : settledRows(goals, d.results)
 
   const context = d.context ?? (tasks.length === 1 ? tasks[0]?.context : undefined)
   const working = agents.some(a => a.status === 'running' || a.status === 'queued') || (!agents.length && d.dispatched)
@@ -102,11 +106,15 @@ function outcome(r: TaskResult | undefined): { status: string; summary: string |
 }
 
 /**
- * A delegation of one agent, as one row: the agent's own (status, goal, model, its current tool
- * and timer), named "Background agent" when it runs on its own. Its brief is in the agent's
- * sheet (a click away), not here. A failed dispatch keeps the Task card, which says why.
+ * A settled delegation of one agent, as one row: its status, goal, model and result, named
+ * "Background agent" when it ran on its own. Its brief is in the agent's sheet (a click away).
+ * An active agent or a failed dispatch keeps the Task card.
  */
 function soloTask(call: ToolCall, d: TaskDetail, now: number): JSX.Element | undefined {
+  if (call.subagents?.some(a => a.status === 'running' || a.status === 'queued')) {
+    return undefined
+  }
+
   if (d.tasks.length > 1 || (call.subagents?.length ?? 0) > 1 || call.outcome.kind === 'error' || d.failed) {
     return undefined
   }
