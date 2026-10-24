@@ -53,7 +53,7 @@ import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
 import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
-import { BusyDraft, busyIntent, shouldSteer } from '../turn/busyInput.js'
+import { BusyDraft, busyIntent } from '../turn/busyInput.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
 import type { PromptQueue } from '../turn/queue.js'
@@ -66,6 +66,7 @@ import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
+import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
