@@ -56,6 +56,14 @@ export class FakeGateway extends EventEmitter {
     const handler = this.handlers.get(method)
 
     try {
+      // A fake has only the capabilities for methods explicitly registered
+      // by its test, never implicit permission to use old or foreign RPCs.
+      if (method === 'gateway.capabilities' && !handler) {
+        return Promise.resolve({
+          plugin_methods: [...this.handlers.keys()].filter(name => name.startsWith('hermes-tern.'))
+        })
+      }
+
       if (!handler && method === 'config.get' && params['key'] === 'full') {
         return Promise.resolve({ config: { display: {} } })
       }

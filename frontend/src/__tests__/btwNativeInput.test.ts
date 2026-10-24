@@ -57,8 +57,8 @@ async function withNativeApp(check: (h: Harness) => Promise<void>) {
     const gw = new FakeGateway({ replies: {
       'setup.status': () => ({ provider_configured: true }),
       'session.create': () => ({ session_id: 's1', subscription_id: 'sub1' }),
-      'btw.list': () => { throw new Error('pinned gateway lacks BTW history') },
-      'btw.submit': () => { throw new Error('pinned gateway lacks BTW submit') }
+      'hermes-tern.btw.list': () => { throw new Error('pinned gateway lacks BTW history') },
+      'hermes-tern.btw.submit': () => { throw new Error('pinned gateway lacks BTW submit') }
     } })
     app = new App(tern, gw.client, 'test', {
       launch: readLaunchEnv({ HOME: home, HERMES_HOME: home }, home)
@@ -199,7 +199,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       await vi.waitFor(() => expect(side.text).toBe(initial + typed + pasted))
       expect(side.cursor).toBe((initial + typed + pasted).length)
       h.raw('\r')
-      await vi.waitFor(() => expect(h.gw.sent('btw.submit')).toEqual([{
+      await vi.waitFor(() => expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([{
         session_id: 's1', text: initial + typed + pasted
       }]))
       expect(h.gw.methods('prompt.submit')).toHaveLength(0)
@@ -238,7 +238,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       expect(staleClick).toBeTypeOf('function')
       expect(staleEdit).toBeTypeOf('function')
       expect(staleSend).toBeTypeOf('function')
-      const calls = h.gw.sent('btw.submit').length
+      const calls = h.gw.sent('hermes-tern.btw.submit').length
       model.select('b')
       const draftB = model.draft
       draftB.set('Draft B 🧪', { cursor: 5 })
@@ -251,7 +251,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       expect(draftA.text).toBe('Draft A 🦉')
       expect(draftA.cursor).toBe(3)
       expect(draftB.text).toBe('Draft B 🧪')
-      expect(h.gw.sent('btw.submit')).toHaveLength(calls)
+      expect(h.gw.sent('hermes-tern.btw.submit')).toHaveLength(calls)
       const afterAba = nativeControls(h).editor
       const adoptionClick = click(afterAba)
       const adoptionSend = send(afterAba)
@@ -262,14 +262,14 @@ describe('BTW native SDK editor focus and ownership', () => {
       await adoptionClick?.()
       await adoptionSend?.()
       expect(draftA.text).toBe('Draft A 🦉')
-      expect(h.gw.sent('btw.submit')).toHaveLength(calls)
+      expect(h.gw.sent('hermes-tern.btw.submit')).toHaveLength(calls)
       const oldClick = click(nativeControls(h).editor)
       model.close()
       await model.show()
       await painted()
       await oldClick?.()
       expect(model.draft.text).toBe('Draft A 🦉')
-      expect(h.gw.sent('btw.submit')).toHaveLength(calls)
+      expect(h.gw.sent('hermes-tern.btw.submit')).toHaveLength(calls)
       expect(h.gw.methods('prompt.submit')).toHaveLength(0)
     })
   })
@@ -289,7 +289,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       expect(draftA.text).toBe('AAAA 🦉')
       expect(draftB.text).toBe('BBBB 🧪')
       expect(draftB.cursor).toBe(0)
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
 
       await h.event({
         ev: 'edit', sf: h.surface().id, id: b.editor,
@@ -312,13 +312,13 @@ describe('BTW native SDK editor focus and ownership', () => {
       await h.event({
         ev: 'send', sf: h.surface().id, id: a.editor, text: draftA.text, raw: {}
       })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
       expect(draftB.text).toBe('BBBB 🧪')
 
       await h.event({
         ev: 'send', sf: h.surface().id, id: b.editor, text: draftB.text, raw: {}
       })
-      expect(h.gw.sent('btw.submit')).toEqual([{
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([{
         session_id: 's1', thread_id: 'b', text: 'BBBB 🧪'
       }])
       expect(draftA.text).toBe('AAAA 🦉')
@@ -334,12 +334,12 @@ describe('BTW native SDK editor focus and ownership', () => {
       await h.event({
         ev: 'action', sf: h.surface().id, id: a.send, act: 'click', raw: {}
       })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
 
       await h.event({
         ev: 'action', sf: h.surface().id, id: b.send, act: 'click', raw: {}
       })
-      expect(h.gw.sent('btw.submit')).toEqual([{
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([{
         session_id: 's1', thread_id: 'b', text: 'BBBB 🧪'
       }])
       expect(draftB.text).toBe('BBBB 🧪')
@@ -360,7 +360,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       expect(currentA.send).not.toBe(a.send)
       await h.event({ ev: 'send', sf: h.surface().id, id: a.editor, text: draftA.text, raw: {} })
       await h.event({ ev: 'action', sf: h.surface().id, id: a.send, act: 'click', raw: {} })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
       expect(draftA.text).toBe('AAAA 🦉')
       expect(h.gw.methods('prompt.submit')).toEqual([])
     })
@@ -369,6 +369,11 @@ describe('BTW native SDK editor focus and ownership', () => {
   it('retains already-bound Send/Stop/Copy fences even before another selection renders', async () => {
     await withNativeApp(async h => {
       vi.mocked(copyToClipboard).mockClear()
+      // This test owns a working Stop capability; unsupported runtimes are
+      // exercised separately and must never receive a cancel request.
+      h.gw.handlers.set('hermes-tern.btw.cancel', () => ({
+        thread: thread('b', 'cancelled', 3), turn_id: 'b-turn'
+      }))
       const { model } = await selectedAB(h)
       const beforeA = h.wire().length
       model.select('a')
@@ -385,7 +390,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       model.select('b')
       await heldSend?.()
       await heldCopy?.()
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
       expect(copyToClipboard).not.toHaveBeenCalled()
       await painted()
       await h.event({
@@ -404,14 +409,14 @@ describe('BTW native SDK editor focus and ownership', () => {
       expect(heldStop).toBeTypeOf('function')
       model.select('b')
       await heldStop?.()
-      expect(h.gw.sent('btw.cancel')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.cancel')).toEqual([])
       await painted()
       await h.event({
         ev: 'action', sf: surface.id, id: nativeButtonId(h, 'cancel'), act: 'click', raw: {}
       })
-      expect(h.gw.sent('btw.cancel')).toEqual([{
+      await vi.waitFor(() => expect(h.gw.sent('hermes-tern.btw.cancel')).toEqual([{
         session_id: 's1', thread_id: 'b', turn_id: 'b-turn'
-      }])
+      }]))
       expect(h.gw.methods('prompt.submit')).toEqual([])
     })
   })
@@ -440,7 +445,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       await vi.waitFor(() => expect(draftB.text).toBe(expected))
       expect(nativeControls(h).editor).toBe(b.editor)
       h.raw('\r')
-      await vi.waitFor(() => expect(h.gw.sent('btw.submit')).toEqual([{
+      await vi.waitFor(() => expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([{
         session_id: 's1', thread_id: 'b', text: expected
       }]))
       expect(draftA.text).toBe('AAAA 🦉')
@@ -465,7 +470,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       const replacement = nativeControls(h, h.wire().slice(beforeReplace))
       expect(replacement.editor).not.toBe(b.editor)
       await h.event({ ev: 'send', sf, id: b.editor, text: 'old', raw: {} })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
 
       const beforeAdopt = h.wire().length
       given.session(h.app, 's1') // live ID reused, ref identity is new
@@ -474,7 +479,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       const adopted = nativeControls(h, h.wire().slice(beforeAdopt))
       expect(adopted.editor).not.toBe(replacement.editor)
       await h.event({ ev: 'action', sf, id: replacement.send, act: 'click', raw: {} })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
 
       const beforeReopen = h.wire().length
       model.close()
@@ -483,7 +488,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       const reopened = nativeControls(h, h.wire().slice(beforeReopen))
       expect(reopened.editor).not.toBe(adopted.editor)
       await h.event({ ev: 'send', sf, id: adopted.editor, text: 'old', raw: {} })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
 
       const beforeSession = h.wire().length
       given.session(h.app, 's2')
@@ -493,7 +498,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       const replacementSession = nativeControls(h, h.wire().slice(beforeSession))
       expect(replacementSession.editor).not.toBe(reopened.editor)
       await h.event({ ev: 'action', sf, id: reopened.send, act: 'click', raw: {} })
-      expect(h.gw.sent('btw.submit')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.submit')).toEqual([])
       expect(h.gw.methods('prompt.submit')).toEqual([])
     })
   })
@@ -517,7 +522,7 @@ describe('BTW native SDK editor focus and ownership', () => {
       await painted()
       expect(nativeControls(h, h.wire().slice(before)).editor).not.toBe(aEditor)
       await h.event({ ev: 'action', sf: h.surface().id, id: aStop, act: 'click', raw: {} })
-      expect(h.gw.sent('btw.cancel')).toEqual([])
+      expect(h.gw.sent('hermes-tern.btw.cancel')).toEqual([])
     })
   })
 

@@ -35,7 +35,12 @@ export function followGateway(gw: Pick<GatewayClient, 'attached' | 'drain' | 'on
   const dispatch = dispatcher(cx, type => log.unknown(type))
 
   const deliver = (ev: AnyGatewayEvent) => {
-    cx.btw?.onEvent(ev)
+    // Registered plugin events are outside the locked generated core catalog.
+    // Owned side snapshots never become main transcript entries.
+    if (cx.btw?.onEvent(ev)) {
+      return
+    }
+
     if (dispatch(ev) === 'render') {
       cx.changed()
     }
