@@ -4,15 +4,18 @@
 // ports keep: a later package changes what stands behind a port, not the code that reads it.
 
 import type { ScrollTo } from '@stencil-hq/tern'
+
 import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { Agents } from '../agents/store.js'
+import type { BtwThreads } from '../btw.js'
 import type { SessionHost } from '../commands/session.js'
 import type { PrKey, SessionIds, StoredSessionId } from '../core/ids.js'
 import type { GitState } from '../git/status.js'
 import type { PullRequests } from '../github/store.js'
 import type { NoticeEntry } from '../model.js'
+import type { OperationalSheets } from '../operations.js'
 import type { OverlayHost, Overlay } from '../overlays/overlay.js'
 import type { Cron } from '../processes/cron.js'
 import type { Processes } from '../processes/store.js'
@@ -42,6 +45,8 @@ export interface ChatPorts extends OverlayHost {
   readonly agents: Agents
   readonly processes: Processes
   readonly cron: Cron
+  readonly btw: BtwThreads
+  readonly operations: OperationalSheets
   readonly prs: PullRequests
   readonly automation: Automation
   /** The session sidebar's last read of git, which the Changes sheet starts from. */

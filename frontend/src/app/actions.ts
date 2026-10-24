@@ -10,6 +10,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { agentName } from '../agents/rows.js'
 import { Artifacts } from '../artifacts.js'
+import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { copyToClipboard } from '../clipboard.js'
@@ -70,6 +71,7 @@ export interface ActionsCx {
   readonly gw: GatewayClient
   readonly launch: Pick<LaunchEnv, 'home'>
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'viewNotice' | 'dismissNotice'>
   readonly activity: Activity
   readonly attachments: Attachments
   readonly queue: PromptQueue
@@ -119,6 +121,8 @@ export class AppActions {
     const changed = () => cx.changed()
 
     this.dock = {
+      onBtwView: notice => cx.btw.viewNotice(notice),
+      onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
         composer.edit(ev)
