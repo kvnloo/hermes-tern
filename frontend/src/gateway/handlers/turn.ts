@@ -3,6 +3,7 @@
 
 import type { Agents } from '../../agents/store.js'
 import { toolCallId } from '../../core/ids.js'
+import type { HostLifecycle } from '../../host-lifecycle.js'
 import type { PullRequests } from '../../github/store.js'
 import type { ToolCall } from '../../model.js'
 import type { SessionState } from '../../session/state.js'
@@ -39,7 +40,8 @@ export interface TurnCx extends ToolFanout, MessageFanout {
   readonly agents: Pick<Agents, 'scan' | 'settle'>
   readonly prs: Pick<PullRequests, 'onCall' | 'poke' | 'relink'>
   readonly session: Pick<SessionState, 'usage'>
-  readonly queue: { readonly server: Pick<PromptQueue['server'], 'settlesQueuedRow'> }
+  readonly hostLifecycle: Pick<HostLifecycle, 'finish'>
+  readonly queue: { readonly server: Pick<PromptQueue['server'], 'settlesQueuedRow'>; count(): number }
   /** The backend warnings shown already. */
   readonly warned: Warned
   /** The working line's words for a call (view/workLogModel.ts): one that just started, and one the model still writes. */
@@ -168,7 +170,13 @@ export const turnHandlers = {
       return 'quiet'
     }
 
+    // Only the final turn in a queued batch merits an attention alert.
+    const followup = cx.queue.count() > 0
     afterMessageComplete(ev.payload ?? {}, cx)
+
+    if (!followup) {
+      cx.hostLifecycle.finish(ev.payload?.status)
+    }
 
     return 'render'
   },
