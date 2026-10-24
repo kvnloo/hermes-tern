@@ -21,6 +21,7 @@ import { errorText } from '../core/errors.js'
 import { durable, entryId, type PrKey, type StoredSessionId } from '../core/ids.js'
 import { RenderScheduler } from '../core/scheduler.js'
 import { onKey } from '../draft/keys.js'
+import { editExternal as editDraftExternal } from '../draft/external-editor.js'
 import { followGateway } from '../gateway/follow.js'
 import type { PullRequests } from '../github/store.js'
 import { HostLifecycle } from '../host-lifecycle.js'
@@ -79,6 +80,7 @@ export class App implements ChatPorts {
   /** What the user starts and the stores call back into, bound once. */
   readonly #act: AppActions
   #surface!: SurfaceHost
+  #editingExternal = false
   #retention: Retention | undefined
   /** What each frame draws from (app/frame.ts); set once run() opened the surface. */
   #view: FrameCx | undefined
@@ -280,6 +282,27 @@ export class App implements ChatPorts {
 
   openHelp(): Promise<void> {
     return openHelp(this)
+  }
+
+  /** /editor: native Tern file or $VISUAL/$EDITOR in a suspended terminal. */
+  async editExternal(): Promise<void> {
+    if (this.#editingExternal || !this.#surface || this.#surface.closed) return
+    this.#editingExternal = true
+    const grid = !process.env['TERN_WINDOW_KEY']
+    try {
+      if (grid) this.#surface.suspend()
+      await editDraftExternal({
+        composer: this.stores.composer,
+        sid: () => this.session.ref.live,
+        changed: () => this.changed(),
+        notice: (text, tone) => this.notice(text, tone),
+        panel: (title, text) => this.transcript.panel(title, text)
+      })
+    } finally {
+      if (grid && !this.#surface.closed) this.#surface.resume()
+      this.#editingExternal = false
+      this.changed()
+    }
   }
 
   /** The user quits (Ctrl+C twice, Ctrl+D, /quit): a later `hermes tern` in this pane starts a new session. */
