@@ -45,7 +45,7 @@ const EDITOR_KEYS = new Set([
   'enter', 'shift+enter', 'tab', 'up', 'down', 'left', 'right',
   'home', 'end', 'escape', 'backspace', 'delete', 'ctrl+a', 'ctrl+e',
   'ctrl+u', 'ctrl+k', 'ctrl+w', 'ctrl+y', 'ctrl+z', 'ctrl+shift+z',
-  'ctrl+v', 'ctrl+c', 'ctrl+d', 'alt+b', 'alt+f', 'alt+d',
+  'ctrl+v', 'ctrl+c', 'ctrl+d', 'ctrl+g', 'alt+b', 'alt+f', 'alt+d',
   'alt+enter', 'alt+left', 'alt+right', 'alt+backspace'
 ])
 

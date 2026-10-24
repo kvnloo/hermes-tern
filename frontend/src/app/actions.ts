@@ -134,6 +134,7 @@ export class AppActions {
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
+        if (composer.vim.enabled) return
         composer.edit(ev)
         changed()
       },
@@ -151,6 +152,7 @@ export class AppActions {
       onQueueSteer: i => queue.steer(i),
       onRemoveAttachment: i => attachments.remove(i),
       onSend: ev => {
+        if (composer.vim.enabled) return
         this.submit(ev.text)
         changed()
       },
@@ -161,6 +163,7 @@ export class AppActions {
       },
       onTodos: () => cx.hud.toggleTodos(),
       onUndo: () => {
+        if (composer.vim.enabled) return
         composer.undo()
         changed()
       }
@@ -172,6 +175,7 @@ export class AppActions {
       close: overlay => chat.close(overlay),
       completion: cx.completion,
       composer,
+      vim: composer.vim,
       cycleEffort: () => cycleEffort(chat),
       fork: () => void forkSession(chat),
       hud: key => this.hudKey(key),
@@ -179,6 +183,7 @@ export class AppActions {
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
+      openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
       openModel: () => openModelPicker(chat),
       openPalette: () => this.openPalette(),

@@ -40,6 +40,7 @@ export type CommandHost = Pick<
   | 'operations'
   | 'control'
   | 'gw'
+  | 'editExternal'
   | 'newSession'
   | 'open'
   | 'openHelp'
@@ -83,6 +84,11 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    help: 'Edit the current draft in Tern or $VISUAL/$EDITOR',
+    name: 'editor',
+    run: (host, arg) => arg.trim() ? host.transcript.notice('Usage: /editor', 'warning') : host.editExternal()
+  },
   {
     help: 'Open a rotatable model beside the chat: /view3d PATH|URL',
     name: 'view3d',

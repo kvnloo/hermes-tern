@@ -35,7 +35,7 @@ describe('Tern app action registry', () => {
     for (const value of ['meta+k', 'cmd+h', 'super+p', 'ctrl+shift+c', 'ctrl+shift+v', 'ctrl+shift+p', 'shift+control+k', 'alt+tab', 'ctrl+ctrl+p']) {
       expect(() => normalizeChord(value)).toThrow()
     }
-    for (const value of ['j', 'space', 'enter', 'ctrl+a', 'alt+b', 'alt+enter', 'up']) {
+    for (const value of ['j', 'space', 'enter', 'ctrl+a', 'ctrl+g', 'alt+b', 'alt+enter', 'up']) {
       expect(() => effectiveShortcuts({ 'app.help': value })).toThrow(/Composer-owned/)
     }
   })

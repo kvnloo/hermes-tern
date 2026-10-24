@@ -31,6 +31,11 @@ export class SurfaceHost {
     return this.#surface.closed
   }
 
+  /** Yield the alternate screen while an external terminal editor owns stdio. */
+  suspend() { this.#surface.suspend() }
+
+  resume() { this.#surface.resume() }
+
   render(view: Renderable) {
     this.#surface.render(view)
   }

@@ -80,6 +80,8 @@ export interface AdoptHost {
   readBusyMode(): void
   /** Loads shortcuts from the owning gateway after a session is adopted. */
   readShortcuts(): void
+  /** Reads canonical Hermes display.vim_mode for the adopted session. */
+  readVimPreference(): void
   /** Asks the gateway to stream session `sid`'s reasoning. */
   showThoughts(sid: LiveSessionId): void
   /** Names this pane the viewer of `now` (the plugin's connect results come here), no longer of `before`. */
@@ -128,6 +130,7 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
     // Read on every adopt: a reconnect may land on a gateway whose config changed.
     { adopt: () => host.readBusyMode() },
     { adopt: () => host.readShortcuts() },
+    { adopt: () => host.readVimPreference() },
     // The session's own queue, from the snapshot (a reattach's rows of this pane become read-only rows).
     { adopt: ({ r }) => host.queue.server.reset(pendingRows(r.info)) },
     { adopt: ({ ref }) => host.showThoughts(ref.live) },
