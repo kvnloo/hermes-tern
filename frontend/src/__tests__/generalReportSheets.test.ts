@@ -69,7 +69,7 @@ describe('native general report sheets', () => {
       app.operations.showText('/history', '# Native\n\nExact 🦉')
       await new Promise<void>(resolve => setImmediate(resolve))
       await new Promise<void>(resolve => setImmediate(resolve))
-      const nodes = rendered.filter(op => op[0] === 'add' && op[1] === 'layer')
+      const nodes = rendered.filter(op => op[0] === 'add' && (op[1] === 'layer' || op[1].startsWith('layer.')))
       expect(JSON.stringify(nodes)).toContain('omp.overlay.report')
       expect(JSON.stringify(nodes)).toContain('Exact 🦉')
       expect(app.transcript.entries).toEqual(before)
