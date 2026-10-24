@@ -23,6 +23,7 @@ import type { QueuedRow } from '../turn/queue.js'
 
 import { type AutomationLine, automationNode, reconnectNode } from './automation.js'
 import { btwNoticesNode } from './btwNotices.js'
+import { imageChip } from './image-chip.js'
 import { queuedNode } from './queued.js'
 import { compact } from './time.js'
 import { checklistNode } from './todos.js'
@@ -508,8 +509,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
       <row align="start" gap="sm" key="line" role="omp.composer.line">
         <editor
           key="input"
-          {...optional('anchor', draft.anchor)}
-          cursor={draft.cursor}
+          {...optional('anchor', draft.vim.enabled ? draft.vim.selection.anchor : draft.anchor)}
+          cursor={draft.vim.enabled ? draft.vim.selection.cursor : draft.cursor}
+          {...optional('mode', draft.vim.nativeMode)}
           decor={draft.decor}
           {...optional('ghost', cx.composer.ghost || undefined)}
           maxLines={18}
@@ -539,6 +541,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
           </row>
         ) : null}
         {route.reasons !== false ? effortChip(route, on) : null}
+        {draft.vim.enabled ? (
+          <text key="vim" role="omp.composer.vim" spans={[{ s: 'muted', t: `${draft.vim.mode.toUpperCase()}${draft.vim.pending ? ` ${draft.vim.pending}` : ''}` }]} />
+        ) : null}
         {/* Tern puts its folder chip right before the composer's status node: an empty one keeps
             the chip there and the send key at the end. */}
         <status grow={1} key="extras" role="omp.composer.extras" transparent />
@@ -578,21 +583,4 @@ function contextMeter(ctx: StatusLine['context']): JSX.Element | null {
   )
 }
 
-/**
- * An attached image as omp's composer chip (a card Tern lays out as a 36px thumbnail beside the
- * name and its size), as t3code's composer shows one: a click on the thumbnail opens it large in
- * Tern's lightbox; the ✕ drops it (`onRemove` gets the chip's index).
- */
-export function imageChip(a: ComposerImage, i: number, onRemove: (index: number) => void): JSX.Element {
-  return (
-    <card head={[{ s: 'strong', t: a.label }]} key={`a${i}`} role="omp.composer.chip" title={a.label} tone="accent">
-      {a.image ? <image alt={a.label} key="thumb" {...a.image} /> : <icon key="thumb" name="image" />}
-      <text
-        key="caption"
-        spans={[a.pending ? { fx: 'shimmer', s: 'dim', t: 'Attaching…' } : { s: 'dim', t: a.caption ?? 'image' }]}
-        wrap="none"
-      />
-      <icon key="remove" name="x" onClick={() => onRemove(i)} role="hermes.composer.remove" title={`Remove ${a.label}`} />
-    </card>
-  )
-}
+export { imageChip } from './image-chip.js'

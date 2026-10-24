@@ -10,12 +10,17 @@ import { append as appendHistory, load as loadHistory } from '../hermes/history.
 import { boundaryAt, lineEnd, lineStart, nextGrapheme, nextWord, prevGrapheme, prevWord } from './keys.js'
 import { listNewline, markdownDecor, type Splice, toggleMark } from './markdown.js'
 import { type Snapshot, UndoHistory } from './undo.js'
+import { VimComposer } from './vim.js'
 
 /** What a key asked the app to do beyond editing. */
 export type ComposerAction = 'submit' | null
 
+
 /** The prompt editor: text, caret, undo/redo, prompt history and kill ring, driven by keys and native edits. */
 export class Composer {
+  readonly vim = new VimComposer(this)
+  /** Revision of the draft, for rejecting stale external-editor results (including ABA changes). */
+  rev = 0
   #text = ''
   #cursor = 0
   #anchor: number | undefined
@@ -88,6 +93,23 @@ export class Composer {
     this.#pasted = [...pasted]
   }
 
+  /** Modal transitions end a typing burst without changing the text or cursor. */
+  undoBoundary() {
+    this.#steps.breakBurst()
+  }
+
+  /** Vim motion to a whole grapheme, without entering readline history at line edges. */
+  move(to: number): true {
+    return this.#move(boundaryAt(this.text, clamp(to, this.text.length)))
+  }
+
+  /** One literal paste, preserved as untrusted paste metadata across undo and submission. */
+  paste(raw: string, from = this.selection[0], to = this.selection[1]) {
+    const s = raw.replace(/\r\n?/g, '\n')
+    this.splice(from, to, s)
+    if (pastedCommand(s)) this.#pasted.push(s)
+  }
+
   /** Clears the draft after a submit, remembering it in the prompt history. */
   take(): string {
     const text = this.text
@@ -95,6 +117,8 @@ export class Composer {
     appendHistory(text)
     this.#pasted = []
     this.#steps.clear()
+    this.vim.reset()
+    this.rev++
     this.#browse = -1
     this.#text = ''
     this.#cursor = 0
@@ -127,7 +151,7 @@ export class Composer {
    * Tern's selection anchor in its raw frame; a new line typed in a list item continues the list.
    */
   edit(ev: { from: number; to: number; text: string; cursor: number; len: number; raw?: Record<string, unknown> }) {
-    if (ev.len !== this.text.length) {
+    if (this.vim.enabled || ev.len !== this.text.length) {
       return
     }
 
@@ -175,6 +199,7 @@ export class Composer {
   /** Puts back the draft an undo or redo step held, if there was one, with the pastes it held. */
   #restore(step: Snapshot | undefined) {
     if (step) {
+      this.rev++
       this.#revision++
       this.#text = step.text
       this.#cursor = step.cursor
@@ -191,15 +216,7 @@ export class Composer {
 
     if (name === 'paste') {
       // One undo step of its own, never merged with the typing around it.
-      const s = (key.text ?? '').replace(/\r\n?/g, '\n')
-      const [from, to] = this.selection
-
-      this.splice(from, to, s)
-
-      // After the splice, so the step it saved holds the pastes from before this one.
-      if (pastedCommand(s)) {
-        this.#pasted.push(s)
-      }
+      this.paste(key.text ?? '')
 
       return true
     }
@@ -463,6 +480,7 @@ export class Composer {
     this.#text = text
     this.#cursor = text.length
     this.#anchor = undefined
+    this.rev++
 
     return true
   }
@@ -503,6 +521,7 @@ export class Composer {
 
   /** Saves an undo step; typing bursts merge into one. Every edit runs it, so it also ends a history walk. */
   #record({ merge }: { merge: boolean }) {
+    this.rev++
     this.#revision++
     // An edited history entry is the draft now: the next Up saves it and starts from the newest entry.
     this.#browse = -1
@@ -514,6 +533,7 @@ export class Composer {
 function clamp(n: number, max: number): number {
   return Math.max(0, Math.min(max, n))
 }
+
 
 /** Text that would run a command if typed: a `{!cmd}`, or a leading `!`. */
 export function pastedCommand(text: string): boolean {
