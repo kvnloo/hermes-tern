@@ -145,6 +145,7 @@ export class App implements ChatPorts {
       request: req => this.#act.onRequest(req),
       setCompacting: on => this.#act.setCompacting(on),
       showImage: call => this.#act.showImage(call),
+      showArtifacts: call => this.#act.showArtifacts(call),
       sid: () => this.session.ref.live,
       summarize: delay => this.#act.summarize(delay)
     })

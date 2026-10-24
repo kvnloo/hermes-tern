@@ -9,6 +9,7 @@ import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { agentName } from '../agents/rows.js'
+import { Artifacts } from '../artifacts.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { copyToClipboard } from '../clipboard.js'
@@ -96,6 +97,7 @@ export class AppActions {
   readonly #copied = new Flash<string>(() => this.#cx.changed())
   /** The folder last reported to Tern by OSC 7. */
   #reportedCwd: string | undefined
+  readonly #artifacts = new Artifacts()
   /** What the dock's buttons and fields do. */
   readonly dock: DockActions
   /** What the key rules (draft/keys.ts) reach. */
@@ -449,6 +451,14 @@ export class AppActions {
     if (call) {
       this.#cx.media.show(call, () => this.imageLanded(call))
     }
+  }
+
+  /** Opens model outputs beside the live chat. */
+  showArtifacts(call: ToolCall | undefined) {
+    this.#artifacts.show(call, this.#cx.state.info?.cwd ?? process.cwd(), text => {
+      this.#cx.transcript.notice(text, 'warning')
+      this.#cx.changed()
+    })
   }
 
   /** A tool call's image landed: its card draws again. */
