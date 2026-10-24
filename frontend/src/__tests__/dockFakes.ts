@@ -9,6 +9,8 @@ import type { DockSources } from '../view/dockModel.js'
 /** Every dock action as a mock, with `over` in place of some. */
 export function dockActions(over: Partial<DockActions> = {}): DockActions {
   return {
+    onBtwView: vi.fn(),
+    onBtwDismiss: vi.fn(),
     onAgents: vi.fn(),
     onEdit: vi.fn(),
     onEffort: vi.fn(),
@@ -33,6 +35,7 @@ export function dockActions(over: Partial<DockActions> = {}): DockActions {
 export function dockContext(over: Partial<DockContext> = {}): DockContext {
   return {
     activity: { kind: 'idle' },
+    btwNotices: [],
     composer: { attachments: [], draft: new Composer(), placeholder: '', ready: true },
     now: 0,
     pills: {},
@@ -47,6 +50,7 @@ export function dockContext(over: Partial<DockContext> = {}): DockContext {
 export function dockSources(over: Partial<DockSources> = {}): DockSources {
   return {
     activity: { busy: null, compacting: undefined },
+    btw: { notices: [] },
     agents: { running: () => [] },
     attachments: { chips: () => [] },
     automation: { goal: null, loop: () => null, loopSnapshot: null },

@@ -149,8 +149,9 @@ describe('/copy and /history', () => {
   const entries = [user('u1', 'hi'), turn('t1', 'first answer'), user('u2', 'more'), turn('t2', '', 2), turn('t3', 'last answer')]
   const withTranscript = () => {
     const transcript = { entries, notice: vi.fn(), panel: vi.fn() }
+    const operations = { showText: vi.fn() }
 
-    return Object.assign(local({ transcript }), { transcript })
+    return Object.assign(local({ operations, transcript }), { operations, transcript })
   }
 
   it('/copy takes the last answer, /copy n the nth, clamped to the last', async () => {
@@ -178,10 +179,11 @@ describe('/copy and /history', () => {
     expect(historyText([], '')).toBe('No conversation yet.')
   })
 
-  it('/history is a panel in the transcript', async () => {
+  it('/history opens a read-only native sheet instead of adding a transcript panel', async () => {
     const a = withTranscript()
 
     await must(localCommand('history')).run(a, '')
-    expect(a.transcript.panel).toHaveBeenCalledWith('/history', expect.stringContaining('last answer'))
+    expect(a.operations.showText).toHaveBeenCalledWith('/history', expect.stringContaining('last answer'))
+    expect(a.transcript.panel).not.toHaveBeenCalled()
   })
 })

@@ -31,6 +31,7 @@ import {
   type ToolSearchDetail,
   toolSearchDetail
 } from './misc.js'
+import { type LspDetail, lspDetail } from './lsp-result.js'
 import { type SearchDetail, searchDetail } from './search.js'
 import { type TaskDetail, taskDetail } from './task.js'
 import { type TerminalDetail, terminalDetail } from './terminal.js'
@@ -42,6 +43,7 @@ export type ToolDetail =
   | EditDetail
   | EvalDetail
   | FetchDetail
+  | LspDetail
   | MemoryDetail
   | PlainDetail
   | ProcessDetail
@@ -71,6 +73,7 @@ const PARSERS: { [K in ToolKey]: (raw: Raw) => DetailOf<K> } = {
   image_generate: plainDetail('image_generate'),
   link_pull_request: pullRequestDetail('link_pull_request'),
   list_pull_requests: plainDetail('list_pull_requests'),
+  lsp: lspDetail,
   manage_connections: plainDetail('manage_connections'),
   memory: memoryDetail,
   other: plainDetail('other'),

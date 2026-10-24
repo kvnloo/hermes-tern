@@ -3,6 +3,8 @@
 // dock from dockModel(), the layers, the transcript), and then the caret moves where it belongs,
 // sent only when that changed. Every step but those three only reads.
 
+import type { GatewayClient } from '@tui/gatewayClient.js'
+
 import type { Hud } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { Completion } from '../overlays/completion.js'
@@ -13,6 +15,7 @@ import type { Transcript } from '../transcript/store.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
 import type { Retention } from '../view/retention.js'
+import { lspLinkContext } from '../view/tools/lsp-links.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
 
@@ -20,6 +23,8 @@ import type { WelcomeContext } from '../view/welcome.js'
 export interface FrameCx extends DockSources {
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
   readonly retention?: Retention | undefined
+  /** The active gateway transport: attached gateways never attest file-locality. */
+  readonly gateway?: Pick<GatewayClient, 'attached'>
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Overlay[]
@@ -73,7 +78,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome'>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'>, now: number): TranscriptContext {
   const info = cx.session.info
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
@@ -81,6 +86,13 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
+    lspContext: lspLinkContext({
+      cwd: info?.cwd,
+      terminalBackend: info?.terminal_backend,
+      sessionLive: cx.session.ref.live !== null,
+      gatewayAttached: cx.gateway?.attached !== false,
+      ssh: Boolean(process.env['SSH_CONNECTION'] || process.env['SSH_CLIENT'] || process.env['SSH_TTY'])
+    }),
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
 }

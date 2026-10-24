@@ -418,7 +418,8 @@ export class Transcript {
 
   /** The newest todo snapshot lands on the newest todo tool call. */
   todos(todos: unknown[]) {
-    const found = this.#lastTool(c => isTodoName(c.name))
+    // An out-of-band todo.updated is a live projection, never a rewrite of a settled tool card.
+    const found = this.#lastTool(c => isTodoName(c.name) && c.outcome.kind === 'running')
 
     if (found) {
       found.call.todos = toTodos(todos)

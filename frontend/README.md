@@ -52,6 +52,60 @@ its icon, deck tile and branding.
 `@tui/*` imports reach the renderer-free modules of `ui-tui/src` (the gateway transport, skins,
 history, completion requests); nothing here imports React or Ink.
 
+## LSP source links
+
+A stored or live structured Hermes `lsp_result` presents references grouped by file,
+nested symbols with stable IDs and source/selection ranges, and hover contents.
+Source paths, reference rows, symbol labels and hover ranges become openable
+`file:///` targets only when the **current** session explicitly reports
+`terminal_backend: local`, the session `cwd` is absolute, the gateway is not
+attached, a session is active, and none of `SSH_CONNECTION`, `SSH_CLIENT` or
+`SSH_TTY` is set. Relative result paths resolve against session cwd, never
+the renderer process cwd. Tern handles opening; column fragments remain
+terminal-dependent. No filesystem probe, new LSP RPC or backend change is made.
+
+Unknown, attached, SSH, remote and missing-cwd contexts display the literal
+results without file links. Changing host or cwd invalidates transcript caches
+even when the tool's revision is unchanged. Legacy/malformed payloads retain
+the generic card. Source and provenance: Hermes `ui-tsp/LSP.md` and
+`ui-tsp/src/view/lsp-diagnostics.tsx`, using the Tern/Stencil MIT SDK.
+
+## Edit/write LSP companion diagnostics
+
+Hermes `patch` and `write_file` may return `lsp_diagnostics_data` beside their
+normal diff/content and legacy `lsp_diagnostics` prose. The existing
+`tools/files.ts` detail parser validates the entire companion before rendering.
+Native collapsible severity groups retain each returned file, one-based
+UTF-16 start line/column, message and omitted count. They also retain source
+and complete end line/column **when actually provided**; the pinned Hermes
+producer currently returns start positions only, so the UI never invents
+end positions. The companion is diagnostic enrichment, not a failed tool status.
+
+The same verified host-local session evidence as the LSP result card gates
+each diagnostic file/range hyperlink; remote, attached, SSH and unsafe targets
+remain visible text without a clickable target. Malformed or older companion
+data uses legacy `lsp_diagnostics` text when present, while an explicit
+`unavailable` status shows a non-error note. New-file code, patch diffs and
+diff-less results retain diagnostics. No second workspace/host authority,
+Hermes runtime/tool registration or gateway request is introduced.
+
+Adapted from Hermes `ui-tsp/src/view/tools.tsx`,
+`ui-tsp/src/view/lsp-diagnostics.tsx` and
+`agent/lsp/reporter.py` at donor `724b2aae`. Tern/Stencil's MIT SDK
+owns native section, tree and hyperlink rendering. This plugin does not
+change the signed-off Hermes source pin.
+
+OMP validation (from `frontend/` at the exact branch head):
+
+```sh
+bun install --frozen-lockfile
+bun run typecheck
+bun run check:strict
+bunx vitest run src/__tests__/lspResults.test.ts src/__tests__/files.test.ts src/__tests__/toolRegistry.test.ts
+bun run check
+bun run bundle
+```
+
 ## Developing
 
 ```sh

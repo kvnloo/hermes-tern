@@ -12,6 +12,7 @@ import type { PromptQueue } from '../turn/queue.js'
 
 import type { Attachments } from './attachments.js'
 import type { Composer } from './composer.js'
+import type { VimComposer } from './vim.js'
 
 /** A second Ctrl+C within this window quits. */
 export const EXIT_ARM_MS = 1500
@@ -37,6 +38,8 @@ export type KeyAction =
   | 'clipboardImage'
   | 'dequeue'
   | 'effort'
+  | 'plan'
+  | 'fork'
   | 'prs'
   | 'quit'
   | 'sidebar'
@@ -57,11 +60,16 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
-  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta'] },
+  fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
+  plan: { label: 'alt+shift+p', name: 'p', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
+  prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta', 'shift'] },
   quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'] },
   sidebar: { label: 'alt+s', name: 's', with: ['alt'], without: ['ctrl', 'meta'] },
   steer: { label: 'alt+enter', name: 'enter', with: ['alt'] }
 }
+
+/** Opens the unsent draft without routing a typed slash command. */
+export const EXTERNAL_EDITOR_KEY: KeyMatch = { label: 'ctrl+g', name: 'g', with: ['ctrl'], without: ['alt', 'meta', 'shift'] }
 
 /** Whether `key` is shortcut `match`. */
 export function matches(key: Key, match: KeyMatch): boolean {
@@ -82,6 +90,8 @@ export interface KeyCx {
   hud(key: Key): boolean
   readonly completion: Pick<Completion, 'onKey'>
   readonly composer: Pick<Composer, 'key' | 'set' | 'take' | 'text'>
+  /** Optional modal editor; tests and non-Vim hosts retain the original key contract. */
+  readonly vim?: Pick<VimComposer, 'key' | 'enabled'>
   readonly attachments: Pick<Attachments, 'any' | 'clear' | 'clearAll' | 'paste'>
   readonly queue: Pick<PromptQueue, 'count' | 'dequeue' | 'steer'>
   readonly transcript: Pick<Transcript, 'notice'>
@@ -96,7 +106,10 @@ export interface KeyCx {
   cycleEffort(): void
   openAgents(): void
   openBackground(): void
+  openExternalEditor(): void
   openPrs(): void
+  openPlan(): void
+  fork(): void
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
@@ -175,6 +188,21 @@ const hud: KeyRule = (key, cx) => cx.hud(key)
 
 const completion: KeyRule = (key, cx) => cx.completion.onKey(key)
 
+/** A focused sheet, the HUD or completion owns Ctrl+G before this fallback. */
+const externalEditor: KeyRule = (key, cx) => {
+  if (!matches(key, EXTERNAL_EDITOR_KEY)) return false
+  cx.openExternalEditor()
+  return true
+}
+
+/** Vim owns modal keys after overlays/completion, before the app's Esc Esc shortcut. */
+const vim: KeyRule = (key, cx) => {
+  if (key.name === 'paste' && cx.vim?.enabled && cx.attachments.paste(key.text ?? '')) return true
+  if (!cx.vim?.key(key)) return false
+  if (key.name === 'escape') cx.presses.esc = 0
+  return true
+}
+
 /**
  * Esc: a single one never cancels work (Ink's resolveDoubleEscAction). A second one within
  * DOUBLE_ESC_MS clears a draft into the prompt history, else stops the running turn.
@@ -207,12 +235,14 @@ const effort: KeyRule = (key, cx) => {
   return true
 }
 
-/** The sheets Alt+A/J/S/P open. */
+/** Global actions, after modal guards and before the composer. */
 const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
   [KEYS.agents, cx => cx.openAgents()],
   [KEYS.background, cx => cx.openBackground()],
   [KEYS.sidebar, cx => cx.toggleSidebar()],
-  [KEYS.prs, cx => cx.openPrs()]
+  [KEYS.prs, cx => cx.openPrs()],
+  [KEYS.plan, cx => cx.openPlan()],
+  [KEYS.fork, cx => cx.fork()]
 ]
 
 const sheets: KeyRule = (key, cx) => {
@@ -286,6 +316,8 @@ export const KEY_RULES: readonly KeyRule[] = [
   modal,
   hud,
   completion,
+  externalEditor,
+  vim,
   doubleEsc,
   effort,
   sheets,
@@ -301,3 +333,90 @@ export const KEY_RULES: readonly KeyRule[] = [
 export function onKey(key: Key, cx: KeyCx, top: Overlay | undefined) {
   KEY_RULES.some(rule => rule(key, cx, top))
 }
+
+/** The composer's UTF-16 caret and word boundaries for editing keys. */
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const WORD = /[\p{L}\p{N}_]/u
+
+export function lineStart(text: string, at: number): number {
+  // lastIndexOf clamps a negative start to 0, so it would find a newline at 0 from offset 0.
+  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1
+}
+
+export function lineEnd(text: string, at: number): number {
+  const i = text.indexOf('\n', at)
+
+  return i < 0 ? text.length : i
+}
+
+/** `at` when it is a grapheme boundary of `text`, else the boundary before it. */
+export function boundaryAt(text: string, at: number): number {
+  if (at >= text.length) {
+    return text.length
+  }
+
+  let floor = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index > at) {
+      break
+    }
+
+    floor = index
+  }
+
+  return floor
+}
+
+export function prevGrapheme(text: string, at: number): number {
+  let prev = 0
+
+  for (const { index } of graphemes.segment(text)) {
+    if (index >= at) {
+      break
+    }
+
+    prev = index
+  }
+
+  return prev
+}
+
+export function nextGrapheme(text: string, at: number): number {
+  for (const { index, segment } of graphemes.segment(text)) {
+    if (index >= at) {
+      return index + segment.length
+    }
+  }
+
+  return text.length
+}
+
+export function prevWord(text: string, at: number): number {
+  let i = at
+
+  while (i > 0 && !WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  while (i > 0 && WORD.test(text[i - 1] ?? '')) {
+    i--
+  }
+
+  return i
+}
+
+export function nextWord(text: string, at: number): number {
+  let i = at
+
+  while (i < text.length && !WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  while (i < text.length && WORD.test(text[i] ?? '')) {
+    i++
+  }
+
+  return i
+}
+

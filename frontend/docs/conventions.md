@@ -137,3 +137,20 @@ and are skipped.
 
 A cast that is the boundary itself says `-- boundary: <what crosses>`. eslint also reports a
 disable comment that disables nothing.
+
+**Delegation-event ownership.** Session envelopes pass the lifecycle's session routing before
+`Agents.apply`. An explicit nonempty `delegation_id` belongs to exactly one dispatched
+`delegate_task` result or previously attached child (including a resumed registry row).
+A previously unseen nested batch id is the sole exception: its first explicit event
+must name a fresh `subagent_id` (or an id-less child already tied to that exact parent)
+and a unique, existing `parent_id` whose noncyclic ancestry reaches one verified root
+dispatch or resumed row; task ordinals and any reported depth must agree. Before
+that explicit event, an id-less nested spawn does not inherit the outer batch id.
+Ambiguous duplicate child or ancestor ids, duplicate root batches, unknown parents,
+conflicting nested batch parents or cross-call hints reject the event without mutation.
+The accepted nested row retains its distinct batch id; later events route by that id
+even if their parent hint is absent, and id-less follow-ups never replace it with the
+outer delegation. Truly id-less legacy events still require a unique existing child or
+parent id, or the sole delegation call when no identity is known. No task-index or
+latest-turn guess establishes ownership; cyclic parent edges are flattened, and late
+async outcomes settle only rows of their recorded batch.

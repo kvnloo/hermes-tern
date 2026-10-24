@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { sessionHost, type SessionHostCx } from '../commands/host.js'
 import { commandEnvelope } from '../commands/slash.js'
 import { liveSessionId, storedSessionId } from '../core/ids.js'
-import { DOUBLE_ESC_MS, EXIT_ARM_MS, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
+import { DOUBLE_ESC_MS, EXIT_ARM_MS, EXTERNAL_EDITOR_KEY, KEY_RULES, type KeyCx, KEYS, matches, onKey } from '../draft/keys.js'
 import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
@@ -75,12 +75,15 @@ function pane(over: Partial<Pane> = {}) {
       }
     },
     cycleEffort: did('effort'),
+    fork: did('fork'),
     hud: () => state.hud,
     interrupt: did('interrupt'),
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
+    openExternalEditor: did('editor'),
     openPrs: did('prs'),
+    openPlan: did('plan'),
     presses: { esc: 0, exit: 0 },
     queue: {
       count: () => state.queued,
@@ -124,6 +127,8 @@ describe('the key rules', () => {
       'modal',
       'hud',
       'completion',
+      'externalEditor',
+      'vim',
       'doubleEsc',
       'effort',
       'sheets',
@@ -210,6 +215,25 @@ describe('the key rules', () => {
     onKey(key('tab'), p.cx, undefined)
     expect(p.log).toEqual([])
     expect(p.cx.presses.esc).toBe(0)
+  })
+
+  it('Ctrl+G opens the existing draft after overlays, HUD and completion, without clearing it', () => {
+    const p = pane({ text: 'unsent' })
+    onKey(ctrl('g'), p.cx, sheet({ takes: true }))
+    onKey(ctrl('g'), p.cx, sheet({ modal: true }))
+    p.state.hud = true
+    onKey(ctrl('g'), p.cx, undefined)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual([])
+    p.state.completion = false
+    onKey(ctrl('g'), p.cx, undefined)
+    expect(p.log).toEqual(['editor'])
+    expect(p.state.text).toBe('unsent')
+    onKey(key('g', { ctrl: true, shift: true }), p.cx, undefined)
+    expect(p.log).toEqual(['editor', 'composer'])
+    expect(matches(ctrl('g'), EXTERNAL_EDITOR_KEY)).toBe(true)
   })
 
   it('6. Esc Esc clears a draft into the history, else stops the turn; one Esc does nothing', () => {
@@ -368,6 +392,8 @@ describe('KEYS', () => {
     expect(matches(key('tab'), KEYS.effort)).toBe(false)
     expect(matches(key('up', { alt: true, shift: true }), KEYS.dequeue)).toBe(true)
     expect(matches(key('p', { alt: true, meta: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.prs)).toBe(false)
+    expect(matches(key('p', { alt: true, shift: true }), KEYS.plan)).toBe(true)
   })
 
   it('are the shortcuts the help sheet lists', () => {
@@ -395,6 +421,7 @@ describe('the Tern actions', () => {
       focusComposer: () => void log.push('focus'),
       modal: () => modal,
       openAgent: id => void log.push(`agent ${id}`),
+      openAgents: () => void log.push('agents'),
       openProcess: id => void log.push(`process ${id}`),
       openUrl: url => void log.push(`url ${url}`)
     }
@@ -408,12 +435,13 @@ describe('the Tern actions', () => {
     const { cx, log } = actions()
 
     onTernEvent(action('open-agent', 'a1'), cx)
+    onTernEvent(action('open-agents', 'all'), cx)
     onTernEvent(action('open-process', 'p1'), cx)
     onTernEvent(action('open-url', 'https://x.test'), cx)
     onTernEvent(action('connect-continue', 'card-1'), cx)
     onTernEvent(action('connect-open', 'call:1:github'), cx)
-    expect(log).toEqual(['agent a1', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
-    expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-process', 'open-url'])
+    expect(log).toEqual(['agent a1', 'agents', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
+    expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-agents', 'open-process', 'open-url'])
   })
 
   it('do nothing without a value, or for an act with no handler', () => {
@@ -421,6 +449,8 @@ describe('the Tern actions', () => {
 
     onTernEvent(action('open-agent'), cx)
     onTernEvent(action('open-agent', ''), cx)
+    onTernEvent(action('open-agents'), cx)
+    onTernEvent(action('open-agents', ''), cx)
     onTernEvent(action('toString', 'x'), cx)
     onTernEvent(action('select', 'x'), cx)
     expect(log).toEqual([])

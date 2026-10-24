@@ -1,6 +1,7 @@
 // What the gateway says around the turn: its skin, keyed notices, plain notices and errors, a slow
 // start, stray backend output, the self-improvement review, and /bg and /btw answers.
 
+import type { BtwThreads } from '../../btw.js'
 import { protocolNote, slowStartNotes } from '../../chrome/backendNotes.js'
 import { isLoginNotice, type NoticeStrip } from '../../chrome/notices.js'
 import type { Theme } from '../../chrome/theme.js'
@@ -17,23 +18,19 @@ export interface Warned {
 
 /** What the chrome's events reach of the app. */
 export interface ChromeCx {
+  readonly btw: Pick<BtwThreads, 'completed'>
   readonly transcript: Pick<Transcript, 'notice' | 'panel'>
   readonly theme: Pick<Theme, 'skin'>
   readonly notices: Pick<NoticeStrip, 'clear' | 'show'>
   readonly warned: Warned
 }
 
-/** A /bg task's or a /btw question's answer, as a panel titled as Ink labels them. */
-function answered(ev: EventOf<'background.complete' | 'btw.complete'>, cx: ChromeCx): Outcome {
-  if (ev.payload && 'text' in ev.payload && typeof ev.payload.text === 'string' && ev.payload.text.trim()) {
-    // Titled as Ink labels them: the task id /bg named, the question /btw asked.
-    const question = 'question' in ev.payload && typeof ev.payload.question === 'string' ? ev.payload.question.trim() : ''
-    const task = 'task_id' in ev.payload && typeof ev.payload.task_id === 'string' ? ` ${ev.payload.task_id}` : ''
+/** Background completions retain their established main-transcript panels. BTW never does. */
+function answered(ev: EventOf<'background.complete'>, cx: ChromeCx): Outcome {
+  if (ev.payload && typeof ev.payload.text === 'string' && ev.payload.text.trim()) {
+    const task = typeof ev.payload.task_id === 'string' ? ' ' + ev.payload.task_id : ''
 
-    cx.transcript.panel(
-      ev.type === 'btw.complete' ? `/btw${question ? ` ${question}` : ''}` : `Background task${task}`,
-      ev.payload.text
-    )
+    cx.transcript.panel('Background task' + task, ev.payload.text)
   }
 
   return 'render'
@@ -120,5 +117,6 @@ export const chromeHandlers = {
   },
 
   'background.complete': answered,
-  'btw.complete': answered
+  // Exact session/task/thread completion lives only in BtwThreads' dock notices.
+  'btw.complete': (ev, cx) => cx.btw.completed(ev) ? 'render' : 'quiet'
 } satisfies Handlers<ChromeCx>

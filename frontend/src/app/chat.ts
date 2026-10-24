@@ -10,6 +10,7 @@ import type { ScrollTo, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import logo from '../../assets/logo.png'
+import type { BtwThreads } from '../btw.js'
 import type { Agents } from '../agents/store.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
@@ -20,9 +21,12 @@ import { errorText } from '../core/errors.js'
 import { durable, entryId, type PrKey, type StoredSessionId } from '../core/ids.js'
 import { RenderScheduler } from '../core/scheduler.js'
 import { onKey } from '../draft/keys.js'
+import { editExternal as editDraftExternal } from '../draft/external-editor.js'
 import { followGateway } from '../gateway/follow.js'
 import type { PullRequests } from '../github/store.js'
+import { HostLifecycle } from '../host-lifecycle.js'
 import type { NoticeEntry } from '../model.js'
+import type { OperationalSheets } from '../operations.js'
 import { openHelp } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { Cron } from '../processes/cron.js'
@@ -59,6 +63,8 @@ export class App implements ChatPorts {
   readonly agents: Agents
   readonly processes: Processes
   readonly cron: Cron
+  readonly btw: BtwThreads
+  readonly operations: OperationalSheets
   readonly sidebar: Sidebar
   readonly automation: Automation
   readonly prs: PullRequests
@@ -70,18 +76,25 @@ export class App implements ChatPorts {
   readonly #tern: Session
   readonly #gw: GatewayClient
   readonly #launch: LaunchEnv
+  readonly #hostLifecycle: HostLifecycle
   /** What the user starts and the stores call back into, bound once. */
   readonly #act: AppActions
   #surface!: SurfaceHost
+  #editingExternal = false
   #retention: Retention | undefined
   /** What each frame draws from (app/frame.ts); set once run() opened the surface. */
   #view: FrameCx | undefined
 
   /** `launch` and `settings` are what entry.ts read once at startup; unset, each reads its default. */
-  constructor(tern: Session, gw: GatewayClient, version: string, { launch = readLaunchEnv(), settings = fileSettings() }: { launch?: LaunchEnv; settings?: SettingsSource } = {}) {
+  constructor(tern: Session, gw: GatewayClient, version: string, { launch = readLaunchEnv(), settings = fileSettings(), writeHost }: { launch?: LaunchEnv; settings?: SettingsSource; writeHost?: (text: string) => void } = {}) {
     this.#tern = tern
     this.#gw = gw
     this.#launch = launch
+    this.#hostLifecycle = new HostLifecycle(writeHost ?? (text => {
+      if (launch.pane) {
+        process.stdout.write(text)
+      }
+    }))
     const s = chatStores(this, { act: () => this.#act, gw, launch, settings, surface: () => this.#surface, tern, version })
     this.stores = s
     this.session = s.session
@@ -89,6 +102,8 @@ export class App implements ChatPorts {
     this.agents = s.agents
     this.processes = s.processes
     this.cron = s.cron
+    this.btw = s.btw
+    this.operations = s.operations
     this.sidebar = s.sidebar
     this.automation = s.automation
     this.prs = s.prs
@@ -142,6 +157,7 @@ export class App implements ChatPorts {
       actions: this.#act.dock,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      gateway: this.#gw,
       surface: this.#surface,
       retention: this.#retention
     }
@@ -167,11 +183,13 @@ export class App implements ChatPorts {
       drain: () => s.queue.drain(),
       eventLog: this.#launch.eventLog,
       gw: this.#gw,
+      hostLifecycle: this.#hostLifecycle,
       labels: { busy: busyLabel, preparing: preparingLabel },
       reportCwd: () => this.#act.reportCwd(),
       request: req => this.#act.onRequest(req),
       setCompacting: on => this.#act.setCompacting(on),
       showImage: call => this.#act.showImage(call),
+      showArtifacts: call => this.#act.showArtifacts(call),
       sid: () => this.session.ref.live,
       summarize: delay => this.#act.summarize(delay)
     })
@@ -270,6 +288,15 @@ export class App implements ChatPorts {
   }
 
   changed() {
+    if (this.session && this.stores) {
+      this.#hostLifecycle.project({
+        sid: this.session.ref.live,
+        working: this.busy !== null || Boolean(this.stores.activity.compacting),
+        submitting: this.stores.queue.count() > 0,
+        waiting: this.overlays.some(o => o.key.startsWith('prompt:'))
+      })
+    }
+
     this.#renders.request()
   }
 
@@ -317,6 +344,27 @@ export class App implements ChatPorts {
     return openHelp(this)
   }
 
+  /** /editor: native Tern file or $VISUAL/$EDITOR in a suspended terminal. */
+  async editExternal(): Promise<void> {
+    if (this.#editingExternal || !this.#surface || this.#surface.closed) return
+    this.#editingExternal = true
+    const grid = !process.env['TERN_WINDOW_KEY']
+    try {
+      if (grid) this.#surface.suspend()
+      await editDraftExternal({
+        composer: this.stores.composer,
+        sid: () => this.session.ref.live,
+        changed: () => this.changed(),
+        notice: (text, tone) => this.notice(text, tone),
+        panel: (title, text) => this.transcript.panel(title, text)
+      })
+    } finally {
+      if (grid && !this.#surface.closed) this.#surface.resume()
+      this.#editingExternal = false
+      this.changed()
+    }
+  }
+
   /** The user quits (Ctrl+C twice, Ctrl+D, /quit): a later `hermes tern` in this pane starts a new session. */
   quit(code = 0) {
     forgetPane(this.#launch)
@@ -328,6 +376,7 @@ export class App implements ChatPorts {
    * pane's session, which `hermes tern` resumes if it starts again in the pane.
    */
   #end(code = 0) {
+    this.#hostLifecycle.project({ sid: null, waiting: false, working: false })
     markViewer(null, durable(this.session.ref))
     this.#done.resolve(code)
   }
