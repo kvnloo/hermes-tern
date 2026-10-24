@@ -89,15 +89,40 @@ replay prompts, authenticate MCP/SSH, open sockets, or write inventory.
 
 ## Backend compatibility
 
-The plugin currently pins Hermes source at
-22063fc099ec9ad8357d7f8f6e6248a0400680d3 in frontend/hermes-src.lock.
-That generated gateway contract predates btw.list / submit / cancel / update
-and operations.report. This PR intentionally changes neither the pin nor
-Hermes core. The held backend slice must implement these plugin-owned,
-namespaced methods through the existing generic gateway-method seam (with
-real authorization and profile/session ownership). Once available, validate
-the real backend, generated frontend contract and native Tern in isolation;
-do not treat the mocked fixture replies as persisted-thread or inventory proof.
+The frontend source is still pinned to
+22063fc099ec9ad8357d7f8f6e6248a0400680d3. This is NOT a Hermes
+runtime upgrade. The public green gateway seam is downstream
+[hermes-agent#650](https://github.com/kvnloo/hermes-agent/pull/650)
+at 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5.
+The plugin registers only hermes-tern.operations.report when the installed
+Hermes exposes ctx.register_gateway_method. The frontend checks the
+attached session's gateway.capabilities.plugin_methods before issuing any
+namespaced request. Older runtimes show "Needs Hermes plugin gateway
+methods", not fabricated side history or operational inventory.
+
+Read-only MCP list/status/catalog uses real profile config, Hermes'
+public cached connection status reader and the existing catalog. It does
+not connect/authenticate/probe/install/reload. MCP tool names and effective
+SSH identity are NOT available via a public profile-owned ledger API;
+those views explicitly say unavailable, never an invented empty list.
+
+BTW's registered method names would be hermes-tern.btw.list,
+hermes-tern.btw.submit, hermes-tern.btw.cancel, plus the event
+hermes-tern.btw.update via the authenticated plugin.event envelope.
+They are NOT registered yet: GatewayRequestContext publicly exposes a
+live transport SID, profile, assert_attached and capture_scope only; not
+the authenticated durable conversation ID/metadata handle, main transcript
+snapshot or tool-less provider fork. The live RPC SID and durable stored SID
+and built agent/tool session ID are distinct authority domains. Mapping them
+by guessed path or private server records is prohibited. Kevin/alt-glitch
+must decide and expose the public ownership/provider seam before persistent
+side turns, their cancellation or streamed updates can be claimed.
+
+Frontend FakeGateway tests prove presentation and routing only, NOT
+backend functionality. OMP must run Python integration against that exact
+green core seam using isolated HERMES_HOME and on-disk profile config,
+then real native Tern in owned headless Sway; keep the existing MBP
+five-second environment deadlines unchanged.
 
 ## Verification and PTY scope
 

@@ -253,6 +253,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       markPane: id => markPane(launch, id),
       markViewer,
       readBusyMode: () => void act().readBusyMode(),
+      readShortcuts: () => void act().bindings.refresh(),
       readVimPreference: () => void vimPreference.refresh(),
       reportCwd: () => act().reportCwd(),
       showThoughts: sid => showThoughts({ gw, notice: (text, tone) => chat.notice(text, tone), settings }, sid),

@@ -341,7 +341,11 @@ export class App implements ChatPorts {
   }
 
   openHelp(): Promise<void> {
-    return openHelp(this)
+    return openHelp(this, this.#act.bindings.actions)
+  }
+
+  openPalette(): void {
+    this.#act.openPalette()
   }
 
   /** /editor: native Tern file or $VISUAL/$EDITOR in a suspended terminal. */

@@ -32,7 +32,7 @@ function row(f: Fixture) {
 }
 
 async function appFixture(initial: BtwThread[] = [thread('one'), thread('two')]) {
-  const gw = new FakeGateway({ replies: { 'btw.list': () => ({ threads: initial }) } })
+  const gw = new FakeGateway({ replies: { 'hermes-tern.btw.list': () => ({ threads: initial }) } })
   const tern = fakeTern({ draws: true })
   const app = new App(tern.session, gw.client, 'test')
   const running = app.run()
@@ -107,7 +107,7 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       expect(f.app.transcript.entries).toEqual(entries)
       expect(f.gw.methods('prompt.submit')).toEqual([])
       expect(f.gw.methods('prompt.btw')).toEqual([])
-      expect(f.gw.sent('btw.list')).toEqual([{ session_id: 's1' }, { session_id: 's1' }])
+      expect(f.gw.sent('hermes-tern.btw.list')).toEqual([{ session_id: 's1' }, { session_id: 's1' }])
     } finally {
       await sdk?.close()
       await f.close()
@@ -225,12 +225,12 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
         { id: 'btw:a', taskId: 'ambiguous-turn', threadId: 'a', turnId: 'ambiguous-turn', failed: false },
         { id: 'btw:b', taskId: 'ambiguous-turn', threadId: 'b', turnId: 'ambiguous-turn', failed: false }
       ])
-      const lists = f.gw.sent('btw.list')
+      const lists = f.gw.sent('hermes-tern.btw.list')
       complete(f, 'ambiguous-turn')
       await settle(f.gw)
       expect(f.app.btw.notices).toEqual(terminalNotices) // includes the captured nonces and tickets
       expect(f.app.overlays).toEqual([]) // no View from an ambiguous task
-      expect(f.gw.sent('btw.list')).toEqual(lists)
+      expect(f.gw.sent('hermes-tern.btw.list')).toEqual(lists)
       expect(walk(topNodes(f.tern.region('dock'))).filter(n => n.props['role'] === 'omp.btw.notice')).toHaveLength(3)
 
       sdk = await nativeBrowserSurface()
@@ -364,7 +364,7 @@ describe('BTW completion notice: real App -> event -> Tern dock', () => {
       await view()
       expect(f.app.btw.notices).toEqual([])
       expect(f.app.overlays).toEqual([])
-      expect(f.gw.sent('btw.list')).toEqual([{ session_id: 's1' }])
+      expect(f.gw.sent('hermes-tern.btw.list')).toEqual([{ session_id: 's1' }])
     } finally {
       await sdk?.close()
       await f.close()

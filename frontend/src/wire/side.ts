@@ -1,6 +1,5 @@
-// Forward-compatible Hermes side-thread and inventory contracts. The plugin's
-// pinned Hermes gateway predates these methods; reject missing or malformed
-// replies instead of treating an unknown RPC response as real history.
+// Side-thread and report methods live in the plugin's registered gateway seam.
+// A pinned older gateway has no such methods: do not invent side history.
 import * as z from 'zod/mini'
 
 import type { Requester } from './rpc.js'
@@ -21,41 +20,86 @@ const thread = z.object({
 
 const threads = z.object({ threads: z.array(thread) })
 const submission = z.object({ thread, turn_id: z.string() })
-const update = z.object({
+
+const legacyUpdate = z.object({
   type: z.literal('btw.update'),
   session_id: z.string(),
   payload: z.object({ thread })
 })
 
+// The public scope's publish('hermes-tern.btw.update', ...) is delivered as
+// a session-bound Hermes plugin.event; it is not a generated core btw.update.
+const pluginUpdate = z.object({
+  type: z.literal('plugin.event'),
+  session_id: z.string(),
+  payload: z.object({
+    plugin: z.literal('hermes-tern'),
+    event_name: z.literal('hermes-tern.btw.update'),
+    profile: z.string(),
+    data: z.object({ thread })
+  })
+})
+
+const update = z.union([legacyUpdate, pluginUpdate])
+const capabilities = z.object({ plugin_methods: z.array(z.string()) })
+
 export type BtwThread = z.infer<typeof thread>
+
+export class PluginGatewayUnavailable extends Error {
+  constructor() {
+    super('Needs Hermes plugin gateway methods.')
+    this.name = 'PluginGatewayUnavailable'
+  }
+}
 
 export function btwEvent(raw: unknown) {
   return update.safeParse(raw)
 }
 
-export async function listBtw(gw: Requester, sid: string): Promise<BtwThread[]> {
-  const result = await gw.request<unknown>('btw.list', { session_id: sid })
+const METHODS = {
+  list: 'hermes-tern.btw.list',
+  submit: 'hermes-tern.btw.submit',
+  cancel: 'hermes-tern.btw.cancel',
+  report: 'hermes-tern.operations.report'
+} as const
 
-  return threads.parse(result).threads
+async function requireMethod(gw: Requester, sid: string, name: string): Promise<void> {
+  try {
+    const raw = await gw.request<unknown>('gateway.capabilities', { session_id: sid })
+    const parsed = capabilities.safeParse(raw)
+
+    if (parsed.success && parsed.data.plugin_methods.includes(name)) {
+      return
+    }
+  } catch {
+    // Older runtimes have no plugin capabilities; do not try the method.
+  }
+
+  throw new PluginGatewayUnavailable()
+}
+
+export async function listBtw(gw: Requester, sid: string): Promise<BtwThread[]> {
+  await requireMethod(gw, sid, METHODS.list)
+  return threads.parse(await gw.request<unknown>(METHODS.list, { session_id: sid })).threads
 }
 
 export async function submitBtw(gw: Requester, sid: string, text: string, threadId?: string) {
-  const result = await gw.request<unknown>('btw.submit', {
+  await requireMethod(gw, sid, METHODS.submit)
+  const result = await gw.request<unknown>(METHODS.submit, {
     session_id: sid,
     text,
     ...(threadId ? { thread_id: threadId } : {})
   })
-
   return submission.parse(result)
 }
 
 export async function cancelBtw(gw: Requester, sid: string, threadId: string, turnId: string) {
-  const result = await gw.request<unknown>('btw.cancel', {
+  await requireMethod(gw, sid, METHODS.cancel)
+  const result = await gw.request<unknown>(METHODS.cancel, {
     session_id: sid,
     thread_id: threadId,
     turn_id: turnId
   })
-
   return submission.parse(result)
 }
 
@@ -75,9 +119,9 @@ export type OperationalView = z.infer<typeof operationalView>
 export type OperationalReport = z.infer<typeof inventory>
 
 export async function readOperational(gw: Requester, sid: string, view: OperationalView): Promise<OperationalReport> {
-  const result = inventory.parse(await gw.request<unknown>('operations.report', { session_id: sid, view }))
+  await requireMethod(gw, sid, METHODS.report)
+  const result = inventory.parse(await gw.request<unknown>(METHODS.report, { session_id: sid, view }))
 
-  // A response from another view cannot be relabeled as the requested inventory.
   if (result.view !== view) {
     throw new Error('Mismatched operational view')
   }

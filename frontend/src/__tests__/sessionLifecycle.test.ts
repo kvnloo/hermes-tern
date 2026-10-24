@@ -166,6 +166,7 @@ function recordingHost() {
     prs: { adopt: rec('prs.adopt') },
     queue: { adopt: ref => void log.push(`queue.adopt ${ref.live}`), server: { reset: rec('queue.reset') } },
     readBusyMode: rec('readBusyMode'),
+    readShortcuts: rec('readShortcuts'),
     readVimPreference: rec('readVimPreference'),
     reportCwd: rec('reportCwd'),
     sheets: { dropAll: rec('sheets.dropAll') },
@@ -214,6 +215,7 @@ describe('adoptSteps', () => {
       'sheets.dropAll',
       'busyMode queue',
       'readBusyMode',
+      'readShortcuts',
       'readVimPreference',
       'queue.reset',
       'showThoughts b',
@@ -254,12 +256,40 @@ describe('adoptSteps', () => {
 
     adoptAll(adoptSteps(host), { previous: host.state.ref, r: { session_id: 'a' }, ref: { live: a, stored: storedSessionId('sa') } })
 
-    expect(log).not.toContain('sheets.dropAll')
-    expect(log).not.toContain('busyMode queue')
-    expect(log).not.toContain('transcript.load')
-    expect(log).not.toContain('transcript.inflight')
-    expect(log.slice(0, 7)).toEqual(['ref a', 'btw.adopt a', 'operations.adopt a', 'transcript.reset same', 'readBusyMode', 'readVimPreference', 'queue.reset'])
-    expect(log.at(-1)).toBe('changed')
+    // Reconnecting to the same runtime session still reloads gateway-owned shortcuts.
+    // It does not discard sheets or replay history that the snapshot does not provide.
+    expect(log).toEqual([
+      'ref a',
+      'btw.adopt a',
+      'operations.adopt a',
+      'transcript.reset same',
+      'readBusyMode',
+      'readShortcuts',
+      'readVimPreference',
+      'queue.reset',
+      'showThoughts a',
+      'markViewer sa sa',
+      'writeActiveSession sa',
+      'markPane sa',
+      'info',
+      'usage',
+      'title.adopt undefined',
+      'reportCwd',
+      'activity.set',
+      'notices.reset',
+      'activity.endCompaction',
+      'forgetStatusNote',
+      'agents.adopt a',
+      'todoHud.adopt sa',
+      'hud.adopt sa',
+      'queue.adopt a',
+      'processes.poke',
+      'connect.watch',
+      'prs.adopt',
+      'sidebar.adopt a',
+      'automation.adopt a',
+      'changed'
+    ])
   })
 })
 
