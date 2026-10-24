@@ -7,6 +7,7 @@ import { openHelp } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 
 import { must, stub } from './fakes.js'
+import { assignedRoot } from './overlayRoots.js'
 
 const catalog = {
   canon: {
@@ -86,7 +87,7 @@ describe('slashItems', () => {
   it("drops the hidden commands and adds this frontend's own by name", () => {
     const items = slashItems([row('/plan'), row('/mouse'), row('/pet'), row('/pdf', 'skill')], '/p')
 
-    expect(items.map(i => i.text)).toEqual(['/plan', '/ps', '/prs', '/pdf'])
+    expect(items.map(i => i.text)).toEqual(['/plan', '/ptt', '/palette', '/prefs', '/ps', '/prs', '/pdf'])
     expect(items.find(i => i.text === '/ps')).toMatchObject({ kind: 'command', meta: 'Background processes and cron jobs' })
   })
 
@@ -122,7 +123,8 @@ describe('/help', () => {
     }
 
     await openHelp(stub(app))
-    const text = JSON.stringify(must(sheet).node('layer.help'))
+    const selected = must(sheet)
+    const text = JSON.stringify(selected.node(assignedRoot(selected)))
 
     expect(text).toContain('"head":"Tern"')
     expect(text).toContain('/ps · /bashes · /shells · /processes')

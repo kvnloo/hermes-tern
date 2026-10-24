@@ -193,7 +193,7 @@ describe('App: Enter while a turn runs (busy_input_mode)', () => {
     expect(sent('prompt.cancel')).toHaveLength(1)
   })
 
-  it('steer: injects the prompt into the turn; a refused steer is queued instead', async () => {
+  it('steer: injects the prompt into the turn; a refused correction keeps the draft', async () => {
     let steer = { status: 'queued' }
     const { app, emit, press, sent, type } = setup({
       ...session('steer'),
@@ -216,12 +216,14 @@ describe('App: Enter while a turn runs (busy_input_mode)', () => {
     steer = { status: 'rejected' }
     await type('then this')
     await press(key('enter'))
-    await vi.waitFor(() => expect(sent('prompt.submit')).toHaveLength(1))
-    expect(sent('prompt.submit')[0]).toMatchObject({ queued: true, text: 'then this' })
+    await vi.waitFor(() => expect(sent('session.steer')).toHaveLength(2))
+    expect(sent('prompt.submit')).toEqual([])
+    expect(app.stores.composer.text).toBe('then this')
+    expect(app.transcript.entries.at(-1)).toMatchObject({ kind: 'notice', text: expect.stringContaining('rejected') })
   })
 
-  it('interrupt: redirects the turn with the prompt (session.redirect)', async () => {
-    const { app, emit, press, sent, type } = setup({ ...session('interrupt'), 'session.redirect': () => ({ status: 'redirected' }) })
+  it('legacy interrupt preference does not silently redirect; explicit busy input queues', async () => {
+    const { app, emit, press, sent, type } = setup({ ...session('interrupt'), 'prompt.submit': () => ({ admission_id: 'a1', status: 'queued' }) })
     emit('event', { payload: {}, type: 'gateway.ready' })
     await vi.waitFor(() => expect(sent('config.get')).toContainEqual({ key: 'busy', session_id: 's1' }))
     await settle()
@@ -229,9 +231,9 @@ describe('App: Enter while a turn runs (busy_input_mode)', () => {
 
     await type('no, use rust')
     await press(key('enter'))
-    await vi.waitFor(() => expect(sent('session.redirect')).toHaveLength(1))
-    expect(sent('session.redirect')[0]).toEqual({ execution_generation: 7, session_id: 's1', text: 'no, use rust' })
-    expect(sent('prompt.submit')).toEqual([])
+    await vi.waitFor(() => expect(sent('prompt.submit')).toHaveLength(1))
+    expect(sent('prompt.submit')[0]).toMatchObject({ queued: true, session_id: 's1', text: 'no, use rust' })
+    expect(sent('session.redirect')).toEqual([])
   })
 
   it('/queue queues behind the turn whatever the mode says', async () => {

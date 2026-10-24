@@ -98,13 +98,13 @@ describe('overlay onClose', () => {
 })
 
 describe('settings', () => {
-  it('reads the settings once at boot, and again for each session\'s thoughts', async () => {
+  it('reads settings at boot and for each session\'s thoughts and chart policy', async () => {
     const settings = memorySettings({ theme: 'nous', thoughts: false })
     const { app, gw } = await started(settings)
 
     expect(app.theme).toBe('nous')
-    // Boot, then the first session's thoughts flag; off, so no config.set.
-    expect(settings.loads).toBe(2)
+    // Boot, then the first session's thoughts and chart policy; off, so no config.set.
+    expect(settings.loads).toBe(3)
     expect(gw.sent('config.set')).toEqual([])
 
     app.setTheme('tern')

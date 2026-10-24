@@ -76,6 +76,49 @@ def test_the_tern_command_hands_its_flags_to_hermes_chat(ctx):
     assert parser.parse_args(["-c", "--image", "a.png"]).tui_args == ["-c", "--image", "a.png"]
 
 
-def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
-    ((args, kwargs),) = ctx.of("register_auxiliary_task")
-    assert args[0] == "tern_charts" and kwargs["display_name"]
+def test_chart_tasks_keep_their_explicit_plugin_keys(ctx):
+    tasks = {args[0]: kwargs for args, kwargs in ctx.of("register_auxiliary_task")}
+    assert set(tasks) == {"tern_charts", "table_charts"}
+    assert all(task["display_name"] for task in tasks.values())
+
+
+def test_only_real_safe_report_is_registered_until_btw_owner_seam(ctx):
+    ((args, kwargs),) = [(args, kwargs) for args, kwargs in ctx.of("register_gateway_method")
+                        if not args[0].startswith("hermes-tern.plan.")]
+    assert args[0] == "hermes-tern.operations.report"
+    assert callable(args[1]) and kwargs["schema"].model_config["extra"] == "forbid"
+
+
+def test_an_old_runtime_still_registers_its_normal_plugin_commands():
+    class OldContext(RecordingCtx):
+        def __getattr__(self, name):
+            if name == "register_gateway_method":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    old = OldContext()
+    hermes_tern_plugin.register(old)
+    assert not old.of("register_gateway_method")
+    assert old.of("register_cli_command")
+def test_plan_methods_use_only_owned_public_gateway_registration(ctx):
+    methods = [(args[0], args[1], kwargs["schema"])
+               for args, kwargs in ctx.of("register_gateway_method")
+               if args[0].startswith("hermes-tern.plan.")]
+    assert [name for name, _, _ in methods] == [
+        "hermes-tern.plan.status", "hermes-tern.plan.mode", "hermes-tern.plan.edit",
+        "hermes-tern.plan.annotate", "hermes-tern.plan.decide",
+    ]
+    assert all(callable(handler) and schema is not None
+               for _, handler, schema in methods)
+
+
+def test_older_plugin_context_does_not_advertise_plan_authority():
+    class OldCtx(RecordingCtx):
+        def __getattr__(self, name):
+            if name == "register_gateway_method":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    old = OldCtx()
+    hermes_tern_plugin.register(old)
+    assert not old.of("register_gateway_method")
