@@ -8,6 +8,7 @@ import { Composer } from '../draft/composer.js'
 import { errorText } from '../core/errors.js'
 import { latestPlan, planStatusOf, reviewPlanText, type Plan, type PlanStatus } from '../plan.js'
 import { editPlanExternal } from '../plan-editor.js'
+import { planRpcForSession, planUnavailableReason, type PlanMethod, type PlanRpc } from '../wire/plan.js'
 import { actionsRow, button, type ButtonProps } from '../view/ui/button.js'
 
 import type { Overlay } from './overlay.js'
@@ -44,6 +45,7 @@ export function openPlanReview(host: PlanReviewHost): void {
 
   let plan: Plan | undefined = latestPlan(host.transcript.entries)
   let status: PlanStatus | undefined
+  let planRpc: PlanRpc | undefined
   let loading = true
   let selected = 0
   let editing: EditKind | undefined
@@ -74,6 +76,13 @@ export function openPlanReview(host: PlanReviewHost): void {
     Boolean(status?.enabled && status.plan?.decision === 'pending' && !status.generating && !host.busy && !busy && !submitted)
   const canOrdinary = () =>
     Boolean(plan && !loading && !status?.enabled && !status?.plan && !status?.generating && !busy && !submitted)
+  const requestPlan = (method: PlanMethod, params: Record<string, unknown>): Promise<unknown> => {
+    if (!planRpc) {
+      return Promise.reject(new Error('Plan authority is unavailable.'))
+    }
+
+    return planRpc(method, params)
+  }
   const close = () => {
     if (active()) {
       host.close(overlay)
@@ -208,7 +217,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         return
       }
 
-      void transact(() => host.gw.request<unknown>('plan.annotate', {
+      void transact(() => requestPlan('annotate', {
         ...revision, section: editingSection, text
       }))
     } else if (editing === 'plan') {
@@ -219,7 +228,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         return
       }
 
-      void transact(() => host.gw.request<unknown>('plan.edit', { ...revision, text: note.text }))
+      void transact(() => requestPlan('edit', { ...revision, text: note.text }))
     } else {
       if (text.length > 16000) {
         error = 'Refinement feedback must be at most 16,000 characters.'
@@ -230,7 +239,7 @@ export function openPlanReview(host: PlanReviewHost): void {
 
       if (text || status?.plan?.annotations.length) {
         void transact(
-          () => host.gw.request<unknown>('plan.decide', { ...revision, feedback: text, intent: 'refine' }),
+          () => requestPlan('decide', { ...revision, feedback: text, intent: 'refine' }),
           true
         )
       }
@@ -253,7 +262,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     }
 
     void transact(
-      () => host.gw.request<unknown>('plan.decide', { ...revision, feedback: '', intent: 'approve' }),
+      () => requestPlan('decide', { ...revision, feedback: '', intent: 'approve' }),
       true
     )
   }
@@ -265,7 +274,7 @@ export function openPlanReview(host: PlanReviewHost): void {
 
     const enabled = !status.enabled
 
-    void transact(() => host.gw.request<unknown>('plan.mode', { enabled, session_id: sid }))
+    void transact(() => requestPlan('mode', { enabled, session_id: sid }))
   }
 
   const externalEdit = (revision: Target | undefined, initial: string | undefined, stamp: number) => {
@@ -284,7 +293,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         throw new Error('The edited plan must contain 1 to 200,000 characters.')
       }
 
-      return host.gw.request<unknown>('plan.edit', { ...revision, text })
+      return requestPlan('edit', { ...revision, text })
     })
   }
 
@@ -461,9 +470,12 @@ export function openPlanReview(host: PlanReviewHost): void {
 
   host.open(overlay)
 
-  // A missing or incompatible plan RPC never silently turns an ordinary answer into approval.
-  void host.gw.request<unknown>('plan.status', { session_id: sid })
-    .then(reply => {
+  // Capability discovery itself is session-attached. A namespaced method which
+  // says supported=false must not be treated as a successful plan.status.
+  void planRpcForSession(host.gw, sid)
+    .then(async channel => {
+      const reply = await channel('status', { session_id: sid })
+
       if (!alive()) {
         return
       }
@@ -472,17 +484,19 @@ export function openPlanReview(host: PlanReviewHost): void {
       const verified = planStatusOf(reply)
 
       if (verified) {
+        planRpc = channel
         update(verified)
       } else {
-        error = 'This Hermes gateway does not provide a compatible plan.status response.'
+        error = planUnavailableReason(reply) ??
+          'The Hermes gateway has no compatible revision-bound plan authority.'
       }
 
       host.changed()
     })
-    .catch(() => {
+    .catch(cause => {
       if (alive()) {
         loading = false
-        error = 'This Hermes gateway does not expose plan review RPCs; ordinary prompts remain available.'
+        error = errorText(cause)
         host.changed()
       }
     })
