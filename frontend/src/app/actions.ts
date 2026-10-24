@@ -36,6 +36,7 @@ import { openBackground } from '../overlays/background.js'
 import type { Completion } from '../overlays/completion.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
+import { openPlanReview } from '../overlays/plan.js'
 import { promptOverlay } from '../overlays/prompts.js'
 import { openPrMenu, openPrSheet, openUrl } from '../overlays/pullRequests.js'
 import { parsePrompt } from '../prompts/parse.js'
@@ -51,6 +52,7 @@ import type { ActionCx } from '../surface/actions.js'
 import { INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import { reportCwd } from '../surface/osc.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
 import { interruptTurn } from '../turn/control.js'
 import { type Prompt, shownText } from '../turn/prompt.js'
@@ -81,6 +83,7 @@ export interface ActionsCx {
   readonly hud: Hud
   readonly composer: Composer
   readonly transcript: Transcript
+  readonly todoHud: TodoHud
   readonly media: Media
   readonly connect: ConnectWatcher
   readonly sidebar: Sidebar
@@ -179,6 +182,7 @@ export class AppActions {
       openHelp: () => void chat.openHelp(),
       cycleModel: direction => void cycleModel(chat, direction),
       shortcut: (id, key) => this.bindings.matches(id, key),
+      openPlan: () => openPlanReview(chat),
       presses: cx.presses,
       queue,
       quit: () => chat.quit(),
@@ -514,12 +518,12 @@ export class AppActions {
 
   /** Down from an empty prompt focuses the pills; ←/→, Enter and Esc/↑ while one holds the keys. */
   hudKey(key: Key): boolean {
-    const { activity, chat, completion, composer, transcript } = this.#cx
+    const { activity, chat, completion, composer, transcript, todoHud } = this.#cx
     const { agents, automation, processes, prs } = chat
 
     return this.#cx.hud.key(key, {
       idle: !composer.text && !composer.browsing && !completion.open,
-      pills: shownPills({ activity, agents, automation, processes, prs, transcript }, Date.now())
+      pills: shownPills({ activity, agents, automation, processes, prs, todoHud, transcript }, Date.now())
     })
   }
 

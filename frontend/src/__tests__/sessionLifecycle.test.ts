@@ -154,6 +154,7 @@ function recordingHost() {
     changed: rec('changed'),
     connect: { watch: rec('connect.watch') },
     forgetStatusNote: rec('forgetStatusNote'),
+    hud: { adopt: sid => void log.push(`hud.adopt ${sid}`) },
     imageLanded: rec('imageLanded'),
     markPane: id => void log.push(`markPane ${id}`),
     markViewer: (now, before) => void log.push(`markViewer ${now} ${before}`),
@@ -170,10 +171,12 @@ function recordingHost() {
     showThoughts: sid => void log.push(`showThoughts ${sid}`),
     state: new RecordingState(log),
     title: { adopt: title => void log.push(`title.adopt ${title}`) },
+    todoHud: { adopt: sid => void log.push(`todoHud.adopt ${sid}`) },
     transcript: {
       get entries() {
         return transcript.entries
       },
+      currentTodos: () => transcript.currentTodos(),
       inflight: rec('transcript.inflight'),
       load: rec('transcript.load'),
       reset: ({ session }) => void log.push(`transcript.reset ${session}`)
@@ -226,6 +229,8 @@ describe('adoptSteps', () => {
       'transcript.load',
       'agents.scan',
       'media.showAll',
+      'todoHud.adopt sb',
+      'hud.adopt sb',
       // Held prompts for another session go back after the history, so their notice stays.
       'queue.adopt b',
       'processes.poke',

@@ -7,6 +7,7 @@ import type { SessionResumeResult } from '@hermes/shared/gateway-events'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { Agents } from '../agents/store.js'
+import type { Hud } from '../chrome/hud.js'
 import type { NoticeStrip } from '../chrome/notices.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { ConnectWatcher } from '../connections/watcher.js'
@@ -18,6 +19,7 @@ import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
 import type { PromptQueue } from '../turn/queue.js'
 import type { AdaptedSnapshot } from '../wire/rpc.js'
@@ -65,7 +67,9 @@ export interface AdoptHost {
   readonly sheets: Pick<PromptSheets, 'dropAll'>
   readonly sidebar: Pick<Sidebar, 'adopt'>
   readonly title: Pick<SessionTitle, 'adopt'>
-  readonly transcript: Pick<Transcript, 'entries' | 'inflight' | 'load' | 'reset'>
+  readonly hud: Pick<Hud, 'adopt'>
+  readonly todoHud: Pick<TodoHud, 'adopt'>
+  readonly transcript: Pick<Transcript, 'currentTodos' | 'entries' | 'inflight' | 'load' | 'reset'>
   /** Reads the adopted session's busy_input_mode into the state. */
   readBusyMode(): void
   /** Loads shortcuts from the owning gateway after a session is adopted. */
@@ -159,6 +163,12 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
         }
       }
     },
+    // After history, restore this session's newest todo snapshot only if no event snapshot was cached.
+    { adopt: ({ ref }) => {
+      const key = durable(ref)
+      host.todoHud.adopt(key, transcript.currentTodos())
+      host.hud.adopt(key)
+    } },
     // Prompts held for another session go back to the composer, not to this one. After the history:
     // load() keeps only the welcome, so the notice that says so is written into the loaded transcript.
     { adopt: ({ ref }) => host.queue.adopt(ref) },

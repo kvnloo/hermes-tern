@@ -23,6 +23,7 @@ import type { Automation } from '../session/automation.js'
 import { fastTier } from '../session/fast.js'
 import type { SessionTitle } from '../session/title.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
 import type { PromptQueue } from '../turn/queue.js'
 
@@ -44,6 +45,7 @@ export interface DockSources {
   readonly reconnect: Pick<Reconnect, 'redial'>
   readonly hud: Pick<Hud, 'focused' | 'todosOpen'>
   readonly transcript: Pick<Transcript, 'currentTodos'>
+  readonly todoHud?: Pick<TodoHud, 'visible'>
   readonly agents: Pick<Agents, 'running'>
   readonly processes: Pick<Processes, 'recent'>
   readonly prs: Pick<PullRequests, 'entries'>
@@ -53,7 +55,7 @@ export interface DockSources {
 }
 
 /** What the pills are counted from. */
-export type PillReads = Pick<DockSources, 'activity' | 'agents' | 'automation' | 'processes' | 'prs' | 'transcript'>
+export type PillReads = Pick<DockSources, 'activity' | 'agents' | 'automation' | 'processes' | 'prs' | 'todoHud' | 'transcript'>
 
 const IDLE: DockActivity = { kind: 'idle' }
 
@@ -63,8 +65,11 @@ export function isModal(overlays: readonly Pick<Overlay, 'modal'>[]): boolean {
 }
 
 /** The agent's todo list while it matters: a turn runs, or something on it is still open. */
-export function shownTodos(src: Pick<DockSources, 'activity' | 'transcript'>): Todo[] | undefined {
-  return todos(src.transcript.currentTodos(), Boolean(src.activity.busy))
+export function shownTodos(src: Pick<DockSources, 'activity' | 'todoHud' | 'transcript'>): Todo[] | undefined {
+  const busy = Boolean(src.activity.busy)
+  const history = src.transcript.currentTodos()
+
+  return src.todoHud ? src.todoHud.visible(busy, history) : todos(history, busy)
 }
 
 /** The pills above the composer at `now`, left to right: what the pill keys move over. */
