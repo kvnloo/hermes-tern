@@ -8,7 +8,6 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
-import { agentName } from '../agents/rows.js'
 import { Artifacts } from '../artifacts.js'
 import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
@@ -61,9 +60,9 @@ import type { GateState, PromptRouter } from '../turn/router.js'
 import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
-import { openSidebar, specOf } from '../watch/spec.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
 import type { ChatPorts } from './ports.js'
 
@@ -584,18 +583,6 @@ export class AppActions {
 
   /** Shows subagent `id` beside the chat in a Tern split; its timeline sheet where no split can open. */
   async openAgent(id: string) {
-    const { chat, state } = this.#cx
-    const a = chat.agents.all().find(x => x.id === id)
-    const sid = state.ref.live
-
-    if (!a || !sid) {
-      return
-    }
-
-    const cwd = state.info?.cwd || this.#cx.launch.home || '/'
-
-    if (!(await openSidebar(specOf(a, agentName(a), sid, state.ref.stored), cwd))) {
-      openAgents(chat, { id, watch: true })
-    }
+    return openAgentPane(this.#cx, id)
   }
 }

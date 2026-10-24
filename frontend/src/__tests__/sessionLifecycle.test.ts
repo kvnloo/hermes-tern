@@ -277,6 +277,8 @@ describe('adoptSteps', () => {
       'activity.endCompaction',
       'forgetStatusNote',
       'agents.adopt a',
+      'todoHud.adopt sa',
+      'hud.adopt sa',
       'queue.adopt a',
       'processes.poke',
       'connect.watch',
