@@ -1,7 +1,7 @@
 // App-level regression checks use the actual Tern JSX Node implementation.
 import { EventEmitter } from 'node:events'
 
-import { Session, View } from '@stencil-hq/tern'
+import { Session, type Op } from '@stencil-hq/tern'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { copyToClipboard } from '../clipboard.js'
@@ -50,17 +50,17 @@ describe('native general report sheets', () => {
     const input = new EventEmitter()
     const tern = new Session(input, { write() {} }, { exitHooks: false, record: '' })
     const connecting = tern.handshake()
-    input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0' })}\x1b\\`)
+    input.emit('data', `\x1b_tsp;r;${JSON.stringify({ ...tern.caps, r: 'hello', v: 1, term: 'fixture', ver: '0', credits: 64 })}\x1b\\`)
     expect(await connecting).toBe(true)
 
     const gw = new FakeGateway()
     const app = new App(tern, gw.client, 'fixture')
     const running = app.run()
     const surface = must(tern.surfaces[0])
-    let rendered = new View()
-    const original = surface.render.bind(surface)
+    const rendered: Op[] = []
+    const original = surface.send.bind(surface)
 
-    surface.render = next => { rendered = View.from(next); original(next) }
+    surface.send = ops => { rendered.push(...ops); original(ops) }
 
     try {
       given.session(app, 's1')
@@ -69,7 +69,7 @@ describe('native general report sheets', () => {
       app.operations.showText('/history', '# Native\n\nExact 🦉')
       await new Promise<void>(resolve => setImmediate(resolve))
       await new Promise<void>(resolve => setImmediate(resolve))
-      const nodes = rendered.regions.find(region => region?.id === 'layer')?.children ?? []
+      const nodes = rendered.filter(op => op[0] === 'add' && (op[1] === 'layer' || op[1].startsWith('layer.')))
       expect(JSON.stringify(nodes)).toContain('omp.overlay.report')
       expect(JSON.stringify(nodes)).toContain('Exact 🦉')
       expect(app.transcript.entries).toEqual(before)

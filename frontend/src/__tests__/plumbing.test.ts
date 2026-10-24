@@ -229,15 +229,19 @@ describe('runInput', () => {
 describe('SurfaceHost', () => {
   it('opens the chat surface, as the chat and the subagent pane both draw it', () => {
     const tern = fakeTern({ draws: true })
-    const host = new SurfaceHost(tern.session, 'agent 1', STYLES)
+    const host = new SurfaceHost(tern.session, 'agent 1', STYLES, {
+      changed: vi.fn(), recovered: vi.fn(), report: vi.fn()
+    })
 
     expect(tern.opened).toEqual([{ id: 'hermes', mode: 'inline', role: 'omp.session', title: 'agent 1' }])
     expect(host.closed).toBe(false)
   })
 
-  it('sends the caret when it moves, and always when asked outright', () => {
+  it('sends the caret when it moves, and always when asked outright', async () => {
     const tern = fakeTern({ draws: true })
-    const host = new SurfaceHost(tern.session, 'hermes', STYLES)
+    const host = new SurfaceHost(tern.session, 'hermes', STYLES, {
+      changed: vi.fn(), recovered: vi.fn(), report: vi.fn()
+    })
 
     host.follow(INPUT_ID)
     expect(tern.focused).toEqual([])
@@ -245,10 +249,14 @@ describe('SurfaceHost', () => {
     host.follow('layer.sheet.input')
     host.follow('layer.sheet.input')
     expect(tern.focused).toEqual(['layer.sheet.input'])
+    // The real one-credit peer must ACK a caret frame before the next request.
+    await turn()
 
     host.focus(INPUT_ID)
+    await turn()
     host.focus(INPUT_ID)
     host.follow(INPUT_ID)
+    await turn()
     expect(tern.focused).toEqual(['layer.sheet.input', INPUT_ID, INPUT_ID])
   })
 })
