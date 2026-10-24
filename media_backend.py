@@ -70,6 +70,7 @@ class _Stage:
     sha256: str
     dev: int
     ino: int
+    mtime_ns: int
 
 
 _PENDING: OrderedDict[tuple[str, str, str, str], _Stage] = OrderedDict()
@@ -455,8 +456,8 @@ def _authority(
     with _PENDING_LOCK:
         pending = _PENDING.get(_key(owner, path))
     if pending is None or pending.sha256 != hashlib.sha256(data).hexdigest() or (
-        pending.dev, pending.ino
-    ) != (fingerprint.st_dev, fingerprint.st_ino):
+        pending.dev, pending.ino, pending.mtime_ns
+    ) != (fingerprint.st_dev, fingerprint.st_ino, fingerprint.st_mtime_ns):
         raise _refuse()
     try:
         pending.lease.assert_caller(request)
@@ -560,7 +561,7 @@ def attach_bytes(request, params: dict) -> dict:
         if not stat.S_ISREG(source.st_mode) or source.st_nlink != 1:
             raise _refuse("Image staging source is not regular")
         _stage_proof(owner, path, data, source)
-        stage = _Stage(lease, hashlib.sha256(data).hexdigest(), source.st_dev, source.st_ino)
+        stage = _Stage(lease, hashlib.sha256(data).hexdigest(), source.st_dev, source.st_ino, source.st_mtime_ns)
         with _PENDING_LOCK:
             _PENDING[_key(owner, str(path))] = stage
             removed = []
