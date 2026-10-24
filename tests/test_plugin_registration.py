@@ -61,9 +61,29 @@ def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
     ((args, kwargs),) = ctx.of("register_auxiliary_task")
     assert args[0] == "tern_charts" and kwargs["display_name"]
 
+
+def test_only_real_safe_report_is_registered_until_btw_owner_seam(ctx):
+    ((args, kwargs),) = [(args, kwargs) for args, kwargs in ctx.of("register_gateway_method")
+                        if not args[0].startswith("hermes-tern.plan.")]
+    assert args[0] == "hermes-tern.operations.report"
+    assert callable(args[1]) and kwargs["schema"].model_config["extra"] == "forbid"
+
+
+def test_an_old_runtime_still_registers_its_normal_plugin_commands():
+    class OldContext(RecordingCtx):
+        def __getattr__(self, name):
+            if name == "register_gateway_method":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    old = OldContext()
+    hermes_tern_plugin.register(old)
+    assert not old.of("register_gateway_method")
+    assert old.of("register_cli_command")
 def test_plan_methods_use_only_owned_public_gateway_registration(ctx):
     methods = [(args[0], args[1], kwargs["schema"])
-               for args, kwargs in ctx.of("register_gateway_method")]
+               for args, kwargs in ctx.of("register_gateway_method")
+               if args[0].startswith("hermes-tern.plan.")]
     assert [name for name, _, _ in methods] == [
         "hermes-tern.plan.status", "hermes-tern.plan.mode", "hermes-tern.plan.edit",
         "hermes-tern.plan.annotate", "hermes-tern.plan.decide",

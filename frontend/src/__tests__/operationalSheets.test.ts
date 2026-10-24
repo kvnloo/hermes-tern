@@ -39,11 +39,11 @@ describe('read-only operational routes', () => {
   ] satisfies [string, string, OperationalView][])('%s %s calls the exactly scoped report read', async (service, arg, view) => {
     const f = sideSetup()
     const operations = new OperationalSheets(f.host)
-    f.gw.handlers.set('operations.report', () => result(view))
+    f.gw.handlers.set('hermes-tern.operations.report', () => result(view))
     const command = must(localCommand(service))
     await command.run({ ...f.host, operations }, arg)
     await vi.waitFor(() => expect(props(must(f.overlays.at(-1)), 'omp.report.state')[0]?.['text']).toBe('ready'))
-    expect(f.gw.sent('operations.report')).toEqual([{ session_id: 's1', view }])
+    expect(f.gw.sent('hermes-tern.operations.report')).toEqual([{ session_id: 's1', view }])
     expect(f.gw.methods('slash.exec')).toHaveLength(0)
     expect(props(must(f.overlays.at(-1)), 'omp.report.scope')[0]?.['text']).toBe('Hermes profile: owned-profile · Read only')
   })
@@ -78,7 +78,7 @@ describe('read-only operational routes', () => {
     const f = sideSetup()
     const ops = new OperationalSheets(f.host)
     const pending = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('operations.report', () => pending.promise)
+    f.gw.handlers.set('hermes-tern.operations.report', () => pending.promise)
     ops.show('mcp', 'status')
     expect(props(must(f.overlays.at(-1)), 'omp.report.state')[0]?.['text']).toBe('loading')
     pending.reject(new Error('Authorization: Bearer inert-secret-fixture'))
@@ -92,7 +92,7 @@ describe('read-only operational routes', () => {
     const report = { ...result('mcp-tools'), rows: Array.from({ length: 300 }, (_, i) => ({
       name: 'tool-' + i, details: ['cached only']
     })) }
-    f.gw.handlers.set('operations.report', () => report)
+    f.gw.handlers.set('hermes-tern.operations.report', () => report)
     ops.show('mcp', 'tools')
     const sheet = must(f.overlays.at(-1))
     await vi.waitFor(() => expect(props(sheet, 'omp.report.state')[0]?.['text']).toBe('ready'))
@@ -113,7 +113,7 @@ describe('read-only operational routes', () => {
       Promise.withResolvers<unknown>()
     ]
     let next = 0
-    f.gw.handlers.set('operations.report', () => replies[next++]?.promise)
+    f.gw.handlers.set('hermes-tern.operations.report', () => replies[next++]?.promise)
     ops.show('mcp', 'list')
     const first = must(f.overlays.at(-1))
     ops.show('mcp', 'status')
@@ -141,7 +141,7 @@ describe('read-only operational routes', () => {
   it('rejects mismatched responses rather than presenting a different view as a valid report', async () => {
     const f = sideSetup()
     const ops = new OperationalSheets(f.host)
-    f.gw.handlers.set('operations.report', () => result('ssh-list'))
+    f.gw.handlers.set('hermes-tern.operations.report', () => result('ssh-list'))
     ops.show('mcp', 'tools')
     await vi.waitFor(() => expect(props(must(f.overlays.at(-1)), 'omp.report.state')[0]?.['text']).toBe('unavailable'))
     expect(props(must(f.overlays.at(-1)), 'omp.report.body')[0]?.['text']).toContain('service is unavailable')

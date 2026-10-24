@@ -219,6 +219,25 @@ flowchart LR
 > [!NOTE]
 > **Compatibility.** The bundle inlines Hermes' renderer-free ui-tui modules (the gateway client and skins) and `apps/shared`, from the Hermes commit in `frontend/hermes-src.lock`. At run time it runs that client against the installed Hermes, which starts the gateway through `ui-tui/scripts/gateway_bootstrap.py`. That script and the gateway's wire format are Hermes internals: when they change, rebuild against the newer Hermes.
 
+### Optional read-only gateway reports
+
+On Hermes builds exposing public session-attached plugin gateway methods
+(the downstream [gateway seam PR #650](https://github.com/kvnloo/hermes-agent/pull/650)),
+`hermes-tern.operations.report` returns real profile-scoped read-only MCP
+configuration, cached status and catalog listings. It never connects,
+authenticates, installs, reloads, probes or returns secrets. MCP cached
+tool-name and effective SSH target views remain explicitly **unavailable**
+pending public owned readers.
+
+The native `/btw` sheet retains unsent side questions and reports
+**Needs Hermes plugin gateway methods** on older Hermes versions. Persistent
+BTW submit/list/cancel is **not activated**: the public plugin gateway
+request has a live RPC SID, not an authenticated durable conversation
+identity, state.db metadata handle or parent provider snapshot.
+No private server records, second store, alternate RPC path or runtime
+pin changes are used. See
+[compatibility and authority details](frontend/docs/btw-operational-sheets.md).
+
 ## Exit-75 fallback qualification (downstream, opt-in)
 
 The production path remains **one launcher**: hermes tern calls Hermes'
