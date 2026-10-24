@@ -6,6 +6,7 @@
 import type { JSX } from '@stencil-hq/tern'
 
 import { optional } from '../core/assert.js'
+import type { SessionIds } from '../core/ids.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
 import type { TableCharts } from '../transcript/tableCharts.js'
@@ -14,6 +15,7 @@ import { answerText, turnEndedAt } from '../transcript/turns.js'
 import { duration } from './format.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
+import type { BrowserFocus } from './tools/cards/browser.js'
 import type { LspLinkContext } from './tools/lsp-links.js'
 import { toolNode } from './tools/shell.js'
 import { foldSection, headedCard } from './ui/fold.js'
@@ -27,6 +29,10 @@ export interface TranscriptContext {
   /** Presentation-only, session-scoped Markdown table charts. */
   charts?: TableCharts
   now: number
+  /** SDK actions bound to the session instance that rendered this entry. */
+  focusBrowser?: BrowserFocus | undefined
+  /** The exact instance whose SDK handlers are cached with this entry. */
+  browserSource?: Pick<SessionIds, 'live'> | undefined
   welcome: WelcomeContext
   /** File-host evidence from the current frame, never a replayed tool result. */
   lspContext?: LspLinkContext
@@ -47,7 +53,7 @@ export function forgetEntryNode(entry: Entry): void {
 
 /** An entry carrying its last built node and the revision it was built at. */
 interface Built {
-  [kNode]?: { rev: string; node: JSX.Element }
+  [kNode]?: { rev: string; browserSource?: Pick<SessionIds, 'live'> | undefined; node: JSX.Element }
 }
 
 /**
@@ -68,12 +74,12 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
     cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0])
   const cached = built[kNode]
 
-  if (cached?.rev === rev) {
+  if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
     return cached.node
   }
 
   const node = buildEntry(e, id, cx)
-  built[kNode] = { node, rev }
+  built[kNode] = { browserSource: cx.browserSource, node, rev }
 
   return node
 }
@@ -245,7 +251,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser)
     }
 
     const b = p.block
@@ -259,7 +265,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now, cx.lspContext)
+        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

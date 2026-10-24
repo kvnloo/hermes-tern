@@ -11,6 +11,7 @@ import type { Entry } from '../model.js'
 import { forkSession } from '../fork-session.js'
 import { type AgentsSheetHost, openAgents } from '../overlays/agents.js'
 import { type BackgroundHost, openBackground } from '../overlays/background.js'
+import { openBrowserBlocks } from '../overlays/browser.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
 import { type EffortHost, openEffortPicker } from '../overlays/effort.js'
 import { type ModelsHost, openModelPicker, switchModel } from '../overlays/models.js'
@@ -269,6 +270,11 @@ const COMMANDS: readonly LocalCommand[] = [
 
       return void host.setEffort(level.id, global ? 'global' : 'session')
     }
+  },
+  {
+    help: 'Inspect or manage Tern browser blocks (requires Hermes browser-block RPCs)',
+    name: 'browser-blocks',
+    run: host => openBrowserBlocks(host)
   },
   {
     // The shared gateway sends no session.info after a typed /fast, so the bolt would not move.

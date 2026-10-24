@@ -33,6 +33,7 @@ import type { ToolCall } from '../model.js'
 import { openAgents } from '../overlays/agents.js'
 import { openAutomation } from '../overlays/automation.js'
 import { openBackground } from '../overlays/background.js'
+import { openBrowserBlocks } from '../overlays/browser.js'
 import type { Completion } from '../overlays/completion.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
@@ -192,6 +193,7 @@ export class AppActions {
       now: Date.now,
       openAgents: () => openAgents(chat),
       openBackground: () => openBackground(chat),
+      openBrowserBlocks: () => openBrowserBlocks(chat),
       openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
       openModel: () => openModelPicker(chat),
@@ -271,9 +273,7 @@ export class AppActions {
 
   /** Sends the composer's draft, with the pastes it holds. */
   submitDraft(alternate = false) {
-    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) {
-      return
-    }
+    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) return
     const raw = this.#cx.composer.text
 
     if (shouldSteer(this.#cx, raw, alternate)) {

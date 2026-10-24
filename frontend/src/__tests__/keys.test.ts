@@ -83,6 +83,7 @@ function pane(over: Partial<Pane> = {}) {
     now: () => state.clock,
     openAgents: did('agents'),
     openBackground: did('background'),
+    openBrowserBlocks: did('browser blocks'),
     openExternalEditor: did('editor'),
     openPrs: did('prs'),
     openPlan: did('plan'),
@@ -146,7 +147,6 @@ describe('the key rules', () => {
       'composer'
     ])
   })
-
   it('routes rebindable keys only after modal, HUD, and completion ownership', () => {
     const p = pane()
     const actions = effectiveShortcuts({ 'app.model.select': 'alt+i' })
@@ -177,7 +177,6 @@ describe('the key rules', () => {
     onKey(alt('i'), p.cx, undefined)
     expect(p.log).toHaveLength(5)
   })
-
   it('1. Ctrl+C: the top sheet cancels, else closes; with none it clears the draft, interrupts or arms the exit', () => {
     const p = pane({ text: 'draft' })
     const cancelled: string[] = []
@@ -201,7 +200,6 @@ describe('the key rules', () => {
     onKey(ctrl('c'), p.cx, undefined)
     expect(p.log.at(-1)).toBe('quit')
   })
-
   it('1. Ctrl+C after the exit window arms it again', () => {
     const p = pane()
 
@@ -210,7 +208,6 @@ describe('the key rules', () => {
     onKey(ctrl('c'), p.cx, undefined)
     expect(p.log).toEqual(['notice Press Ctrl+C again to exit.', 'notice Press Ctrl+C again to exit.'])
   })
-
   it('2. the top sheet sees a key first, and one it takes goes no further', () => {
     const p = pane()
     const top = sheet({ takes: true })
@@ -219,7 +216,6 @@ describe('the key rules', () => {
     expect(top.seen.map(k => k.name)).toEqual(['x'])
     expect(p.log).toEqual([])
   })
-
   it('3. a modal sheet swallows the keys it does not take', () => {
     const p = pane({ queued: 1 })
 
@@ -231,7 +227,6 @@ describe('the key rules', () => {
     onKey(alt('up'), p.cx, sheet())
     expect(p.log).toEqual(['dequeue 0'])
   })
-
   it('4. the pills take their keys before the completion list and the composer', () => {
     const p = pane({ completion: true, hud: true })
 
@@ -243,7 +238,6 @@ describe('the key rules', () => {
     onKey(key('down'), p.cx, undefined)
     expect(p.log).toEqual(['composer'])
   })
-
   it('5. the completion list takes its keys before Esc and the composer', () => {
     const p = pane({ busy: true, completion: true })
 
@@ -253,7 +247,6 @@ describe('the key rules', () => {
     expect(p.log).toEqual([])
     expect(p.cx.presses.esc).toBe(0)
   })
-
   it('Ctrl+G opens the existing draft after overlays, HUD and completion, without clearing it', () => {
     const p = pane({ text: 'unsent' })
     onKey(ctrl('g'), p.cx, sheet({ takes: true }))
@@ -272,7 +265,6 @@ describe('the key rules', () => {
     expect(p.log).toEqual(['editor', 'composer'])
     expect(matches(ctrl('g'), EXTERNAL_EDITOR_KEY)).toBe(true)
   })
-
   it('6. Esc Esc clears a draft into the history, else stops the turn; one Esc does nothing', () => {
     const p = pane({ busy: true, text: 'draft' })
 
@@ -296,7 +288,6 @@ describe('the key rules', () => {
     onKey(key('escape'), p.cx, undefined)
     expect(p.log).toHaveLength(3)
   })
-
   it('6. Esc Esc over images alone sets the empty text instead of taking it', () => {
     const p = pane({ images: true, text: '  ' })
 
@@ -304,14 +295,12 @@ describe('the key rules', () => {
     onKey(key('escape'), p.cx, undefined)
     expect(p.log).toEqual(["set ''", 'clear images'])
   })
-
   it('7. Shift+Tab cycles the reasoning effort', () => {
     const p = pane()
 
     onKey(key('tab', { shift: true }), p.cx, undefined)
     expect(p.log).toEqual(['effort'])
   })
-
   it('8. Alt+A/J/S/P open their sheets, by the Alt modifier only', () => {
     const p = pane()
 
@@ -327,7 +316,13 @@ describe('the key rules', () => {
     onKey(alt('b'), p.cx, undefined)
     expect(p.log.slice(4)).toEqual(['composer', 'composer', 'composer'])
   })
-
+  it("Alt+Shift+B opens browser blocks without consuming the composer's Alt+B word key", () => {
+    const p = pane({ text: 'draft' })
+    onKey(key('b', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('b', { alt: true }), p.cx, undefined)
+    expect(p.log).toEqual(['browser blocks', 'composer'])
+    expect(p.state.text).toBe('draft')
+  })
   it('9. Alt+Up edits the oldest queued prompt, when one waits', () => {
     const p = pane()
 
@@ -336,7 +331,6 @@ describe('the key rules', () => {
     onKey(alt('up'), p.cx, undefined)
     expect(p.log).toEqual(['composer', 'dequeue 0'])
   })
-
   it('10. Alt+Enter steers with the oldest queued prompt: a turn runs, one waits, the prompt is empty', () => {
     const p = pane({ busy: true, queued: 1 })
 
@@ -353,7 +347,6 @@ describe('the key rules', () => {
     onKey(alt('enter'), typed.cx, undefined)
     expect(typed.log).toEqual(['steer draft'])
   })
-
   it('11. Ctrl+D quits on an empty prompt, and is the composer key over a draft', () => {
     const p = pane()
 
@@ -367,7 +360,6 @@ describe('the key rules', () => {
       expect(q.log).toEqual(['composer'])
     }
   })
-
   it('12. a paste that is an image attaches it; one that is text goes to the composer', () => {
     const p = pane({ image: true })
 
@@ -378,7 +370,6 @@ describe('the key rules', () => {
     onKey(key('paste'), p.cx, undefined)
     expect(p.log.slice(1)).toEqual(['paste ', 'composer'])
   })
-
   it('13. Ctrl+V attaches the clipboard image, not with Alt or Meta held', () => {
     const p = pane()
 
@@ -387,7 +378,6 @@ describe('the key rules', () => {
     onKey(key('v', { ctrl: true, meta: true }), p.cx, undefined)
     expect(p.log).toEqual(['clipboard', 'composer', 'composer'])
   })
-
   it('14. the composer takes the rest, and its submit sends the draft', () => {
     const p = pane()
 
@@ -396,7 +386,6 @@ describe('the key rules', () => {
     onKey(key('enter'), p.cx, undefined)
     expect(p.log).toEqual(['composer', 'composer', 'submit'])
   })
-
   it('stop at the first rule that handles the key', () => {
     // Ctrl+C beats the sheet's own keys; the sheet beats the modal swallow and every shortcut.
     const p = pane({ busy: true, hud: true, queued: 1 })
@@ -436,7 +425,6 @@ describe('KEYS', () => {
     onKey(key('p', { alt: true }), p.cx, undefined)
     expect(p.log).toEqual(['plan', 'fork', 'prs'])
   })
-
   it('matches the modifiers each shortcut needs and refuses those it must not have', () => {
     expect(matches(key('tab', { shift: true }), KEYS.effort)).toBe(true)
     expect(matches(key('tab'), KEYS.effort)).toBe(false)
@@ -445,7 +433,6 @@ describe('KEYS', () => {
     expect(matches(key('p', { alt: true, shift: true }), KEYS.prs)).toBe(false)
     expect(matches(key('p', { alt: true, shift: true }), KEYS.plan)).toBe(true)
   })
-
   it('are the shortcuts the help sheet lists', () => {
     const listed = [...HOTKEYS, ...shortcutGroups(APP_SHORTCUTS)].flatMap(g => g.rows.flatMap(([keys]) => keys))
 
@@ -480,7 +467,6 @@ describe('the Tern actions', () => {
   }
 
   const action = (act: string, value?: string) => ({ act, ev: 'action' as const, id: 'n', raw: {}, sf: 'hermes', ...(value === undefined ? {} : { value }) })
-
   it('each run their handler with the value', () => {
     const { cx, log } = actions()
 
@@ -493,7 +479,6 @@ describe('the Tern actions', () => {
     expect(log).toEqual(['agent a1', 'agents', 'process p1', 'url https://x.test', 'continue card-1', 'open call:1 github'])
     expect(Object.keys(ACTIONS).sort()).toEqual(['connect-continue', 'connect-open', 'open-agent', 'open-agents', 'open-process', 'open-url'])
   })
-
   it('do nothing without a value, or for an act with no handler', () => {
     const { cx, log } = actions()
 
@@ -505,7 +490,6 @@ describe('the Tern actions', () => {
     onTernEvent(action('select', 'x'), cx)
     expect(log).toEqual([])
   })
-
   it('give the composer the keys back when its input takes the focus, unless a modal sheet is up', () => {
     const focus = (id: string) => ({ ev: 'focus' as const, id, raw: {}, sf: 'hermes' })
     const open = actions()
@@ -530,7 +514,6 @@ describe('commandEnvelope', () => {
     })
     expect(commandEnvelope({ output: 'legacy' })).toEqual({ dispatch: null, output: 'legacy', warning: undefined })
   })
-
   it('leaves out what is not an object or not a string', () => {
     for (const raw of [null, undefined, 'text', 42, false]) {
       expect(commandEnvelope(raw)).toEqual({ dispatch: null, output: undefined, warning: undefined })

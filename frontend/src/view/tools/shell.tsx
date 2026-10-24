@@ -16,12 +16,13 @@ import { duration } from '../format.js'
 import { age } from '../time.js'
 import type { LspLinkContext } from './lsp-links.js'
 
+import { browserFocusButton, type BrowserFocus } from './cards/browser.js'
 import { type ErrorReader, withView } from './registry.js'
 import type { CallView } from './types.js'
 
 /** The `tool` node of one call; the generic card when its view throws. */
-export function toolNode(call: ToolCall, now: number, context?: LspLinkContext): JSX.Element {
-  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context))
+export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element {
+  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context, focusBrowser))
 }
 
 /**
@@ -29,12 +30,12 @@ export function toolNode(call: ToolCall, now: number, context?: LspLinkContext):
  * and its output, a diff, a file), and why it failed or stopped; the generic card's body when
  * its view throws.
  */
-export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext): JSX.Element[] {
-  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context))
+export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element[] {
+  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context, focusBrowser))
 }
 
 /** The `tool` node of `call` as `view` draws it. */
-function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext): JSX.Element {
+function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element {
   const solo = view.replaces(now)
 
   if (solo) {
@@ -45,6 +46,12 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
   const status = card.status ?? call.outcome.kind
   const running = status === 'running'
   const body = [...card.body]
+  const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined
+
+  if (focus) {
+    body.push(focus)
+  }
+
   const error = call.outcome.kind === 'error' ? whyFailed(call) : undefined
 
   if (call.outcome.kind === 'cancelled') {
@@ -91,9 +98,15 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 }
 
 /** What `call`'s step opens to, as `view` draws it. */
-function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext): JSX.Element[] {
+function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element[] {
   const card = view.card(now, context)
   const body = [...card.body]
+  const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined
+
+  if (focus) {
+    body.push(focus)
+  }
+
   // What the card's head held and its body lacks (a short command).
   const prefix = view.detailPrefix()
 

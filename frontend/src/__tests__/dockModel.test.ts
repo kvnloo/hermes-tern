@@ -19,7 +19,7 @@ import { dockNodes } from '../view/dock.js'
 import { dockModel, shownPills } from '../view/dockModel.js'
 
 import { dockActions, dockContext, dockSources } from './dockFakes.js'
-import { FakeGateway } from './fakes.js'
+import { FakeGateway, stub } from './fakes.js'
 
 const NOW = 1_000_000
 const busy = { label: 'Working…', since: {}, startedAt: NOW - 5000 }
@@ -206,6 +206,7 @@ function frame(over: Partial<FrameCx> = {}) {
     liveVoice: { blocked: false, node: () => null },
     actions: dockActions(),
     aside: () => false,
+    browser: stub<FrameCx['browser']>({}),
     charts: new TableCharts({ policy: async () => 'off', plan: async () => 'bar' }, () => undefined),
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },
     copies: { copied: undefined, copy: () => undefined },

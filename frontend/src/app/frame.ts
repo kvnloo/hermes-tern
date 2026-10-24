@@ -16,6 +16,7 @@ import type { Transcript } from '../transcript/store.js'
 import type { TableCharts } from '../transcript/tableCharts.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
+import { bindBrowserFocus, type BrowserFocusHost } from '../view/tools/cards/browser.js'
 import type { Retention } from '../view/retention.js'
 import { lspLinkContext } from '../view/tools/lsp-links.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -45,6 +46,8 @@ export interface FrameCx extends DockSources {
   readonly welcome: WelcomeContext
   /** The Copy buttons: the entry whose button reads Copied, and what a click does. */
   readonly copies: Pick<TranscriptContext, 'copied' | 'copy'>
+  /** Only for session-scoped native browser-card Focus; never used by ordinary tool cards. */
+  readonly browser: BrowserFocusHost
   /** Optional SDK image on the composer line, updated by its own lifecycle-safe animator. */
   readonly orb?: Pick<ThinkingOrb, 'props'>
 }
@@ -86,14 +89,17 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts'>>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser'>>, now: number): TranscriptContext {
   const info = cx.session.info
+  const focusBrowser = cx.browser ? bindBrowserFocus(cx.browser, cx.session.ref) : undefined
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
   return {
     ...(cx.charts ? { charts: cx.charts } : {}),
     copied: cx.copies.copied,
     copy: cx.copies.copy,
+    focusBrowser,
+    browserSource: cx.session.ref,
     now,
     lspContext: lspLinkContext({
       cwd: info?.cwd,
