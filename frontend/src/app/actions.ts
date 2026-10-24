@@ -311,9 +311,7 @@ export class AppActions {
   submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     // Tern native Send and keyboard Enter never take the draft while voice owns input.
-    if (draft && this.#cx.liveVoice.blocked) {
-      return
-    }
+    if (draft && this.#cx.liveVoice.blocked) return
     const text = raw.trim()
 
     // An image still uploading would miss the prompt: the words wait in the composer for it.
@@ -487,7 +485,6 @@ export class AppActions {
     this.#cx.changed()
   }
 
-  // ── Gateway requests and images ────────────────────────────────────
 
   /** A server request: its prompt sheet, unless a switch holds it or it is another session's. */
   onRequest(req: ServerRequest) {

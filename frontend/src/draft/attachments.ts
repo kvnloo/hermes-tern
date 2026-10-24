@@ -12,7 +12,7 @@ import { MAX_IMAGES, MAX_PASTED_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, decodePasted
 import { errorText } from '../core/errors.js'
 import type { SessionIds } from '../core/ids.js'
 import { imagePathOf, withClipboardImage } from '../hermes/clipboardImage.js'
-import { type Attachment, imageFormat, imageSize } from '../hermes/images.js'
+import { stageImageBytes, type Attachment, imageFormat, imageSize } from '../hermes/images.js'
 import type { ImageSource, NoticeEntry } from '../model.js'
 import { rpc } from '../wire/rpc.js'
 
@@ -204,7 +204,7 @@ export class Attachments {
     if (!format) throw new Error('This file is not a PNG, JPEG, GIF or WebP image.')
     if (!this.#eligible(slot)) throw new Error('Attachment was canceled.')
 
-    const result = await rpc(this.#host.gw, 'image.attach_bytes', {
+    const result = await stageImageBytes(this.#host.gw, {
       session_id: slot.owner.sid,
       filename: 'image' + format.ext,
       content_base64: bytes.toString('base64')
@@ -253,7 +253,7 @@ export class Attachments {
       this.#reserve(slot, encodedImageBytes(data))
       if (!this.#eligible(slot)) return
       const { bytes, mime, ext } = decodePastedImage(data)
-      const result = await rpc(this.#host.gw, 'image.attach_bytes', {
+      const result = await stageImageBytes(this.#host.gw, {
         session_id: slot.owner.sid,
         filename: 'image' + ext,
         content_base64: bytes.toString('base64')

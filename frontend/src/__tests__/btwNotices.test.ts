@@ -68,12 +68,13 @@ async function sdkAction(f: Fixture, key: 'view' | 'dismiss') {
 describe('BTW completion notice: real App -> event -> Tern dock', () => {
   it('routes a real typed completion only to the dock, then View opens exactly the completed thread without touching drafts', async () => {
     const f = await appFixture()
-    const image = { name: 'unsent.png', mime: 'image/png', path: '/tmp/unsent.png' }
+    const imageName = 'unsent.png'
     let sdk: Awaited<ReturnType<typeof nativeBrowserSurface>> | undefined
 
     try {
       f.app.stores.composer.set('Main draft 🦉', { cursor: 4 })
-      f.app.stores.attachments.restore([image])
+      await f.app.stores.attachments.fromDataUrl('data:image/png;base64,iVBORw0KGgo=', imageName)
+      const image = must(f.app.stores.attachments.items[0])
       f.app.btw.select('one')
       f.app.btw.draft.set('One side draft 🦉', { cursor: 3 })
       f.app.btw.select('two')
