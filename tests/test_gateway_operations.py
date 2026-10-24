@@ -3,10 +3,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import hermes_yaml as yaml
 import pytest
 
-from hermes_cli.plugin_gateway_methods import GatewayRequestContext
+# This suite is intentionally against the green public method seam. Older
+# Hermes installations still run the plugin's baseline unit suite.
+GatewayRequestContext = pytest.importorskip(
+    "hermes_cli.plugin_gateway_methods",
+    reason="requires Hermes public plugin gateway methods",
+).GatewayRequestContext
+yaml = pytest.importorskip("hermes_yaml")
 from hermes_tern_plugin import gateway_operations as ops
 
 
