@@ -4,7 +4,10 @@
 // only one), the per-session state, the history, then the stores that follow the session.
 
 import type { SessionResumeResult } from '@hermes/shared/gateway-events'
+
 import type { SessionInfo } from '@tui/types.js'
+
+import type { BtwThreads } from '../btw.js'
 
 import type { Agents } from '../agents/store.js'
 import type { Hud } from '../chrome/hud.js'
@@ -15,6 +18,7 @@ import { durable, type DurableSessionId, type LiveSessionId, type SessionIds, ty
 import type { PullRequests } from '../github/store.js'
 import { storedCompactions } from '../hermes/compactions.js'
 import type { Media } from '../media.js'
+import type { OperationalSheets } from '../operations.js'
 import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
 import type { PromptSheets } from '../prompts/sheets.js'
@@ -55,6 +59,8 @@ export interface Adoptable {
 /** What adopting reaches of the app. */
 export interface AdoptHost {
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'adopt'>
+  readonly operations: Pick<OperationalSheets, 'adopt'>
   readonly activity: Pick<Activity, 'busy' | 'endCompaction' | 'set'>
   readonly agents: Pick<Agents, 'adopt' | 'scan'>
   readonly automation: Pick<Automation, 'adopt'>
@@ -101,6 +107,8 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
         state.ref = ref
       }
     },
+    // Side drafts and operational reads are owned by the exact live session.
+    { adopt: ({ ref }) => { host.btw.adopt(ref.live); host.operations.adopt(ref.live) } },
     {
       adopt: ({ previous, r, ref }) => {
         const other = ref.live !== previous.live
