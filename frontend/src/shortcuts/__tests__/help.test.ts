@@ -37,7 +37,7 @@ function fixture() {
 
 /** Exercise actual SDK Surface.render -> View.from -> Tree validation. */
 function rendered(overlay: Overlay): View {
-  const layer = [overlay.node('layer.help')]
+  const layer = [overlay.node('layer.overlay-1')]
   const send = vi.fn()
   const surface = new Surface({ send, credits: () => 1, dropped: () => {} }, 'hermes', { mode: 'inline' })
   surface.render({ layer })
@@ -52,7 +52,7 @@ function top(overlays: Overlay[]): Overlay {
 }
 
 function rows(view: View, id: string): string {
-  const items = view.find('layer.help.body.' + id + '.table')?.props['rows']
+  const items = view.find('layer.overlay-1.body.' + id + '.table')?.props['rows']
   if (!Array.isArray(items)) throw new Error('Missing Help table ' + id)
   return JSON.stringify(items)
 }
@@ -63,7 +63,7 @@ describe('native Help tree validation', () => {
     await openHelp(f.host)
     expect(f.gw.sent('commands.catalog')).toEqual([{ session_id: 's1' }])
     const view = rendered(top(f.overlays))
-    const groups = view.find('layer.help.body')?.children
+    const groups = view.find('layer.overlay-1.body')?.children
       .filter(item => item.kind === 'section')
       .map(item => item.props['head'])
     expect(groups).toEqual(['Editing', 'Control', 'Navigation', 'Models', 'Tern'])
@@ -124,7 +124,7 @@ describe('native Help tree validation', () => {
     }))
     await openHelp(f.host)
     const view = rendered(top(f.overlays))
-    const headings = view.find('layer.help.body')?.children
+    const headings = view.find('layer.overlay-1.body')?.children
       .filter(item => item.kind === 'section')
       .map(item => item.props['head'])
     expect(headings?.filter(x => x === 'Tern')).toHaveLength(1)

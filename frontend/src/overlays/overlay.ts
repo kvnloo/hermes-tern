@@ -3,11 +3,13 @@
 // every overlay draws into the `layer` region, and `close()` removes it (and tells it, through
 // `onClose`, so its timers and watches end with it). OverlayStack is that stack.
 
-import type { JSX, Key } from '@stencil-hq/tern'
+import type { JSX, Key, TspEvent } from '@stencil-hq/tern'
+
+import { NATIVE_OVERLAY_PREFIX, withinOverlayRoot } from './identity.js'
 
 /** One floating panel in the `layer` region. */
 export interface Overlay {
-  /** Unique among open overlays: the layer child's key. */
+  /** Logical request/replacement/cancellation key; never a native node id. */
   readonly key: string
   /** Covers the transcript and takes every key (a question that must be answered). */
   readonly modal?: boolean
@@ -16,7 +18,7 @@ export interface Overlay {
    * its node id; null for none. Unset: none for a modal overlay, else the composer.
    */
   focus?(id: string): string | null
-  /** The overlay's node, keyed by `key`; `id` is its full node id (`layer.<key>`). */
+  /** The overlay's node, keyed by its assigned native root's final component. */
   node(id: string): JSX.Element
   /** A key while this overlay is on top: true when it consumed the key. */
   onKey(key: Key): boolean
@@ -51,11 +53,19 @@ export interface OverlayStackHost {
   changed(): void
 }
 
+/** A native event's immutable receipt (captured before SDK dispatch). */
+export interface NativeOverlayReceipt {
+  readonly allowed: boolean
+  readonly root: string | null
+}
+
 /** The open overlays, bottom first: a newer one with a key already open replaces it. */
 export class OverlayStack implements Pick<OverlayHost, 'close' | 'open'> {
   /** The overlays, bottom first; changed only through open() and close(). */
   readonly items: Overlay[] = []
   readonly #host: OverlayStackHost
+  readonly #roots = new Map<Overlay, string>()
+  #serial = 0
 
   constructor(host: OverlayStackHost) {
     this.#host = host
@@ -68,9 +78,57 @@ export class OverlayStack implements Pick<OverlayHost, 'close' | 'open'> {
       this.close(same)
     }
 
+    // Allocate on every open, even when the very same object is opened again.
+    // Never recycle an id: the terminal may still send an event from an old paint.
+    this.#roots.set(overlay, `layer.overlay-${++this.#serial}`)
     this.items.push(overlay)
     this.#host.opened(overlay)
     this.#host.changed()
+  }
+
+  /** Only a currently open instance has a native identity. */
+  rootOf(overlay: Overlay): string {
+    const root = this.#roots.get(overlay)
+
+    if (root === undefined) {
+      throw new Error('Overlay has no open native root')
+    }
+
+    return root
+  }
+
+  /**
+   * Capture the actual action id before asking the SDK for a handler: a last
+   * painted event may arrive after the SDK has rendered a same-key successor.
+   * The root is the *top* instance's root, not an overlay object's key.
+   * Main, dock, ACK, gone, visibility and foreign events keep their normal path.
+   */
+  nativeReceipt(event: TspEvent): NativeOverlayReceipt {
+    const id = 'id' in event ? event.id : undefined
+
+    if (typeof id !== 'string' || !id.startsWith(NATIVE_OVERLAY_PREFIX)) {
+      return { allowed: true, root: null }
+    }
+
+    const top = this.items.at(-1)
+    const root = top === undefined ? undefined : this.#roots.get(top)
+
+    return { allowed: root !== undefined && withinOverlayRoot(id, root), root: root ?? null }
+  }
+
+  /** A callback already chosen by the SDK must still belong to the live top open. */
+  ownsNativeReceipt(receipt: NativeOverlayReceipt): boolean {
+    if (!receipt.allowed) {
+      return false
+    }
+
+    if (receipt.root === null) {
+      return true
+    }
+
+    const top = this.items.at(-1)
+
+    return top !== undefined && this.#roots.get(top) === receipt.root
   }
 
   close(overlay: Overlay) {
@@ -79,6 +137,7 @@ export class OverlayStack implements Pick<OverlayHost, 'close' | 'open'> {
 
     if (at >= 0) {
       this.items.splice(at, 1)
+      this.#roots.delete(overlay)
       this.#host.closed(overlay)
       overlay.onClose?.()
       this.#host.changed()

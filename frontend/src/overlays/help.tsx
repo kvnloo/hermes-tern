@@ -14,6 +14,7 @@ import { APP_SHORTCUTS, shortcutGroups, type Shortcut } from '../shortcuts/actio
 import { actionsRow } from '../view/ui/button.js'
 import { rpc } from '../wire/rpc.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 
 /** What the help sheet reaches of the app. */
@@ -121,8 +122,8 @@ export async function openHelp(host: HelpHost, actions: readonly Shortcut[] = AP
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    node: () => (
-      <overlay anchor="center" head="Commands and shortcuts" key={KEY} modal role="omp.overlay.hotkeys" size="lg">
+    node: id => (
+      <overlay anchor="center" head="Commands and shortcuts" key={nativeOverlayKey(id)} modal role="omp.overlay.hotkeys" size="lg">
         <col gap="lg" key="body">
           {[...sections].map(([group, rows]) => (
             <section head={group} key={`keys-${group}`} role="omp.hotkeys.group">

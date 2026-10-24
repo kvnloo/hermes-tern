@@ -24,7 +24,7 @@ function walk(n: NodeJson): NodeJson[] {
 }
 
 function props(overlay: ReturnType<typeof sideSetup>['overlays'][number], role: string) {
-  return walk(tree(overlay.node('layer.operational'))).filter(n => n.p?.['role'] === role).map(n => n.p)
+  return walk(tree(overlay.node('layer.overlay-1'))).filter(n => n.p?.['role'] === role).map(n => n.p)
 }
 
 describe('read-only operational routes', () => {
@@ -57,8 +57,8 @@ describe('read-only operational routes', () => {
       await must(localCommand(must(service))).run({ ...f.host, operations: ops }, args.join(' '))
       const sheet = must(f.overlays.at(-1))
       expect(props(sheet, 'omp.report.state')[0]?.['text']).toBe('unsupported')
-      expect(JSON.stringify(tree(sheet.node('layer.operational')))).toContain('No command or mutation was sent')
-      expect(JSON.stringify(tree(sheet.node('layer.operational')))).not.toContain('inert-secret')
+      expect(JSON.stringify(tree(sheet.node('layer.overlay-1')))).toContain('No command or mutation was sent')
+      expect(JSON.stringify(tree(sheet.node('layer.overlay-1')))).not.toContain('inert-secret')
       expect(f.gw.calls).toEqual([])
       expect(operationalView(must(service), args.join(' '))).toBeUndefined()
     }
@@ -83,7 +83,7 @@ describe('read-only operational routes', () => {
     expect(props(must(f.overlays.at(-1)), 'omp.report.state')[0]?.['text']).toBe('loading')
     pending.reject(new Error('Authorization: Bearer inert-secret-fixture'))
     await vi.waitFor(() => expect(props(must(f.overlays.at(-1)), 'omp.report.state')[0]?.['text']).toBe('unavailable'))
-    expect(JSON.stringify(tree(must(f.overlays.at(-1)).node('layer.operational')))).not.toContain('inert-secret-fixture')
+    expect(JSON.stringify(tree(must(f.overlays.at(-1)).node('layer.overlay-1')))).not.toContain('inert-secret-fixture')
   })
 
   it('copies exactly the read-only body and scrolls only its own sheet', async () => {
@@ -99,7 +99,7 @@ describe('read-only operational routes', () => {
     const content = props(sheet, 'omp.report.body')[0]?.['text']
     expect(content).toContain('tool\\-299')
     sheet.onKey(key('page_down'))
-    expect(f.scroll).toHaveBeenCalledWith('layer.operational.body.markdown', 'page-down')
+    expect(f.scroll).toHaveBeenCalledWith('layer.overlay-1.body.markdown', 'page-down')
     sheet.onKey(key('c'))
     expect(copyToClipboard).toHaveBeenCalledWith(content)
   })
@@ -121,7 +121,7 @@ describe('read-only operational routes', () => {
     replies[0]?.resolve({ ...result('mcp-list'), rows: [{ name: 'private-old', details: [] }] })
     replies[1]?.resolve(result('mcp-status'))
     await vi.waitFor(() => expect(props(second, 'omp.report.state')[0]?.['text']).toBe('ready'))
-    expect(JSON.stringify(tree(second.node('layer.operational')))).not.toContain('private-old')
+    expect(JSON.stringify(tree(second.node('layer.overlay-1')))).not.toContain('private-old')
     f.open(stubOverlay('approval', { modal: true }))
     first.onKey(key('c'))
     second.onKey(key('c'))

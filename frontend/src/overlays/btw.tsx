@@ -6,6 +6,7 @@ import type { BtwThreads } from '../btw.js'
 import { copyToClipboard } from '../clipboard.js'
 import { actionsRow, button } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 
 const SCROLL: Readonly<Record<string, ScrollTo>> = {
@@ -19,6 +20,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
   const host = model.host
   let pane: Pane = 'reader'
   let message = ''
+  let root = ''
   const valid = () => model.owns(sheet)
 
   const choose = (id: string | null) => {
@@ -81,12 +83,13 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
     focus: id => pane === 'composer' ? id + '.body.' + model.editorKey : null,
     cancel: () => model.close(),
     onClose: () => model.closed(sheet),
-    node: (): JSX.Element => {
+    node: (id): JSX.Element => {
       // Each SDK callback captures this render's live side editor ownership.
       const editor = model.captureEditor(sheet)
+      root = id
 
       return (
-      <overlay anchor="bottom" head="/btw" key="btw" modal role="omp.overlay.report" size="lg">
+      <overlay anchor="bottom" head="/btw" key={nativeOverlayKey(id)} modal role="omp.overlay.report" size="lg">
         <col gap="sm" key="body">
           <text key="hint" text="Tab: history / reader / composer · Ctrl+N/P: select · Alt+Enter: send · Ctrl+X: stop side turn" wrap="word" />
           <row gap="sm" key="panes" role="omp.btw.body">
@@ -204,7 +207,7 @@ export function openBtwOverlay(model: BtwThreads): Overlay {
         const to = SCROLL[key.name]
 
         if (to) {
-          host.scroll('layer.btw.body.panes.' + pane, to)
+          host.scroll(root + '.body.panes.' + pane, to)
         }
       }
 

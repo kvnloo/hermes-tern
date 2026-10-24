@@ -119,7 +119,7 @@ function fixture(replies: Record<string, Reply> = {}, { busy = false, queued = 0
   const nodes = () => {
     const overlay = overlays.at(-1)
 
-    return overlay ? walk([overlay.node('layer.' + overlay.key)]) : []
+    return overlay ? walk([overlay.node('layer.overlay-1')]) : []
   }
   const element = (name: string) => nodes().find(node => node.props['key'] === name)
   const click = (name: string) => {
@@ -193,7 +193,7 @@ describe('native plan review', () => {
     expect(f.element('refine')).toBeDefined()
     expect(f.element('mode')).toBeUndefined()
     f.click('section-1')
-    expect(f.scroll).toHaveBeenCalledWith('layer.plan.body.markdown', 'start')
+    expect(f.scroll).toHaveBeenCalledWith('layer.overlay-1.body.markdown', 'start')
     expect(f.element('markdown')?.props['text']).toContain('## Phase one')
     f.click('close')
     expect(f.overlays).toHaveLength(0)

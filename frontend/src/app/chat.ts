@@ -139,6 +139,7 @@ export class App implements ChatPorts {
           this.#view = { ...this.#view, retention: this.#retention }
         }
         this.#surface.guardHandlers(Boolean(this.#retention))
+        this.#guardOverlayHandlers()
       },
       report: message => {
         process.stderr.write('hermes tern: ' + message + '\n')
@@ -150,6 +151,7 @@ export class App implements ChatPorts {
       this.#retention = new Retention(this.#surface.raw, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
     }
     this.#surface.guardHandlers(Boolean(this.#retention))
+    this.#guardOverlayHandlers()
     this.#view = {
       ...s,
       actions: this.#act.dock,
@@ -201,7 +203,9 @@ export class App implements ChatPorts {
       onEvent: event => {
         if (this.#surface.event(event)) {
           this.#retention?.gone(event)
-          onTernEvent(event, this.#act.events)
+          if (this.stores.stack.nativeReceipt(event).allowed) {
+            onTernEvent(event, this.#act.events)
+          }
         }
       },
       onKey: key => {
@@ -246,6 +250,32 @@ export class App implements ChatPorts {
       this.#surface.rendered()
     } catch (error) {
       this.#surface.failure(error)
+    }
+  }
+
+  /**
+   * SurfaceHost already fences document epochs. Fence the separate overlay
+   * open-instance namespace before native SDK lookup and again when a bound
+   * callback executes (a replacement can occur between these two moments).
+   */
+  #guardOverlayHandlers() {
+    const surface = this.#surface.raw
+    const dispatch = surface.dispatch.bind(surface)
+
+    surface.dispatch = event => {
+      const receipt = this.stores.stack.nativeReceipt(event)
+
+      if (!receipt.allowed) {
+        return undefined
+      }
+
+      const handler = dispatch(event)
+
+      return handler && (() => {
+        if (this.stores.stack.ownsNativeReceipt(receipt)) {
+          return handler()
+        }
+      })
     }
   }
 

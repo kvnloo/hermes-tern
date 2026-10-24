@@ -8,6 +8,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { capsOf, loadCaps } from '../modelCaps.js'
 import { DEFAULT_EFFORT, levelsFor } from '../session/effort.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { moveSelection } from './search.js'
 
@@ -44,7 +45,7 @@ export function openEffortPicker(host: EffortHost, global = false) {
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    node: () => (
+    node: id => (
       <picker
         actions={[
           { id: 'global', keys: ['ctrl+g'], label: 'Save as default', on: saveDefault },
@@ -61,7 +62,7 @@ export function openEffortPicker(host: EffortHost, global = false) {
             label: l.label
           })
         )}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         noun="levels"
         onAction={{
           close: () => host.close(overlay),

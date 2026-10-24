@@ -14,6 +14,7 @@ import { SurfaceView } from '../surface/lifecycle.js'
 
 const pinnedPaint = SurfaceView.prototype.paint
 import { liveSessionId } from '../core/ids.js'
+import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay } from '../overlays/overlay.js'
 import type { SessionState } from '../session/state.js'
 import type { Activity, Busy } from '../turn/activity.js'
@@ -299,5 +300,5 @@ export function spanTexts(spans: unknown): string[] {
 
 /** An overlay with nothing to show that takes every key, for a test to open (`modal`: a question sheet). */
 export function stubOverlay(key: string, { modal }: { modal?: boolean } = {}): Overlay {
-  return { key, ...(modal === undefined ? {} : { modal }), node: () => node('col'), onKey: () => true }
+  return { key, ...(modal === undefined ? {} : { modal }), node: id => node('col', { key: nativeOverlayKey(id) }), onKey: () => true }
 }

@@ -25,6 +25,7 @@ import { storedTranscripts, type TranscriptReader } from '../hermes/sessionTrans
 import { homeTilde } from '../view/format.js'
 import { rpc } from '../wire/rpc.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { editQuery, hitRuns, moveSelection, rank } from './search.js'
 import { MORE, sessionDetail } from './sessions/detail.js'
@@ -57,7 +58,7 @@ export function openSessionPicker(host: SessionsHost, reader: TranscriptReader =
   /** The focused block of the preview, and the blocks it had at the last render. */
   let block: string | undefined
   let blocks: string[] = []
-  let nodeId = `layer.${KEY}`
+  let nodeId: string | undefined
   /** The selection the loader was last told of. */
   let told: string | undefined
   const current = durable(host.session.ref) ?? ''
@@ -154,7 +155,9 @@ export function openSessionPicker(host: SessionsHost, reader: TranscriptReader =
 
     focus = 'preview'
     block = key
-    host.reveal(`${nodeId}.${key}`)
+    if (nodeId) {
+      host.reveal(`${nodeId}.${key}`)
+    }
 
     if (blocks.length - blocks.indexOf(key) <= NEAR_END || key === MORE) {
       loader.more(selected)
@@ -166,7 +169,7 @@ export function openSessionPicker(host: SessionsHost, reader: TranscriptReader =
   const scrollPreview = (to: ScrollTo) => {
     const at = block ?? blocks[0]
 
-    if (at) {
+    if (at && nodeId) {
       host.scroll(`${nodeId}.${at}`, to)
     }
   }
@@ -290,7 +293,7 @@ export function openSessionPicker(host: SessionsHost, reader: TranscriptReader =
             { format: 'dim', id: 'size', priority: 1 },
             { format: 'time', id: 'when', priority: 2 }
           ]}
-          key={KEY}
+          key={nativeOverlayKey(id)}
           {...optional('confirm', deleting ? { act: 'confirm', label: 'Delete', text: `Delete “${sessionLabel(sessions.find(x => x.id === deleting) ?? { preview: '', title: '' })}”?` } : undefined)}
           current={current ? [current] : []}
           empty={tab === 'here' ? `No sessions in ${project} yet. Tab shows every folder.` : 'No saved sessions yet'}

@@ -129,6 +129,32 @@ lock in its own commit.
 The Tern SDK is [`@stencil-hq/tern`](https://www.npmjs.com/package/@stencil-hq/tern) from npm
 ([stencil-hq/tern-sdk](https://github.com/stencil-hq/tern-sdk)), pinned like every other dependency.
 
+## Native overlay ownership
+
+`OverlayStack.open` assigns a fresh `layer.overlay-N` root **once per open**,
+even when the same logical key or object is reopened. Request keys remain unchanged
+for replacement, approval cancellation, and closing. Only the current *top*
+root may dispatch native actions; the app checks the actual received node id
+before the SDK looks up its latest handler, then checks the captured root
+again when a queued handler runs. Descendants match on an exact `.` boundary,
+never a shared prefix. Factory and focus/scroll ids use the assigned root,
+not a logical-key alias. This guard does not intercept main/dock input,
+SDK ACK/gone/visibility lifecycle events, or unrelated image events.
+
+Frame fixtures use a real `OverlayStack` and a complete `Overlay` contract.
+The same-object regression captures the original root and bound callback before replacement.
+It checks old native IDs and already-bound callbacks independently.
+
+Verify from `frontend/` with `bun install --prefer-offline --frozen-lockfile`,
+then `bun run test -- src/__tests__/overlayOwnership.test.ts src/__tests__/prompts.test.ts
+src/__tests__/surfaceRecovery.test.ts src/__tests__/watchRecovery.test.ts
+src/__tests__/watch.test.ts src/__tests__/retention.test.ts
+src/__tests__/appDispose.test.ts src/__tests__/golden.test.ts`,
+`bun run check`, `bun run bundle`, and the unchanged retention
+benchmark/`bundle:report` thresholds. Run the isolated owned-headless Sway/Tern
+Deny/replacement smoke separately with dedicated `SOURCE` and `HERMES_HOME`;
+SDK peer tests cannot certify a native terminal.
+
 ## Missing Tern documents
 
 The presentation surface recovers from an explicit whole-surface `gone` while visible, at most
