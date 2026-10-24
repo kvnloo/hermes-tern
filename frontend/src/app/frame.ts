@@ -3,6 +3,8 @@
 // dock from dockModel(), the layers, the transcript), and then the caret moves where it belongs,
 // sent only when that changed. Every step but those three only reads.
 
+import type { GatewayClient } from '@tui/gatewayClient.js'
+
 import type { Hud } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { Completion } from '../overlays/completion.js'
@@ -12,12 +14,15 @@ import { COMPOSER_ID, INPUT_ID, type SurfaceHost } from '../surface/host.js'
 import type { Transcript } from '../transcript/store.js'
 import { type DockActions, dockNodes } from '../view/dock.js'
 import { type DockSources, dockModel, isModal, shownPills } from '../view/dockModel.js'
+import { lspLinkContext } from '../view/tools/lsp-links.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import type { WelcomeContext } from '../view/welcome.js'
 
 /** What a frame reads and the three things it changes: the pills' focus, the completion and the surface. */
 export interface FrameCx extends DockSources {
   readonly surface: Pick<SurfaceHost, 'closed' | 'follow' | 'render'>
+  /** The active gateway transport: attached gateways never attest file-locality. */
+  readonly gateway?: Pick<GatewayClient, 'attached'>
   readonly hud: Pick<Hud, 'focused' | 'prune' | 'todosOpen'>
   readonly completion: Pick<Completion, 'ghost' | 'nodes' | 'update'>
   readonly overlays: readonly Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'>[]
@@ -73,6 +78,13 @@ function transcriptContext(cx: FrameCx, now: number): TranscriptContext {
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
+    lspContext: lspLinkContext({
+      cwd: info?.cwd,
+      terminalBackend: info?.terminal_backend,
+      sessionLive: cx.session.ref.live !== null,
+      gatewayAttached: cx.gateway?.attached !== false,
+      ssh: Boolean(process.env['SSH_CONNECTION'] || process.env['SSH_CLIENT'] || process.env['SSH_TTY'])
+    }),
     welcome: { ...cx.welcome, version: cx.welcome.version || backend }
   }
 }
