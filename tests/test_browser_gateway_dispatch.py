@@ -936,6 +936,11 @@ def test_real_create_resume_marker_and_model_tool_original_driver(green, monkeyp
     binary.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
 
+    # Construct the real agent against an explicit non-network test provider.
+    # No inference request is made; browser routing is the behavior under test.
+    monkeypatch.setenv("HERMES_TUI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-browser-routing-not-a-secret")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:1/v1")
     first = Peer()
     created = rpc(server, first, "session.create", rid=401, source="desktop")
     assert "result" in created, created
