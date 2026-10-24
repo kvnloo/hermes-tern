@@ -1,211 +1,392 @@
-// The images the draft carries: a paste with no text (what a terminal sends for a clipboard image),
-// a pasted or dropped image path, Ctrl+V, `/image <path>` and the launcher's `--image`. Each one
-// shows a chip at once that says "attaching…" while it is read and uploaded, and the next prompt
-// entered takes every image that landed.
+// Images attached to the composer, uploaded to the owning Hermes session.
+// Ownership is a SessionState.ref object, not a runtime id: reused ids never adopt old work.
 
-import { existsSync } from 'node:fs'
-import { basename } from 'node:path'
+import { constants, existsSync, statSync } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { basename, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
+import { MAX_IMAGES, MAX_PASTED_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, decodePastedImage, encodedImageBytes } from '../artifacts/attachments.js'
 import { errorText } from '../core/errors.js'
+import type { SessionIds } from '../core/ids.js'
 import { imagePathOf, withClipboardImage } from '../hermes/clipboardImage.js'
-import { type Attachment, imageSize, uploadImage } from '../hermes/images.js'
+import { stageImageBytes, type Attachment, imageFormat, imageSize } from '../hermes/images.js'
 import type { ImageSource, NoticeEntry } from '../model.js'
 import { rpc } from '../wire/rpc.js'
 
-/**
- * An uploaded image a prompt carries (the shared gateway takes it on prompt.submit), with the name
- * its chip shows, and the thumbnail and size the chip and the prompt's bubble show.
- */
+/** A gateway path is the only submission identity; neither refs nor authorities go on the wire. */
 export type Image = Attachment & { name: string; preview?: ImageSource; caption?: string }
 
-/** An image attached to the draft, as its chip shows it. */
 export interface ComposerImage {
   label: string
-  /** Its size, under the name. */
   caption?: string
-  /** The thumbnail; unset where Tern can be sent no blob and the file is not here. */
   image?: ImageSource
-  /** Still read or uploaded: the chip says so. */
   pending?: boolean
 }
 
-/** An image being read or uploaded: its chip, until it lands or fails. */
-interface Slot {
-  name: string
+/** A captured object identity, plus the stored and runtime ids in that exact ref. */
+interface Owner {
+  readonly ref: SessionIds
+  readonly sid: string
+  readonly stored: string | null
+  readonly canonical: boolean
 }
 
-/** Hands the clipboard's image file to `use`; undefined when the clipboard holds none. */
+interface Slot {
+  readonly name: string
+  readonly owner: Owner
+  /** Bytes reserved before allocation; retained even if a still-running chip was removed. */
+  bytes: number
+}
+
+interface ImageOwner {
+  readonly owner: Owner
+  readonly bytes: number
+}
+
 export type ClipboardReader = (use: (path: string) => Promise<boolean>) => Promise<boolean | undefined>
 
-/** What the attachments reach of the app. */
 export interface AttachmentsHost {
-  /** Uploads go to it; a private gateway takes the startup image by path. */
   readonly gw: Pick<GatewayClient, 'isCanonical' | 'request'>
-  /** The folder the launcher ran in: an upload's path resolves against it. */
   readonly launchCwd: string
-  /** The open session's runtime id: null before the first session and while the gateway is down. */
-  sid(): string | null
-  /** The folder a pasted or typed path resolves against: the session's, else the launcher's. */
+  /** Return the actual SessionState.ref object, never a copied {live, stored} value. */
+  owner(): SessionIds
   cwd(): string
-  /** A transcript notice; the store asks for the render. */
   note(text: string, tone: NoticeEntry['tone']): void
-  /** Asks for a render. */
   changed(): void
-  /** `bytes` sent to Tern as a blob; undefined where it takes none. */
   blob(bytes: Uint8Array, mime: string): string | undefined
-  /**
-   * Puts the startup image on the prompt at the queue's head (the startup query waits there for
-   * it), in place; false when the queue is empty, and the draft takes it.
-   */
   attachToHead(image: Image): boolean
 }
 
-/** The draft's images, and those still on their way. */
 export class Attachments {
   readonly #host: AttachmentsHost
   readonly #clipboard: ClipboardReader
-  /** The images attached to the draft: the next prompt entered takes them. */
   #items: Image[] = []
-  /** Images being read or uploaded for the draft: an "attaching…" chip each until they land. */
+  /** Visible chips only. Removal does not end a running operation. */
   #pending: Slot[] = []
-  /** The launcher's startup image until it is attached to the first session (the queue waits for it). */
+  /** Every operation still decoding/reading/uploading, including canceled work. */
+  readonly #inflight = new Set<Slot>()
+  /** Session and size stay local, never in the image object passed to the gateway. */
+  readonly #identity = new WeakMap<Image, ImageOwner>()
   #startup: string
 
-  /** `startup`: the launcher's `--image` (''); `clipboard`: reads the clipboard's image (tests fake it). */
   constructor(host: AttachmentsHost, { clipboard = use => withClipboardImage(use), startup = '' }: { clipboard?: ClipboardReader; startup?: string } = {}) {
     this.#host = host
     this.#clipboard = clipboard
     this.#startup = startup
   }
 
-  /** The images that landed, in the order they were attached. */
+  #owner(): Owner | undefined {
+    const ref = this.#host.owner()
+    return ref.live ? { ref, sid: ref.live, stored: ref.stored, canonical: this.#host.gw.isCanonical } : undefined
+  }
+
+  #current(owner: Owner): boolean {
+    const ref = this.#host.owner()
+    return ref === owner.ref && ref.live === owner.sid && ref.stored === owner.stored &&
+      this.#host.gw.isCanonical === owner.canonical
+  }
+
+  /** A switch invalidates visible chips immediately, even for A -> B -> A with the same sid. */
+  #prune() {
+    this.#items = this.#items.filter(image => {
+      const identity = this.#identity.get(image)
+      return identity !== undefined && this.#current(identity.owner)
+    })
+    this.#pending = this.#pending.filter(slot => this.#current(slot.owner))
+  }
+
   get items(): readonly Image[] {
+    this.#prune()
     return this.#items
   }
 
-  /** An image is still being read or uploaded: a prompt sent now would miss it. */
   get uploading(): boolean {
+    this.#prune()
     return this.#pending.length > 0
   }
 
-  /** Any image, landed or on its way: the draft is not empty. */
   get any(): boolean {
+    this.#prune()
     return this.#items.length > 0 || this.#pending.length > 0
   }
 
-  /** The launcher's startup image is still to be attached (the queue waits for it). */
   get awaitingStartup(): boolean {
     return Boolean(this.#startup)
   }
 
-  /** A paste that is an image (no text: the clipboard's; one image path: that file); false for text. */
-  paste(text: string): boolean {
-    if (!text.trim()) {
-      void this.fromClipboard(true)
-
-      return true
-    }
-
-    const path = imagePathOf(text, this.#host.cwd())
-
-    if (path) {
-      void this.#attach(path, basename(path))
-
-      return true
-    }
-
-    return false
+  /** All retained image bytes and all unsettled reservations, including canceled uploads. */
+  #charged(): number {
+    return this.#items.reduce((sum, image) => sum + (this.#identity.get(image)?.bytes ?? 0), 0) +
+      [...this.#inflight].reduce((sum, slot) => sum + slot.bytes, 0)
   }
 
-  /** Attaches the clipboard's image to the next prompt (`quiet`: an empty paste, which may hold none). */
+  #start(name: string): Slot | undefined {
+    this.#prune()
+    const owner = this.#owner()
+
+    if (!owner) {
+      this.#host.note('Wait for the session to start before attaching an image.', 'warning')
+      this.#host.changed()
+      return undefined
+    }
+
+    if (this.#items.length + this.#inflight.size >= MAX_IMAGES || this.#charged() >= MAX_TOTAL_IMAGE_BYTES) {
+      this.#host.note('Composer attachment budget reached (8 images / 40 MiB). Remove an image first.', 'warning')
+      this.#host.changed()
+      return undefined
+    }
+
+    const slot: Slot = { name, owner, bytes: 0 }
+    this.#inflight.add(slot)
+    this.#pending.push(slot)
+    this.#host.changed()
+    return slot
+  }
+
+  /** Reserve actual byte size before Buffer allocation and before every gateway upload. */
+  #reserve(slot: Slot, bytes: number) {
+    if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_PASTED_IMAGE_BYTES) {
+      throw new Error('Image must be a file no larger than 20 MiB.')
+    }
+
+    if (this.#charged() - slot.bytes + bytes > MAX_TOTAL_IMAGE_BYTES) {
+      throw new Error('Composer attachment budget reached (8 images / 40 MiB).')
+    }
+
+    slot.bytes = bytes
+  }
+
+  #eligible(slot: Slot): boolean {
+    return this.#pending.includes(slot) && this.#current(slot.owner)
+  }
+
+  #end(slot: Slot) {
+    const visible = this.#pending.includes(slot) && this.#current(slot.owner)
+    this.#pending = this.#pending.filter(s => s !== slot)
+    this.#inflight.delete(slot)
+    if (visible) this.#host.changed()
+  }
+
+  #failed(slot: Slot, message: string) {
+    if (this.#eligible(slot)) this.#host.note(message, 'error')
+  }
+
+  /** Read a regular local image with a bounded allocation; reject symlinks and racing growth. */
+  async #uploadPath(slot: Slot, path: string): Promise<Attachment & { bytes: Buffer }> {
+    const initial = statSync(path)
+    if (!initial.isFile()) throw new Error('Image must be a regular file.')
+    this.#reserve(slot, initial.size)
+
+    const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    let bytes: Buffer
+    try {
+      const stat = await file.stat()
+      if (!stat.isFile()) throw new Error('Image must be a regular file.')
+      this.#reserve(slot, stat.size)
+      if (!this.#eligible(slot)) throw new Error('Attachment was canceled.')
+      bytes = Buffer.alloc(stat.size)
+      let offset = 0
+      while (offset < bytes.length) {
+        const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset)
+        if (!bytesRead) throw new Error('Image changed while it was read.')
+        offset += bytesRead
+      }
+      const after = await file.stat()
+      if (after.size !== bytes.length) throw new Error('Image changed while it was read.')
+    } finally {
+      await file.close()
+    }
+
+    const format = imageFormat(bytes)
+    if (!format) throw new Error('This file is not a PNG, JPEG, GIF or WebP image.')
+    if (!this.#eligible(slot)) throw new Error('Attachment was canceled.')
+
+    const result = await stageImageBytes(this.#host.gw, {
+      session_id: slot.owner.sid,
+      filename: 'image' + format.ext,
+      content_base64: bytes.toString('base64')
+    })
+    if (!result?.path) throw new Error('the gateway did not store the image')
+    return { bytes, mime: format.mime, path: result.path }
+  }
+
+  paste(text: string): boolean {
+    if (text.startsWith('data:image/')) {
+      void this.fromDataUrl(text)
+      return true
+    }
+    if (!text.trim()) {
+      void this.fromClipboard(true)
+      return true
+    }
+    const path = imagePathOf(text, this.#host.cwd())
+    if (!path) return false
+    void this.#attach(path, basename(path))
+    return true
+  }
+
   async fromClipboard(quiet: boolean) {
-    // The chip shows at once; reading the clipboard and uploading fill it in.
-    const slot = this.#start(`pasted image ${this.#items.length + this.#pending.length + 1}`)
+    const slot = this.#start('pasted image ' + (this.#items.length + this.#pending.length + 1))
+    if (!slot) return
 
     try {
       const found = await this.#clipboard(async path => {
         await this.#attach(path, slot.name, slot)
-
         return true
       })
-
-      if (!found && !quiet) {
-        this.#host.note('No image on the clipboard.', 'warning')
-      }
+      if (!found && !quiet && this.#eligible(slot)) this.#host.note('No image on the clipboard.', 'warning')
     } catch (error) {
-      this.#host.note(`Could not read the clipboard image: ${errorText(error)}`, 'error')
+      this.#failed(slot, 'Could not read the clipboard image: ' + errorText(error))
     } finally {
       this.#end(slot)
-      this.#host.changed()
     }
   }
 
-  /** `/image <path>`: attaches that image file (resolved against the session's folder) to the next prompt. */
+  async fromDataUrl(data: string, name = 'Pasted image') {
+    const slot = this.#start(name)
+    if (!slot) return
+    try {
+      // Encoded length is validated and charged before the decoder allocates the bytes.
+      this.#reserve(slot, encodedImageBytes(data))
+      if (!this.#eligible(slot)) return
+      const { bytes, mime, ext } = decodePastedImage(data)
+      const result = await stageImageBytes(this.#host.gw, {
+        session_id: slot.owner.sid,
+        filename: 'image' + ext,
+        content_base64: bytes.toString('base64')
+      })
+      if (!result?.path) throw new Error('the gateway did not store the image')
+      if (this.#eligible(slot)) this.#items.push(this.#image({ bytes, mime, path: result.path }, name, slot.owner))
+    } catch (error) {
+      this.#failed(slot, 'Could not attach ' + name + ': ' + errorText(error))
+    } finally {
+      this.#end(slot)
+    }
+  }
+
   async fromPath(raw: string) {
     const path = imagePathOf(raw, this.#host.cwd())
-
     if (!path) {
-      this.#host.note(`Not an image file: ${raw.trim()} (PNG, JPEG, GIF or WebP)`, 'warning')
-
-      return this.#host.changed()
+      this.#host.note('Not an image file: ' + raw.trim() + ' (PNG, JPEG, GIF or WebP)', 'warning')
+      this.#host.changed()
+      return
     }
-
     await this.#attach(path, basename(path))
   }
 
-  /**
-   * `hermes -q … --image …`: attaches the launcher's image to session `sid` (the first one): on the
-   * shared gateway to the startup query at the queue's head, else by path to the session itself.
-   * A failure is a warning, and the queue goes on without it.
-   */
+  /** Only a same-host Tern native event may introduce a filesystem path. */
+  async fromNativePath(raw: string, sameHost: boolean) {
+    if (!sameHost) {
+      this.#host.note('A remote Tern or gateway path cannot be attached as a local file. Paste image bytes instead.', 'warning')
+      this.#host.changed()
+      return
+    }
+    let native = raw
+    if (native.startsWith('file://')) {
+      try {
+        native = fileURLToPath(native)
+      } catch {
+        this.#host.note('Not a local image file: ' + raw, 'warning')
+        this.#host.changed()
+        return
+      }
+    }
+    if (!isAbsolute(native) || native.startsWith('//') ||
+      Array.from(native).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+      this.#host.note('Not a local image file: ' + raw, 'warning')
+      this.#host.changed()
+      return
+    }
+    const path = imagePathOf(native, this.#host.cwd())
+    if (!path) {
+      this.#host.note('Not a local image file: ' + raw, 'warning')
+      this.#host.changed()
+      return
+    }
+    await this.#attach(path, basename(path))
+  }
+
+  /** First session startup: preserve its exact owner through queue-head admission. */
   async attachStartup(sid: string) {
     const path = this.#startup
+    const owner = this.#owner()
+    if (!path) return
 
+    if (!owner || owner.sid !== sid) {
+      this.#host.note('Startup image has no matching active session.', 'warning')
+      this.#startup = ''
+      return
+    }
+    const slot = this.#start(basename(path))
+    if (!slot) {
+      this.#startup = ''
+      return
+    }
     try {
-      if (this.#host.gw.isCanonical) {
-        const image = this.#image(await uploadImage(this.#host.gw, sid, path, this.#host.launchCwd), basename(path))
-
-        if (!this.#host.attachToHead(image)) {
-          this.#items.push(image)
+      if (slot.owner.canonical) {
+        const result = await this.#uploadPath(slot, imagePathOf(path, this.#host.launchCwd) ?? path)
+        if (this.#eligible(slot)) {
+          const image = this.#image(result, basename(path), owner)
+          if (!this.#host.attachToHead(image)) this.#items.push(image)
         }
       } else {
         await rpc(this.#host.gw, 'image.attach', { path, session_id: sid })
       }
     } catch (error) {
-      this.#host.note(`Could not attach ${path}: ${errorText(error)}`, 'warning')
+      if (this.#eligible(slot)) this.#host.note('Could not attach ' + path + ': ' + errorText(error), 'warning')
+    } finally {
+      this.#startup = ''
+      this.#end(slot)
     }
-
-    this.#startup = ''
   }
 
-  /** The draft's images, which leave the composer with the prompt that takes them. */
+  /** Revalidate taken/queued images when a prompt is about to enter the gateway. */
+  ownsForSend(sid: string, images: readonly Image[]): boolean {
+    const ref = this.#host.owner()
+    return ref.live === sid && images.every(image => {
+      const owner = this.#identity.get(image)?.owner
+      return owner !== undefined && owner.sid === sid && this.#current(owner)
+    })
+  }
+
+  /** Synchronous submission: never give a B prompt an A ref, even with a reused runtime id. */
   take(): Image[] {
-    const images = this.#items
+    this.#prune()
+    const taken = this.#items
     this.#items = []
-
-    return images
+    return taken
   }
 
-  /** A prompt that did not go is back in the composer: its images go before the draft's. */
   restore(images: readonly Image[]) {
-    this.#items = [...images, ...this.#items]
+    this.#prune()
+    for (const image of [...images].reverse()) {
+      const identity = this.#identity.get(image)
+      if (!identity || !this.#current(identity.owner)) continue
+      if (this.#items.includes(image)) continue
+      if (this.#items.length + this.#inflight.size >= MAX_IMAGES ||
+        this.#charged() + identity.bytes > MAX_TOTAL_IMAGE_BYTES) {
+        this.#host.note('Composer attachment budget reached (8 images / 40 MiB). Remove an image first.', 'warning')
+        continue
+      }
+      this.#items.unshift(image)
+    }
   }
 
-  /** The images that landed go; one still uploading lands after (Esc Esc). */
   clear() {
     this.#items = []
   }
 
-  /** Every image goes, and the uploads in flight land nowhere (Ctrl+C). */
   clearAll() {
     this.#items = []
+    // The slots still in #inflight continue to count until their promises actually settle.
     this.#pending = []
   }
 
-  /** The composer's chips: the landed images, then those on their way. */
   chips(): ComposerImage[] {
+    this.#prune()
     return [
       ...this.#items.map(a => ({
         ...(a.caption === undefined ? {} : { caption: a.caption }),
@@ -216,67 +397,40 @@ export class Attachments {
     ]
   }
 
-  /** Chip `index`'s ✕: a landed image leaves the draft; one on its way lands nowhere. */
   remove(index: number) {
-    const slot = this.#pending[index - this.#items.length]
-
+    this.#prune()
+    if (index < 0 || !Number.isInteger(index)) return
     if (index < this.#items.length) {
       this.#items.splice(index, 1)
-    } else if (slot) {
-      this.#end(slot)
+    } else {
+      const slot = this.#pending[index - this.#items.length]
+      if (slot) this.#pending = this.#pending.filter(s => s !== slot)
     }
-
     this.#host.changed()
   }
 
-  /** Uploads `path` for the next prompt; its chip says "attaching…" (in `slot`) until it lands or fails. */
-  async #attach(path: string, name: string, slot = this.#start(name)) {
-    const sid = this.#host.sid()
-
+  async #attach(path: string, name: string, existing?: Slot) {
+    const slot = existing ?? this.#start(name)
+    if (!slot) return
     try {
-      if (!sid) {
-        this.#host.note('Wait for the session to start before attaching an image.', 'warning')
-
-        return
-      }
-
-      const image = this.#image(await uploadImage(this.#host.gw, sid, path, this.#host.launchCwd), name)
-
-      // Its chip was removed (✕, Ctrl+C) while it uploaded: the prompt does not take it.
-      if (this.#pending.includes(slot)) {
-        this.#items.push(image)
-      }
+      if (!this.#eligible(slot)) return
+      const result = await this.#uploadPath(slot, path)
+      if (this.#eligible(slot)) this.#items.push(this.#image(result, name, slot.owner))
     } catch (error) {
-      this.#host.note(`Could not attach ${name}: ${errorText(error)}`, 'error')
+      this.#failed(slot, 'Could not attach ' + name + ': ' + errorText(error))
     } finally {
-      this.#end(slot)
-      this.#host.changed()
+      if (!existing) this.#end(slot)
     }
   }
 
-  #start(name: string): Slot {
-    const slot = { name }
-    this.#pending.push(slot)
-    this.#host.changed()
-
-    return slot
-  }
-
-  #end(slot: Slot) {
-    this.#pending = this.#pending.filter(s => s !== slot)
-  }
-
-  /**
-   * An uploaded image with its thumbnail: its bytes as a blob, else the gateway's copy where that
-   * is on this machine. The bytes are not kept.
-   */
-  #image({ bytes, ...attachment }: Attachment & { bytes: Buffer }, name: string): Image {
+  #image({ bytes, ...attachment }: Attachment & { bytes: Buffer }, name: string, owner: Owner): Image {
     const size = imageSize(bytes)
     const kb = bytes.length / 1024
     const blob = this.#host.blob(bytes, attachment.mime)
     const preview = blob ? { blob } : existsSync(attachment.path) ? { path: attachment.path } : undefined
-    const caption = [size && `${size.w}×${size.h}`, kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`]
-
-    return { ...attachment, caption: caption.filter(Boolean).join(' · '), name, ...(preview ? { preview } : {}) }
+    const caption = [size && (size.w + '×' + size.h), kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(kb)) + ' KB']
+    const image: Image = { ...attachment, caption: caption.filter(Boolean).join(' · '), name, ...(preview ? { preview } : {}) }
+    this.#identity.set(image, { owner, bytes: bytes.length })
+    return image
   }
 }

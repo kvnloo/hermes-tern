@@ -67,6 +67,7 @@ import { rpc } from '../wire/rpc.js'
 
 import { openAgentPane } from './agent-pane.js'
 import { openAppPalette } from './palette.js'
+import { copyComposer, attachNativeImage } from './native-artifacts.js'
 import { toolBlob } from './tool-blob.js'
 import { shouldSteer } from './busy-intent.js'
 import type { ChatPorts } from './ports.js'
@@ -180,6 +181,7 @@ export class AppActions {
     this.keys = {
       attachClipboardImage: () => void attachments.fromClipboard(false),
       attachments,
+      copyDraft: currentLine => copyComposer(cx, currentLine),
       busy: () => cx.activity.busy !== null,
       close: overlay => chat.close(overlay),
       completion: cx.completion,
@@ -211,6 +213,7 @@ export class AppActions {
       transcript
     }
     this.events = {
+      attachNativeImage: image => attachNativeImage(cx, image),
       connect: cx.connect,
       focusComposer: () => {
         cx.hud.release()
@@ -308,9 +311,7 @@ export class AppActions {
   submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     // Tern native Send and keyboard Enter never take the draft while voice owns input.
-    if (draft && this.#cx.liveVoice.blocked) {
-      return
-    }
+    if (draft && this.#cx.liveVoice.blocked) return
     const text = raw.trim()
 
     // An image still uploading would miss the prompt: the words wait in the composer for it.
@@ -484,7 +485,6 @@ export class AppActions {
     this.#cx.changed()
   }
 
-  // ── Gateway requests and images ────────────────────────────────────
 
   /** A server request: its prompt sheet, unless a switch holds it or it is another session's. */
   onRequest(req: ServerRequest) {

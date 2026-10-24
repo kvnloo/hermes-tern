@@ -39,6 +39,7 @@ export type KeyAction =
   | 'cancel'
   | 'clearOrStop'
   | 'clipboardImage'
+  | 'copyDraft'
   | 'dequeue'
   | 'effort'
   | 'plan'
@@ -62,6 +63,7 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   // Pressed twice: a single Esc never cancels work.
   clearOrStop: { label: 'escape escape', name: 'escape', with: [] },
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
+  copyDraft: { label: 'alt+c', name: 'c', with: ['alt'], without: ['ctrl', 'meta'] },
   dequeue: { label: 'alt+up', name: 'up', with: ['alt'] },
   effort: { label: 'shift+tab', name: 'tab', with: ['shift'] },
   fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
@@ -119,6 +121,8 @@ export interface KeyCx {
   toggleSidebar(): void
   /** Attaches the clipboard's image to the next prompt. */
   attachClipboardImage(): void
+  /** Alt+C copies the draft; Alt+Shift+C copies its current line. */
+  copyDraft(currentLine: boolean): void
   /** Gateway-owned display.tern_keybindings, if loaded; legacy tests can use the defaults. */
   shortcut?(id: string, key: Key): boolean
   openModel?(): void
@@ -371,6 +375,17 @@ const clipboardImage: KeyRule = (key, cx) => {
   return true
 }
 
+/** Copy the draft or its current line without editing or sending it. */
+const copyDraft: KeyRule = (key, cx) => {
+  if (!matches(key, KEYS.copyDraft)) {
+    return false
+  }
+
+  cx.copyDraft(key.shift)
+
+  return true
+}
+
 /** The composer's keys; Enter sends the draft. */
 const composer: KeyRule = (key, cx) => {
   if (cx.composer.key(key) === 'submit') {
@@ -400,6 +415,7 @@ export const KEY_RULES: readonly KeyRule[] = [
   quit,
   pasteImage,
   clipboardImage,
+  copyDraft,
   composer
 ]
 

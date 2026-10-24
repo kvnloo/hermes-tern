@@ -285,9 +285,11 @@ describe('native BTW thread history and reader', () => {
       expect(appendHistory).toHaveBeenCalledWith('/btw ' + question)
       const history = vi.mocked(appendHistory).mock.calls.slice()
       const transcript = [...f.app.transcript.entries]
-      const image = { name: 'unsent.png', mime: 'image/png', path: '/tmp/unsent.png' }
+      gw.handlers.set('image.attach_bytes', () => ({ path: '/gateway/unsent.png' }))
+    const imageName = 'unsent.png'
       f.app.stores.composer.set('Main unsent 🦉', { cursor: 3 })
-      f.app.stores.attachments.restore([image])
+      await f.app.stores.attachments.fromDataUrl('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=', imageName)
+      const image = must(f.app.stores.attachments.items[0])
 
       pending.reject(new Error('unsupported btw.list'))
       await vi.waitFor(() => expect(f.app.btw.error).toContain('unavailable'))

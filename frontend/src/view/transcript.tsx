@@ -5,6 +5,7 @@
 
 import type { JSX } from '@stencil-hq/tern'
 
+import { displayMarkdown, type FileContext } from '../artifacts/links.js'
 import { optional } from '../core/assert.js'
 import type { MediaDelivery } from '../media-delivery.js'
 import type { SessionIds } from '../core/ids.js'
@@ -31,6 +32,8 @@ export interface TranscriptContext {
   /** Presentation-only, session-scoped Markdown table charts. */
   charts?: TableCharts
   now: number
+  /** Supplied by live frames; omitted by historical consumers of the view helper. */
+  links?: FileContext
   /** SDK actions bound to the session instance that rendered this entry. */
   focusBrowser?: BrowserFocus | undefined
   /** The exact instance whose SDK handlers are cached with this entry. */
@@ -76,7 +79,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   const built: Built = holder
   // Authority is presentation state: a cached local href must not survive a host/cwd switch.
   const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
-    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? ''])
+    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? '', cx.links?.cwd ?? '', cx.links?.hostLocal ?? false, cx.links?.media ?? false])
   const cached = built[kNode]
 
   if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
@@ -265,7 +268,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser, cx.media)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser, cx.media, cx.links)
     }
 
     const b = p.block
@@ -274,12 +277,12 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {live ? b.text : (cx.charts?.markdown(b.text, turn.end.status === 'done') ?? b.text)}
+            {live ? b.text : displayMarkdown(cx.charts?.markdown(b.text, turn.end.status === 'done') ?? b.text, cx.links?.hostLocal ? cx.links.cwd : '')}
           </md>
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser, cx.media)
+        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser, cx.media, cx.links)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

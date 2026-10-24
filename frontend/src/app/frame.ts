@@ -3,6 +3,7 @@
 // dock from dockModel(), the layers, the transcript), and then the caret moves where it belongs,
 // sent only when that changed. Every step but those three only reads.
 
+import type { FileContext } from '../artifacts/links.js'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import type { Hud } from '../chrome/hud.js'
@@ -48,6 +49,9 @@ export interface FrameCx extends DockSources {
   readonly welcome: WelcomeContext
   /** The Copy buttons: the entry whose button reads Copied, and what a click does. */
   readonly copies: Pick<TranscriptContext, 'copied' | 'copy'>
+  /** Local file paths are valid only if Tern and Hermes share the filesystem. */
+  readonly hostLocal: boolean
+  readonly nativeMedia: boolean
   /** Only for session-scoped native browser-card Focus; never used by ordinary tool cards. */
   readonly browser: BrowserFocusHost
   /** Optional SDK image on the composer line, updated by its own lifecycle-safe animator. */
@@ -91,7 +95,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser' | 'mediaDelivery'>>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser' | 'mediaDelivery' | 'hostLocal' | 'nativeMedia'>>, now: number): TranscriptContext {
   const info = cx.session.info
   const focusBrowser = cx.browser ? bindBrowserFocus(cx.browser, cx.session.ref) : undefined
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
@@ -100,6 +104,11 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
     ...(cx.charts ? { charts: cx.charts } : {}),
     copied: cx.copies.copied,
     copy: cx.copies.copy,
+    links: {
+      cwd: info?.cwd ?? '',
+      hostLocal: cx.hostLocal === true && info?.terminal_backend === 'local',
+      media: cx.nativeMedia === true
+    } satisfies FileContext,
     focusBrowser,
     browserSource: cx.session.ref,
     now,

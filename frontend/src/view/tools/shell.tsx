@@ -9,6 +9,8 @@
 
 import type { JSX } from '@stencil-hq/tern'
 
+import { artifactCard } from '../../artifacts/card.js'
+import { type FileContext, NO_FILE_CONTEXT } from '../../artifacts/links.js'
 import { optional } from '../../core/assert.js'
 import type { MediaDelivery } from '../../media-delivery.js'
 import type { ToolCall } from '../../model.js'
@@ -23,8 +25,8 @@ import { type ErrorReader, withView } from './registry.js'
 import type { CallView } from './types.js'
 
 /** The `tool` node of one call; the generic card when its view throws. */
-export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element {
-  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context, focusBrowser, media))
+export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element {
+  return withView(call, (view, whyFailed) => drawTool(call, view, whyFailed, now, context, focusBrowser, media, links))
 }
 
 /**
@@ -32,19 +34,19 @@ export function toolNode(call: ToolCall, now: number, context?: LspLinkContext, 
  * and its output, a diff, a file), and why it failed or stopped; the generic card's body when
  * its view throws.
  */
-export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element[] {
-  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context, focusBrowser, media))
+export function toolDetail(call: ToolCall, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element[] {
+  return withView(call, (view, whyFailed) => drawDetail(call, view, whyFailed, now, context, focusBrowser, media, links))
 }
 
 /** The `tool` node of `call` as `view` draws it. */
-function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element {
+function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element {
   const solo = view.replaces(now)
 
   if (solo) {
     return solo
   }
 
-  const card = view.card(now, context, media)
+  const card = artifactCard(call, view.card(now, context, media), links)
   const status = card.status ?? call.outcome.kind
   const running = status === 'running'
   const native = toolMediaNode(call, media)
@@ -73,6 +75,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 
   // boundary: Tern's ToolProps has no `lang` yet (an upstream ask), so it rides in one unchecked spread.
   const lang = { lang: card.lang }
+  const link = card.href ? { href: card.href } : {}
 
   return (
     <tool
@@ -84,6 +87,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
       {...optional('exit', !running && call.outcome.kind !== 'cancelled' ? view.exit() : undefined)}
       {...optional('frame', card.frame === 'inline' && (running || !body.length || !card.framedWithBody) ? 'inline' : undefined)}
       {...lang}
+      {...link}
       {...optional('meta', card.meta?.length ? card.meta : undefined)}
       name={card.name}
       {...optional('note', call.outcome.kind === 'cancelled' ? 'cancelled' : error && !card.body.length ? error : undefined)}
@@ -101,8 +105,8 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 }
 
 /** What `call`'s step opens to, as `view` draws it. */
-function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element[] {
-  const card = view.card(now, context, media)
+function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element[] {
+  const card = artifactCard(call, view.card(now, context, media), links)
   const native = toolMediaNode(call, media)
   const body = [...(native ? [native] : []), ...card.body]
   const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined

@@ -86,6 +86,8 @@ export interface QueueHost {
   send(prompt: Prompt): void
   /** `prompt` with its `{!cmd}`s run; undefined when one failed (the host put it back in the composer). */
   expanded(sid: LiveSessionId, prompt: Prompt): Promise<{ images: Image[]; text: string } | undefined>
+  /** Refuse stale images and restore the entire unsent prompt before serialization. */
+  allowImages(sid: LiveSessionId, prompt: Prompt): boolean
 }
 
 /** The prompts waiting behind the turn: held here, then the shared gateway's queue. */
@@ -196,6 +198,8 @@ export class PromptQueue {
     if (!ready || !ticket.isCurrent()) {
       return
     }
+
+    if (!host.allowImages(sid, prompt)) return
 
     const own: OwnAdmission<Admitted> = {
       admission: { kind: 'submitting' },

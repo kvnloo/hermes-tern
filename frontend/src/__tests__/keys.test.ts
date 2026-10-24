@@ -39,6 +39,7 @@ function pane(over: Partial<Pane> = {}) {
 
   const cx: KeyCx = {
     attachClipboardImage: did('clipboard'),
+    copyDraft: currentLine => void log.push(currentLine ? 'copy line' : 'copy draft'),
     attachments: {
       get any() {
         return state.images
@@ -144,6 +145,7 @@ describe('the key rules', () => {
       'quit',
       'pasteImage',
       'clipboardImage',
+      'copyDraft',
       'composer'
     ])
   })
@@ -451,6 +453,9 @@ describe('the Tern actions', () => {
   function actions(modal = false) {
     const log: string[] = []
     const cx: ActionCx = {
+      attachNativeImage: image => void log.push(image.kind === 'rejected'
+        ? 'reject ' + image.reason
+        : 'attach ' + image.name + ' ' + (image.kind === 'data' ? image.data : image.path)),
       connect: {
         continue: ref => void log.push(`continue ${ref}`),
         open: (ref, name) => void log.push(`open ${ref} ${name}`)
@@ -579,5 +584,17 @@ describe('sessionHost', () => {
     await expect(host.open(storedSessionId('stored-2'))).resolves.toBe(true)
     expect(resumed).toEqual(['stored-2'])
     expect(sessionHost(cx).busy).toBe(false)
+  })
+})
+
+
+describe('artifact copy shortcuts', () => {
+  it('Alt+C copies the draft and Alt+Shift+C its current line, without stealing Meta+C', () => {
+    const p = pane({ text: 'A\\nB' })
+    onKey(key('c', { alt: true }), p.cx, undefined)
+    onKey(key('c', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('c', { alt: true, meta: true }), p.cx, undefined)
+    expect(p.log).toEqual(['copy draft', 'copy line', 'composer'])
+    expect(p.state.text).toBe('A\\nB')
   })
 })

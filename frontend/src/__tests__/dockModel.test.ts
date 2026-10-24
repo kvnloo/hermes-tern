@@ -143,6 +143,7 @@ describe('dockModel: removing an attached image', () => {
     gw.handlers.set('image.attach_bytes', () => (++uploads < 3 ? { path: `/uploads/${uploads}.png` } : new Promise(resolve => (land = resolve))))
 
     const changed = vi.fn()
+    const owner = { live: liveSessionId('s1'), stored: null }
     const a = new Attachments({
       attachToHead: () => false,
       blob: () => undefined,
@@ -151,7 +152,7 @@ describe('dockModel: removing an attached image', () => {
       gw: gw.client,
       launchCwd: dir,
       note: () => undefined,
-      sid: () => 's1'
+      owner: () => owner
     })
     await a.fromPath(shot)
     await a.fromPath(shot)
@@ -206,6 +207,8 @@ function frame(over: Partial<FrameCx> = {}) {
     liveVoice: { blocked: false, node: () => null },
     actions: dockActions(),
     aside: () => false,
+    hostLocal: false,
+    nativeMedia: false,
     browser: stub<FrameCx['browser']>({}),
     charts: new TableCharts({ policy: async () => 'off', plan: async () => 'bar' }, () => undefined),
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },

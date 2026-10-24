@@ -118,6 +118,18 @@ export async function uploadImage(
     content_base64: bytes.toString('base64')
   }
 
+  const r = await stageImageBytes(gw, params)
+
+  if (!r?.path) {
+    throw new Error('the gateway did not store the image')
+  }
+
+  return { bytes, mime: format.mime, path: r.path }
+}
+
+/** Keep optional canonical plugin staging shared by every byte upload path. */
+export async function stageImageBytes(gw: Pick<GatewayClient, 'request'> & { readonly isCanonical?: boolean }, params: { session_id: string; filename: string; content_base64: string }) {
+  const sid = params.session_id
   // Canonical plugin staging keeps an original caller-bound lease. If the
   // optional method is absent, preserve core image.attach_bytes byte-for-byte.
   let namespaced = false
@@ -139,9 +151,5 @@ export async function uploadImage(
     ? await gw.request<{ path?: string }>('hermes-tern.media.attach_bytes', params)
     : await rpc(gw, 'image.attach_bytes', params)
 
-  if (!r?.path) {
-    throw new Error('the gateway did not store the image')
-  }
-
-  return { bytes, mime: format.mime, path: r.path }
+  return r
 }

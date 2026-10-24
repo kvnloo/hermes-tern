@@ -6,6 +6,7 @@
 
 import type { JSX, Span } from '@stencil-hq/tern'
 
+import { type FileContext, NO_FILE_CONTEXT } from '../artifacts/links.js'
 import { isDefined, isNonEmpty, optional } from '../core/assert.js'
 import type { MediaDelivery } from '../media-delivery.js'
 import type { ToolCall, TurnEntry } from '../model.js'
@@ -91,7 +92,7 @@ export function foldNode(part: Extract<Part, { kind: 'fold' }>, id: string, chil
  * opens to every step. `live` marks the group a running turn is in now: one shining line naming
  * its latest step, which opens the same way.
  */
-export function workNode(items: readonly WorkItem[], parent: string, live: boolean, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element | null {
+export function workNode(items: readonly WorkItem[], parent: string, live: boolean, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element | null {
   const shown = visibleItems(items)
 
   if (!isNonEmpty(shown)) {
@@ -102,7 +103,7 @@ export function workNode(items: readonly WorkItem[], parent: string, live: boole
   const id = `${parent}.${key}`
 
   if (!live && shown.length === 1) {
-    return itemNode(shown[0], parent, now, key, context, focusBrowser, media)
+    return itemNode(shown[0], parent, now, key, context, focusBrowser, media, links)
   }
 
   const calls = shown.flatMap(i => (i.kind === 'tool' ? [i.call] : []))
@@ -125,11 +126,11 @@ export function workNode(items: readonly WorkItem[], parent: string, live: boole
     </row>
   )
 
-  return foldSection({ body: shown.map(i => itemNode(i, id, now, i.id, context, focusBrowser, media)), head, id, key, role: 'hermes.work.group' })
+  return foldSection({ body: shown.map(i => itemNode(i, id, now, i.id, context, focusBrowser, media, links)), head, id, key, role: 'hermes.work.group' })
 }
 
 /** One step: a call (opens to its output) or a thought (opens to its text). */
-function itemNode(item: WorkItem, parent: string, now: number, key: string = item.id, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery): JSX.Element {
+function itemNode(item: WorkItem, parent: string, now: number, key: string = item.id, context?: LspLinkContext, focusBrowser?: BrowserFocus, media?: MediaDelivery, links: FileContext = NO_FILE_CONTEXT): JSX.Element {
   const id = `${parent}.${key}`
 
   if (item.kind === 'thinking') {
@@ -152,7 +153,7 @@ function itemNode(item: WorkItem, parent: string, now: number, key: string = ite
   }
 
   const call = item.call
-  const detail = toolDetail(call, now, context, focusBrowser, media)
+  const detail = toolDetail(call, now, context, focusBrowser, media, links)
   const running = call.outcome.kind === 'running'
 
   const head = (

@@ -11,6 +11,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { AnyGatewayEvent } from '@tui/gatewayTypes.js'
 
 import logo from '../../assets/logo.png'
+import { ternSharesFrontendHost } from '../artifacts/links.js'
 import type { BtwThreads } from '../btw.js'
 import type { Agents } from '../agents/store.js'
 import { OrbActivity, ThinkingOrb } from '../chrome/orb.js'
@@ -178,6 +179,8 @@ export class App implements ChatPorts {
       browser: this,
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
+      hostLocal: ternSharesFrontendHost() && !this.#gw.attached,
+      nativeMedia: this.#tern.caps.kinds?.includes('media') ?? false,
       charts: this.tableCharts,
       ...(this.#orb ? { orb: this.#orb } : {}),
       gateway: this.#gw,
