@@ -71,7 +71,12 @@ def attach(server, sid, peer, home=None):
 def rpc(server, peer, method, rid=1, **params):
     message = {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
     immediate = server.dispatch(message, peer)
-    return peer.receive() if immediate is None else immediate
+    if immediate is not None:
+        return immediate
+    while True:
+        response = peer.receive()
+        if response.get("id") == rid:
+            return response
 
 
 @pytest.fixture
