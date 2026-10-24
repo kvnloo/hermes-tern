@@ -56,7 +56,7 @@ describe('tool cards', () => {
     expect(JSON.stringify(settled[0])).toContain('did g1')
   })
 
-  it('draws a one-agent delegation as its agent row alone, with no pills and no brief', () => {
+  it('draws a solo active delegation in the wait frame and a settled one as its agent row', () => {
     const args = { context: 'Long brief for the agent', goal: 'Audit the repo' }
     const result = { delegation_id: 'd1', mode: 'background', status: 'dispatched' }
     const live = tree(toolNode(call('delegate_task', args, { result, outcome: { kind: 'running' } }), 0))
@@ -72,7 +72,9 @@ describe('tool cards', () => {
 
     const agent = { calls: 1, goal: 'Audit the repo', id: 'sa-1', index: 0, key: subagentKey('sa-1'), startedAt: 0, status: 'running' as const, tokens: 0, toolCount: 2 }
     const running = tree(toolNode(call('delegate_task', args, { result, outcome: { duration: 0, kind: 'done' }, subagents: [agent] }), 5))
-    expect([running.k, running.p?.['key'], running.p?.['name'], running.p?.['role']]).toEqual(['agent', 'c1', 'Background agent', 'hermes.task.solo'])
+    expect(running.k).toBe('tool')
+    expect(JSON.stringify(running)).toContain('"role":"omp.job.tiles"')
+    expect(JSON.stringify(running)).toContain('"click":"open-agent=sa-1"')
 
     // A resumed one: its result's report folds inside the row.
     const done = tree(toolNode(call('delegate_task', { goal: 'Audit the repo' }, { result: { results: [{ status: 'ok', summary: 'all clear' }] } }), 0))

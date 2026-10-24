@@ -12,6 +12,7 @@ import { loopWhen, turnsText } from '../view/automation.js'
 import { countdownAge } from '../view/time.js'
 import { actionsRow, type ButtonProps } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { confirmOverlay } from './prompts.js'
 
@@ -166,12 +167,12 @@ export function openAutomation(host: AutomationSheetHost, which: AutomationSheet
     key,
     modal: true,
     onClose: unwatch,
-    node: () => {
+    node: id => {
       const now = Date.now()
       const sheet = current()
 
       if (!sheet) {
-        return <overlay anchor="bottom" key={key} modal size="md" />
+        return <overlay anchor="bottom" key={nativeOverlayKey(id)} modal size="md" />
       }
 
       const pending = host.automation.pending
@@ -191,7 +192,7 @@ export function openAutomation(host: AutomationSheetHost, which: AutomationSheet
         <overlay
           anchor="bottom"
           head={[{ t: sheet.which === 'goal' ? 'Goal' : 'Loop' }]}
-          key={key}
+          key={nativeOverlayKey(id)}
           modal
           role="hermes.automation.sheet"
           size="md"

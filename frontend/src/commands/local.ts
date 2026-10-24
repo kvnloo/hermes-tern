@@ -4,21 +4,28 @@
 // gateway's `slash.exec`.
 
 import type { ChatPorts } from '../app/ports.js'
+import { openArtifact } from '../artifacts.js'
 import { copyToClipboard } from '../clipboard.js'
 import { storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
+import { forkSession } from '../fork-session.js'
 import { type AgentsSheetHost, openAgents } from '../overlays/agents.js'
 import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
 import { type EffortHost, openEffortPicker } from '../overlays/effort.js'
 import { type ModelsHost, openModelPicker, switchModel } from '../overlays/models.js'
+import { openModelHub } from '../overlays/modelHub.js'
+import { type PlanReviewHost, openPlanReview } from '../overlays/plan.js'
 import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
+import { openSettings } from '../overlays/settings.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
+import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
+import { HOLD_UNAVAILABLE } from '../voice/hold.js'
 import { rpc } from '../wire/rpc.js'
 
 import { CONTROL_COMMANDS } from './control.js'
@@ -32,13 +39,20 @@ export type CommandHost = Pick<
   | 'attachClipboardImage'
   | 'attachImagePath'
   | 'busy'
+  | 'btw'
+  | 'operations'
   | 'control'
   | 'gw'
+  | 'liveVoice'
+  | 'editExternal'
   | 'newSession'
   | 'open'
   | 'openHelp'
+  | 'openPalette'
+  | 'overlays'
   | 'quit'
   | 'resume'
+  | 'session'
   | 'setEffort'
   | 'setTheme'
   | 'theme'
@@ -51,10 +65,12 @@ export type CommandHost = Pick<
   EffortHost &
   FastHost &
   ModelsHost &
+  PlanReviewHost &
   PullRequestsSheetHost &
   RefusedHost &
   SessionsHost &
-  ThemeHost
+  ThemeHost &
+  VisualPickerHost
 
 /** A client-side slash command. */
 export interface LocalCommand {
@@ -74,6 +90,49 @@ export interface LocalCommand {
 
 const COMMANDS: readonly LocalCommand[] = [
   {
+    help: 'Opt-in live conversation (Alt+Shift+V), separate from /voice dictation',
+    name: 'live',
+    run: (host, arg) => {
+      if (arg && arg !== 'status' && arg !== 'off') {
+        return host.transcript.notice('Usage: /live [status|off]', 'warning')
+      }
+      if (arg === 'status') {
+        return host.transcript.notice('Live voice: ' + host.liveVoice.phase)
+      }
+      if (arg === 'off') {
+        void host.liveVoice.control('stop')
+        return
+      }
+      host.liveVoice.toggle()
+    }
+  },
+  {
+    help: 'Why physical hold-to-talk is unavailable (Alt+Shift+Space)',
+    name: 'ptt',
+    run: host => host.transcript.notice(HOLD_UNAVAILABLE, 'warning')
+  },
+  {
+    help: 'Edit the current draft in Tern or $VISUAL/$EDITOR',
+    name: 'editor',
+    run: (host, arg) => arg.trim() ? host.transcript.notice('Usage: /editor', 'warning') : host.editExternal()
+  },
+  {
+    help: 'Open a rotatable model beside the chat: /view3d PATH|URL',
+    name: 'view3d',
+    run: async (host, arg) => {
+      const source = arg.trim().replace(/^(["'])(.*)\1$/, '$2')
+      if (!source) {
+        host.transcript.notice('Usage: /view3d PATH|URL (.glb, .gltf, .obj, .fbx, .usdz)', 'warning')
+        return
+      }
+      try {
+        await openArtifact(source, host.session.info?.cwd)
+      } catch {
+        host.transcript.notice('Could not open the 3D model. Check the path, format, or public download URL.', 'warning')
+      }
+    }
+  },
+  {
     // `/q` is Hermes' /queue.
     aliases: ['exit'],
     name: 'quit',
@@ -90,6 +149,26 @@ const COMMANDS: readonly LocalCommand[] = [
 
       return host.newSession(arg.trim() || undefined)
     }
+  },
+  {
+    name: 'palette',
+    help: 'Search and run commands, or insert one into the composer',
+    run: host => host.openPalette()
+  },
+  {
+    name: 'settings',
+    help: 'Native Hermes profile preferences and live-session controls',
+    run: host => openSettings(host)
+  },
+  {
+    name: 'prefs',
+    help: 'Open Hermes settings (alias of /settings)',
+    run: host => openSettings(host)
+  },
+  {
+    name: 'models',
+    help: 'Inspect Hermes providers and profile model-management availability',
+    run: host => openModelHub(host)
   },
   {
     name: 'model',
@@ -140,6 +219,11 @@ const COMMANDS: readonly LocalCommand[] = [
 
       host.setTheme(arg)
     }
+  },
+  {
+    name: 'plan',
+    help: 'Review the latest plan; /plan <task> still generates a plan via Hermes',
+    run: (host, arg) => (arg.trim() ? false : openPlanReview(host))
   },
   {
     // Ink's `/agents pause|resume|status`: the shared gateway's slash.exec refuses them.
@@ -210,6 +294,11 @@ const COMMANDS: readonly LocalCommand[] = [
     }
   },
   {
+    help: 'Inspect a prepared OpenUI preview [/absolute/path/to/file.hvisual.json]',
+    name: 'visual',
+    run: (host, arg) => openVisualPicker(host, arg.trim())
+  },
+  {
     // The Ink TUI's `/paste`: the clipboard's image on the next prompt.
     name: 'paste',
     run: (host, arg) => (arg ? host.transcript.notice('Usage: /paste', 'warning') : void host.attachClipboardImage(false))
@@ -218,6 +307,11 @@ const COMMANDS: readonly LocalCommand[] = [
     // Hermes' `/image <path>`: that file on the next prompt.
     name: 'image',
     run: (host, arg) => (arg.trim() ? host.attachImagePath(arg) : host.transcript.notice('Usage: /image <path>', 'warning'))
+  },
+  {
+    name: 'fork',
+    help: 'Fork the conversation into another Tern pane [/fork [durable-message-id]]',
+    run: (host, arg) => forkSession(host, arg)
   },
   {
     aliases: ['side'],
@@ -244,14 +338,32 @@ const COMMANDS: readonly LocalCommand[] = [
   },
   {
     name: 'history',
-    run: (host, arg) => host.transcript.panel('/history', historyText(host.transcript.entries, arg))
+    run: (host, arg) => host.operations.showText('/history', historyText(host.transcript.entries, arg))
   },
   {
     // `/help <command>` is the backend's detailed usage.
     name: 'help',
     run: (host, arg) => (arg ? false : host.openHelp())
   },
-  ...CONTROL_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
+  // The history-capable sheet supersedes CONTROL_COMMANDS' legacy one-shot /btw route.
+  { name: 'btw', run: (host, arg) => host.btw.show(arg) },
+  { name: 'mcp', run: (host, arg) => host.operations.show('mcp', arg) },
+  { name: 'ssh', run: (host, arg) => host.operations.show('ssh', arg) },
+  {
+    name: 'tools',
+    run: (host, arg) => {
+      const query = arg.trim().toLowerCase()
+
+      if (query === '' || query === 'list') {
+        return host.operations.showTools(query)
+      }
+
+      return CONTROL_COMMANDS.find(c => c.name === 'tools')?.run(host.control(), arg)
+    }
+  },
+  ...CONTROL_COMMANDS.filter(c => c.name !== 'tools').map(c => ({
+    ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg)
+  })),
   ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
   ...REFUSED_COMMANDS
 ]

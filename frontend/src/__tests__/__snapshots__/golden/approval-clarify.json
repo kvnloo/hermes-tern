@@ -736,6 +736,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -1140,6 +1155,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -1178,7 +1208,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p1"
+       "key": "overlay-1"
       },
       "c": [
        {
@@ -1921,6 +1951,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -2486,6 +2531,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -3059,6 +3119,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -3097,7 +3172,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p2"
+       "key": "overlay-2"
       },
       "c": [
        {
@@ -3119,7 +3194,7 @@
           "k": "list",
           "p": {
            "role": "omp.ask.options",
-           "selected": "layer.prompt:shared:p2.body.q0.option:0",
+           "selected": "layer.overlay-2.body.q0.option:0",
            "key": "q0"
           },
           "c": [
@@ -3789,6 +3864,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -3827,7 +3917,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:shared:p2"
+       "key": "overlay-2"
       },
       "c": [
        {
@@ -3849,7 +3939,7 @@
           "k": "list",
           "p": {
            "role": "omp.ask.options",
-           "selected": "layer.prompt:shared:p2.body.q0.option:1",
+           "selected": "layer.overlay-2.body.q0.option:1",
            "key": "q0"
           },
           "c": [
@@ -4519,6 +4609,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -5080,6 +5185,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -5653,6 +5773,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -5691,7 +5826,7 @@
        "modal": true,
        "role": "omp.overlay.ask",
        "size": "md",
-       "key": "prompt:r1"
+       "key": "overlay-3"
       },
       "c": [
        {
@@ -6424,6 +6559,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -7185,6 +7335,13 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1"
+   }
+  },
+  {
    "method": "config.set",
    "params": {
     "key": "show_reasoning",
@@ -7202,6 +7359,14 @@
    "method": "session.control.read",
    "params": {
     "session_id": "s1"
+   }
+  },
+  {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1",
+    "profile": "work"
    }
   },
   {

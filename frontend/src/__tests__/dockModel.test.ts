@@ -11,7 +11,8 @@ import { drawFrame, type FrameCx } from '../app/frame.js'
 import type { Pill } from '../chrome/hud.js'
 import { liveSessionId } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
-import type { Overlay } from '../overlays/overlay.js'
+import { busyHint } from '../turn/busyInput.js'
+import { type Overlay, OverlayStack } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
 import { TableCharts } from '../transcript/tableCharts.js'
 import { dockNodes } from '../view/dock.js'
@@ -78,10 +79,18 @@ describe('dockModel: the queue', () => {
     expect(dockModel(dockSources({ activity: { busy: null, compacting } }), NOW).queue.canSteer).toBe(false)
   })
 
+  it('uses the configured busy input mode for the visible key hint', () => {
+    const idle = dockSources()
+    const src = dockSources({ session: { ...idle.session, busyMode: 'steer' } })
+
+    expect(dockModel(src, NOW).queue.hint).toBe(busyHint('steer'))
+    expect(dockModel(idle, NOW).queue.hint).toBe(busyHint('queue'))
+  })
+
   it('draws Steer only when it can, and the constant actions take the row\'s index', () => {
     const on = dockActions()
-    const idle = dockNodes(dockContext({ queue: { canSteer: false, rows: [...rows()] } }), on)
-    const running = dockNodes(dockContext({ queue: { canSteer: true, rows: [...rows()] } }), on)
+    const idle = dockNodes(dockContext({ queue: { canSteer: false, hint: busyHint('queue'), rows: [...rows()] } }), on)
+    const running = dockNodes(dockContext({ queue: { canSteer: true, hint: busyHint('queue'), rows: [...rows()] } }), on)
 
     expect(byRole(idle, 'omp.queue.steer')).toEqual([])
     click(byRole(running, 'omp.queue.steer')[1])
@@ -97,7 +106,7 @@ describe('dockModel: the composer and pills', () => {
 
     expect(dockModel(src, NOW).composer).toMatchObject({ ghost: 'lp', ready: false })
     expect(dockModel(src, NOW).pills.focused).toBe('agents')
-    expect(dockModel({ ...src, session: { info: null, ref: { live: liveSessionId('s1') }, usage: null } }, NOW).composer.ready).toBe(true)
+    expect(dockModel({ ...src, session: { busyMode: 'queue', info: null, ref: { live: liveSessionId('s1') }, usage: null } }, NOW).composer.ready).toBe(true)
 
     const modal = dockModel({ ...src, overlays: [{ modal: true }] }, NOW)
     expect(modal.composer.ghost).toBe('')
@@ -107,6 +116,7 @@ describe('dockModel: the composer and pills', () => {
   it('reads the context window and the rates from usage, and the route from info', () => {
     const src = dockSources({
       session: {
+        busyMode: 'queue',
         info: { model: 'gpt', reasoning_effort: 'high', reasoning_effort_wire: '' },
         ref: { live: null },
         usage: { avg_tps: 0, cache_hit_pct: 40, context_max: 1000, context_used: 250, total: 1200 }
@@ -185,8 +195,15 @@ describe('dockModel: removing an attached image', () => {
 function frame(over: Partial<FrameCx> = {}) {
   const log: string[] = []
   let focused: Pill | undefined = 'todos'
+  const stack = new OverlayStack({ changed: () => undefined, closed: () => undefined, opened: () => undefined })
+
+  for (const overlay of over.overlays ?? []) {
+    stack.open(overlay)
+  }
+
   const cx: FrameCx = {
     ...dockSources(),
+    liveVoice: { blocked: false, node: () => null },
     actions: dockActions(),
     aside: () => false,
     charts: new TableCharts({ policy: async () => 'off', plan: async () => 'bar' }, () => undefined),
@@ -206,9 +223,10 @@ function frame(over: Partial<FrameCx> = {}) {
     prAside: { node: () => null, open: false },
     sidebar: { node: () => null },
     surface: { closed: false, follow: id => void log.push(`follow ${id}`), render: () => void log.push('render') },
-    transcript: { currentTodos: () => undefined, entries: [] },
+    transcript: { changedEntries: new Set(), currentTodos: () => undefined, entries: [] },
     welcome: { tip: '', version: '' },
-    ...over
+    ...over,
+    stack: over.stack ?? stack
   }
 
   return { cx, log }
@@ -225,7 +243,7 @@ describe('drawFrame', () => {
   })
 
   it('leaves the caret off the composer while a pill still holds the keys', () => {
-    const { cx, log } = frame({ transcript: { currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
+    const { cx, log } = frame({ transcript: { changedEntries: new Set(), currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
 
     expect(shownPills(cx, NOW)).toEqual(['todos'])
     drawFrame(cx, NOW)
@@ -233,11 +251,11 @@ describe('drawFrame', () => {
   })
 
   it('leaves the completion alone under a modal sheet, and gives the caret to the sheet\'s field', () => {
-    const sheet: Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'> = { focus: id => `${id}.field`, key: 'ask', modal: true, node: () => new Node('col', { key: 'ask' }) }
+    const sheet: Overlay = { focus: id => `${id}.field`, key: 'ask', modal: true, node: id => new Node('col', { key: id }), onKey: () => true }
     const { cx, log } = frame({ overlays: [sheet] })
 
     drawFrame(cx, NOW)
-    expect(log).toEqual(['hud.prune', 'render', 'follow layer.ask.field'])
+    expect(log).toEqual(['hud.prune', 'render', `follow ${cx.stack.rootOf(sheet)}.field`])
   })
 
   it('draws nothing once the surface closed', () => {

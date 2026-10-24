@@ -6,6 +6,7 @@ import type { Usage } from '@hermes/shared/gateway-events'
 import type { SessionInfo } from '@tui/types.js'
 
 import type { Agents } from '../agents/store.js'
+import type { BtwThreads } from '../btw.js'
 import { type Hud, type Pill, pills, todos } from '../chrome/hud.js'
 import type { NoticeStrip } from '../chrome/notices.js'
 import type { Reconnect } from '../chrome/reconnect.js'
@@ -23,8 +24,12 @@ import type { Automation } from '../session/automation.js'
 import { fastTier } from '../session/fast.js'
 import type { SessionTitle } from '../session/title.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
+import { busyHint } from '../turn/busyInput.js'
+import type { BusyMode } from '../turn/serverQueue.js'
 import type { PromptQueue } from '../turn/queue.js'
+import type { LiveVoice } from '../voice/live.js'
 
 import type { DockActivity, DockContext, ShellsPill } from './dock.js'
 
@@ -33,9 +38,11 @@ export const PLACEHOLDER = 'Ask Hermes — / commands · @ files'
 
 /** What the dock reads, each part a narrow view of the store that owns it. */
 export interface DockSources {
-  readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null }
+  readonly btw: Pick<BtwThreads, 'notices'>
+  readonly session: { readonly ref: Pick<SessionIds, 'live'>; readonly info: SessionInfo | null; readonly usage: Usage | null; readonly busyMode: BusyMode }
   readonly activity: Pick<Activity, 'busy' | 'compacting'>
   readonly composer: Composer
+  readonly liveVoice: Pick<LiveVoice, 'blocked'>
   readonly completion: Pick<Completion, 'ghost'>
   /** The open overlays, bottom first: a modal one on top takes the keys and the completion. */
   readonly overlays: readonly Pick<Overlay, 'modal'>[]
@@ -44,6 +51,7 @@ export interface DockSources {
   readonly reconnect: Pick<Reconnect, 'redial'>
   readonly hud: Pick<Hud, 'focused' | 'todosOpen'>
   readonly transcript: Pick<Transcript, 'currentTodos'>
+  readonly todoHud?: Pick<TodoHud, 'visible'>
   readonly agents: Pick<Agents, 'running'>
   readonly processes: Pick<Processes, 'recent'>
   readonly prs: Pick<PullRequests, 'entries'>
@@ -53,7 +61,7 @@ export interface DockSources {
 }
 
 /** What the pills are counted from. */
-export type PillReads = Pick<DockSources, 'activity' | 'agents' | 'automation' | 'processes' | 'prs' | 'transcript'>
+export type PillReads = Pick<DockSources, 'activity' | 'agents' | 'automation' | 'processes' | 'prs' | 'todoHud' | 'transcript'>
 
 const IDLE: DockActivity = { kind: 'idle' }
 
@@ -63,8 +71,11 @@ export function isModal(overlays: readonly Pick<Overlay, 'modal'>[]): boolean {
 }
 
 /** The agent's todo list while it matters: a turn runs, or something on it is still open. */
-export function shownTodos(src: Pick<DockSources, 'activity' | 'transcript'>): Todo[] | undefined {
-  return todos(src.transcript.currentTodos(), Boolean(src.activity.busy))
+export function shownTodos(src: Pick<DockSources, 'activity' | 'todoHud' | 'transcript'>): Todo[] | undefined {
+  const busy = Boolean(src.activity.busy)
+  const history = src.transcript.currentTodos()
+
+  return src.todoHud ? src.todoHud.visible(busy, history) : todos(history, busy)
 }
 
 /** The pills above the composer at `now`, left to right: what the pill keys move over. */
@@ -98,19 +109,22 @@ export function dockModel(src: DockSources, now: number): DockContext {
   const used = usage?.context_used ?? 0
   const max = usage?.context_max ?? 0
   const list = shownTodos(src)
+  const agents = src.agents.running()
 
   return {
     activity: dockActivity(src.activity),
+    btwNotices: src.btw.notices,
     composer: {
       attachments: src.attachments.chips(),
       draft: src.composer,
       ghost: modal ? '' : src.completion.ghost,
       placeholder: PLACEHOLDER,
-      ready: src.session.ref.live !== null
+      ready: src.session.ref.live !== null && !src.liveVoice.blocked
     },
     now,
     pills: {
-      agents: src.agents.running().length,
+      agents: agents.length,
+      agentTiles: agents,
       automation: { goal: src.automation.goal, loop: src.automation.loop(now), loopOwner: src.automation.loopSnapshot },
       focused: modal ? undefined : src.hud.focused,
       prs: prsPill(src.prs.entries()),
@@ -118,7 +132,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
       shells: shellsOf(src.processes, now),
       todos: list ? { list, open: src.hud.todosOpen } : undefined
     },
-    queue: { canSteer: src.activity.busy !== null, rows: src.queue.rows() },
+    queue: { canSteer: src.activity.busy !== null, hint: busyHint(src.session.busyMode), rows: src.queue.rows() },
     route: {
       effort: info?.reasoning_effort ?? '',
       effortWire: info?.reasoning_effort_wire || undefined,

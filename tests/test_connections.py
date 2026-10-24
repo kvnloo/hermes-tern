@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 import types
 from pathlib import Path
@@ -69,15 +70,31 @@ def conn(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "POLL_SECONDS", 0.01)
+
+    # Track only this newly imported module's real watcher threads. Replacing
+    # module.threading leaves the process-wide threading.Thread untouched.
+    owned_threads = []
+
+    class OwnedThread(threading.Thread):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            assert self.name.startswith("hermes-tern-connect-")
+            owned_threads.append(self)
+
+    module.threading = types.SimpleNamespace(Thread=OwnedThread)
     module.lists, module.accounts, module.lineages = lists, accounts, lineages
     module.root = tmp_path
+    module.watcher_threads = owned_threads
     try:
         yield module
     finally:
-        # Old module instances must stop before the next test swaps global storage mocks.
+        # Stop and join owned workers before monkeypatch restores shared imports.
         with module._lock:
-            for pending in module._cards.values():
-                pending.settle("test_teardown")
+            for card in module._cards.values():
+                card.settle("fixture_teardown")
+        for worker in owned_threads:
+            worker.join(timeout=3)
+        assert all(not worker.is_alive() for worker in owned_threads), "a prior fixture's watcher survived teardown"
 
         def stopped():
             with module._lock:
@@ -119,6 +136,18 @@ def test_other_surfaces_keep_the_tool_result(conn):
     assert hook(conn, RESULT) is None
     view(conn, "s1")
     assert conn.transform_tool_result(tool_name="terminal", result=RESULT, session_id="s1", tool_call_id="c1") is None
+
+
+def test_fixture_tracks_its_real_watchers(conn):
+    view(conn, "s1")
+    conn.lists.extend([[{"connector": "googledrive", "connected": False}]])
+    hook(conn, one())
+
+    assert len(conn.watcher_threads) == 1
+    worker = conn.watcher_threads[0]
+    assert isinstance(worker, threading.Thread)
+    assert worker.name == "hermes-tern-connect-op2"
+    assert worker.daemon
 
 
 def test_links_leave_the_model_result_and_the_watcher_sees_apps_connect(conn):
