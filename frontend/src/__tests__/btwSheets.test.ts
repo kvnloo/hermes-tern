@@ -31,7 +31,7 @@ async function openedBySlash(gw: FakeGateway, question: string) {
   await vi.waitFor(() => expect(tern.reading).toBe(true))
   app.stores.composer.set('/btw ' + question)
   tern.press('enter')
-  await vi.waitFor(() => expect(gw.sent('btw.list')).toEqual([{ session_id: 's1' }]))
+  await vi.waitFor(() => expect(gw.sent('hermes-tern.btw.list')).toEqual([{ session_id: 's1' }]))
 
   return {
     app, tern,
@@ -61,10 +61,10 @@ describe('native BTW thread history and reader', () => {
   it('routes /btw to the native sheet, never to the legacy prompt.btw command', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('prior')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('prior')] }))
     expect(localCommand('btw')?.run).toBeDefined()
     await must(localCommand('btw')).run({ ...f.host, btw: model }, '')
-    expect(f.gw.sent('btw.list')).toEqual([{ session_id: 's1' }])
+    expect(f.gw.sent('hermes-tern.btw.list')).toEqual([{ session_id: 's1' }])
     expect(f.gw.methods('prompt.btw')).toHaveLength(0)
     expect(f.overlays.map(o => o.key)).toEqual(['btw'])
   })
@@ -73,7 +73,7 @@ describe('native BTW thread history and reader', () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
     const all = Array.from({ length: 237 }, (_, i) => thread('t' + i))
-    f.gw.handlers.set('btw.list', () => ({ threads: all }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: all }))
     await model.show()
     expect(model.threads).toHaveLength(237)
     expect(parts(model).filter(n => n.p?.['role'] === 'omp.btn').length).toBeGreaterThan(237)
@@ -93,11 +93,11 @@ describe('native BTW thread history and reader', () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
     const earlier = thread('prior')
-    f.gw.handlers.set('btw.list', () => ({ threads: [earlier] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [earlier] }))
     await model.show()
     model.draft.set('Follow up 🦉', { cursor: 3 })
     const reply = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('btw.submit', () => reply.promise)
+    f.gw.handlers.set('hermes-tern.btw.submit', () => reply.promise)
     const pending = model.submit()
     const streaming = { ...earlier, revision: 3, turns: [
       ...earlier.turns,
@@ -112,7 +112,7 @@ describe('native BTW thread history and reader', () => {
     expect(model.thread?.revision).toBe(3)
     expect(model.thread?.turns.at(-1)?.answer).toBe('Real delta')
     expect(textFor(model, 'omp.btw.answer')).toContain('Real delta')
-    expect(f.gw.sent('btw.submit')).toEqual([{ session_id: 's1', thread_id: 'prior', text: 'Follow up 🦉' }])
+    expect(f.gw.sent('hermes-tern.btw.submit')).toEqual([{ session_id: 's1', thread_id: 'prior', text: 'Follow up 🦉' }])
     expect(model.draft.text).toBe('')
   })
 
@@ -120,12 +120,12 @@ describe('native BTW thread history and reader', () => {
   it('preserves an edited BTW draft after a late submit succeeds', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('prior')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('prior')] }))
     await model.show()
     const draft = model.draft
     draft.set('Initial question')
     const reply = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('btw.submit', () => reply.promise)
+    f.gw.handlers.set('hermes-tern.btw.submit', () => reply.promise)
     const pending = model.submit()
     const submittedRevision = draft.revision
     draft.set('Newer unsent question', { cursor: 5 })
@@ -141,12 +141,12 @@ describe('native BTW thread history and reader', () => {
   it('protects an ABA/undo draft from a late BTW reply, even when the original text returns', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('prior')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('prior')] }))
     await model.show()
     const draft = model.draft
     draft.set('Same 🦉', { cursor: 2 })
     const reply = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('btw.submit', () => reply.promise)
+    f.gw.handlers.set('hermes-tern.btw.submit', () => reply.promise)
     const pending = model.submit()
     const submittedRevision = draft.revision
     draft.edit({ cursor: 3, from: 2, len: draft.text.length, text: 'x', to: 2 })
@@ -165,14 +165,14 @@ describe('native BTW thread history and reader', () => {
   it('starts a new side question with canonical IDs; cancellation scopes the selected turn', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('old')] }))
-    f.gw.handlers.set('btw.submit', () => ({ thread: thread('created', 'running'), turn_id: 'created-turn' }))
-    f.gw.handlers.set('btw.cancel', () => ({ thread: thread('created', 'cancelled', 2), turn_id: 'created-turn' }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('old')] }))
+    f.gw.handlers.set('hermes-tern.btw.submit', () => ({ thread: thread('created', 'running'), turn_id: 'created-turn' }))
+    f.gw.handlers.set('hermes-tern.btw.cancel', () => ({ thread: thread('created', 'cancelled', 2), turn_id: 'created-turn' }))
     await model.show('What changed?')
-    expect(f.gw.sent('btw.submit')).toEqual([{ session_id: 's1', text: 'What changed?' }])
+    expect(f.gw.sent('hermes-tern.btw.submit')).toEqual([{ session_id: 's1', text: 'What changed?' }])
     expect(model.selected).toBe('created')
     await model.cancel()
-    expect(f.gw.sent('btw.cancel')).toEqual([{
+    expect(f.gw.sent('hermes-tern.btw.cancel')).toEqual([{
       session_id: 's1', thread_id: 'created', turn_id: 'created-turn'
     }])
     expect(model.thread?.turns[0]?.state).toBe('cancelled')
@@ -181,7 +181,7 @@ describe('native BTW thread history and reader', () => {
   it('keeps each unsent draft across selections, close and reopen, without leaking the main draft', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('a'), thread('b')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('a'), thread('b')] }))
     await model.show()
     model.select('a')
     model.draft.set('A 🦉', { cursor: 1 })
@@ -206,7 +206,7 @@ describe('native BTW thread history and reader', () => {
   it('copies only the chosen side thread and never calls a gateway mutation on Copy', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('selected')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('selected')] }))
     await model.show()
     const count = f.gw.calls.length
     must(f.overlays.at(-1)).onKey(key('c'))
@@ -218,7 +218,7 @@ describe('native BTW thread history and reader', () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
     const pendingList = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('btw.list', () => pendingList.promise)
+    f.gw.handlers.set('hermes-tern.btw.list', () => pendingList.promise)
     const pending = model.show()
     const old = must(f.overlays.at(-1))
     f.session.ref.live = 's2'
@@ -228,12 +228,12 @@ describe('native BTW thread history and reader', () => {
     expect(model.threads).toEqual([])
     expect(f.overlays).toEqual([])
     old.onKey(key('enter'))
-    expect(f.gw.methods('btw.submit')).toHaveLength(0)
+    expect(f.gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
     expect(model.draft.text).toBe('')
   })
 
   it('projects backend stream events through the real App subscription, not the main transcript', async () => {
-    const gw = new FakeGateway({ replies: { 'btw.list': () => ({ threads: [thread('app-thread')] }) } })
+    const gw = new FakeGateway({ replies: { 'hermes-tern.btw.list': () => ({ threads: [thread('app-thread')] }) } })
     const tern = fakeTern()
     const app = new App(tern.session, gw.client, 'test')
     const running = app.run()
@@ -258,11 +258,11 @@ describe('native BTW thread history and reader', () => {
   it('leaves drafts in place on invalid list, submit and malformed update replies', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => { throw new Error('unsupported gateway') })
+    f.gw.handlers.set('hermes-tern.btw.list', () => { throw new Error('unsupported gateway') })
     await model.show()
     expect(model.error).toContain('unavailable')
     model.draft.set('Keep my draft')
-    f.gw.handlers.set('btw.submit', () => { throw new Error('provider error') })
+    f.gw.handlers.set('hermes-tern.btw.submit', () => { throw new Error('provider error') })
     await model.submit()
     expect(model.draft.text).toBe('Keep my draft')
     model.onEvent({ type: 'btw.update', session_id: 's1', payload: { thread: { id: 'bad' } } })
@@ -272,7 +272,7 @@ describe('native BTW thread history and reader', () => {
   it('keeps a typed Unicode slash question in the native new-thread editor when history is rejected', async () => {
     const gw = new FakeGateway()
     const pending = Promise.withResolvers<unknown>()
-    gw.handlers.set('btw.list', () => pending.promise)
+    gw.handlers.set('hermes-tern.btw.list', () => pending.promise)
     const question = 'native side 🧪 粘'
     const f = await openedBySlash(gw, question)
 
@@ -300,19 +300,19 @@ describe('native BTW thread history and reader', () => {
       expect(f.app.stores.attachments.items).toEqual([image])
       expect(f.app.transcript.entries).toEqual(transcript)
       expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
-      for (const name of ['btw.submit', 'prompt.btw', 'prompt.submit', 'slash.exec', 'command.dispatch']) {
+      for (const name of ['hermes-tern.btw.submit', 'prompt.btw', 'prompt.submit', 'slash.exec', 'command.dispatch']) {
         expect(gw.methods(name), name).toHaveLength(0)
       }
 
       f.app.btw.close()
-      gw.handlers.set('btw.list', () => { throw new Error('still unavailable') })
+      gw.handlers.set('hermes-tern.btw.list', () => { throw new Error('still unavailable') })
       await f.app.btw.show()
       expect(f.app.btw.selected).toBe(null)
       expect(f.app.btw.draft.text).toBe(question)
       expect(f.app.btw.error).toContain('unavailable')
       expect(f.app.transcript.entries).toEqual(transcript)
       expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
-      expect(gw.methods('btw.submit')).toHaveLength(0)
+      expect(gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
     } finally {
       await f.close()
     }
@@ -321,7 +321,7 @@ describe('native BTW thread history and reader', () => {
   it('does not auto-submit or overwrite newer side edits after delayed successful slash history', async () => {
     const gw = new FakeGateway()
     const pending = Promise.withResolvers<unknown>()
-    gw.handlers.set('btw.list', () => pending.promise)
+    gw.handlers.set('hermes-tern.btw.list', () => pending.promise)
     const question = 'fresh 🧪'
     const f = await openedBySlash(gw, question)
 
@@ -342,13 +342,13 @@ describe('native BTW thread history and reader', () => {
       await vi.waitFor(() => expect(draft.text).toBe(question + 'x'))
       expect(draft.revision).toBeGreaterThan(seededRevision)
 
-      gw.handlers.set('btw.list', () => ({ threads: [] }))
+      gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [] }))
       pending.resolve({ threads: [] })
       await vi.waitFor(() => expect(f.app.btw.state).toBe('idle'))
       expect(f.app.btw.selected).toBe(null)
       expect(f.app.btw.draft).toBe(draft)
       expect(draft.text).toBe(question + 'x')
-      expect(gw.methods('btw.submit')).toHaveLength(0)
+      expect(gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
       expect(gw.methods('prompt.submit')).toHaveLength(0)
       expect(f.app.stores.composer.text).toBe('Other main draft')
       expect(f.app.stores.composer.cursor).toBe(4)
@@ -359,12 +359,12 @@ describe('native BTW thread history and reader', () => {
       await f.app.btw.show()
       expect(f.app.btw.draft).toBe(draft)
       expect(draft.text).toBe(question + 'x')
-      expect(gw.methods('btw.submit')).toHaveLength(0)
+      expect(gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
 
       // Only an explicit side Send may admit the revised question.
-      gw.handlers.set('btw.submit', () => ({ thread: thread('created'), turn_id: 'created-turn' }))
+      gw.handlers.set('hermes-tern.btw.submit', () => ({ thread: thread('created'), turn_id: 'created-turn' }))
       await f.app.btw.submit()
-      expect(gw.sent('btw.submit')).toEqual([{ session_id: 's1', text: question + 'x' }])
+      expect(gw.sent('hermes-tern.btw.submit')).toEqual([{ session_id: 's1', text: question + 'x' }])
       expect(f.app.transcript.entries).toEqual(transcript)
       expect(vi.mocked(appendHistory).mock.calls).toEqual(history)
     } finally {
@@ -378,7 +378,7 @@ describe('native BTW thread history and reader', () => {
     model.adopt('s1') // seed only after this conversation owns the new-thread slot
     const draft = model.draft
     draft.set('Earlier 🦉', { cursor: 3, pasted: ['Earlier 🦉'] })
-    f.gw.handlers.set('btw.list', () => ({ threads: [] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [] }))
 
     await model.show('Later 🧪')
     expect(model.selected).toBe(null)
@@ -386,17 +386,17 @@ describe('native BTW thread history and reader', () => {
     expect(draft.text).toBe('Earlier 🦉\nLater 🧪')
     expect(draft.cursor).toBe(3)
     expect(draft.pasted).toEqual(['Earlier 🦉'])
-    expect(f.gw.sent('btw.list')).toEqual([{ session_id: 's1' }])
-    expect(f.gw.methods('btw.submit')).toHaveLength(0)
+    expect(f.gw.sent('hermes-tern.btw.list')).toEqual([{ session_id: 's1' }])
+    expect(f.gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
   })
 
   it('refuses automatic admission after a selected-thread ABA during slow history', async () => {
     const f = sideSetup()
     const model = new BtwThreads(f.host)
-    f.gw.handlers.set('btw.list', () => ({ threads: [thread('known')] }))
+    f.gw.handlers.set('hermes-tern.btw.list', () => ({ threads: [thread('known')] }))
     await model.show()
     const held = Promise.withResolvers<unknown>()
-    f.gw.handlers.set('btw.list', () => held.promise)
+    f.gw.handlers.set('hermes-tern.btw.list', () => held.promise)
 
     const opening = model.show('Unsent 🧪')
     expect(model.selected).toBe(null)
@@ -408,7 +408,7 @@ describe('native BTW thread history and reader', () => {
 
     expect(model.draft.text).toBe('Unsent 🧪')
     expect(model.state).toBe('idle')
-    expect(f.gw.methods('btw.submit')).toHaveLength(0)
+    expect(f.gw.methods('hermes-tern.btw.submit')).toHaveLength(0)
     expect(f.gw.methods('prompt.submit')).toHaveLength(0)
   })
 })
