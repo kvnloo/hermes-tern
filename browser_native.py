@@ -85,10 +85,15 @@ class BrowserDriver:
         self.pending_releases: set[int] = set()
         self.pending_open = False
         self.unknown_open = False
+        # A leftover claim outlives its *revoked* plugin registration. A new
+        # registration cannot become the original caller or adopt its pages.
+        self.retired = False
         self.lock = _LOCK
         scope.driver = self
 
     def request(self, op: dict) -> dict:
+        if self.retired:
+            raise NativeBrowserError("permanently_quarantined")
         self.scope.require_current()
         checker = _EFFECT_FENCE.get()
         if checker is not None:
@@ -137,6 +142,8 @@ class BrowserDriver:
             ]
 
     def owned(self, chosen: str | None = None) -> Target:
+        if self.retired:
+            raise NativeBrowserError("permanently_quarantined")
         self.scope.require_current()
         target = self.target
         if target is None or (chosen is not None and target.block != block_id(chosen)):
@@ -162,11 +169,19 @@ class BrowserDriver:
     def reconcile_open(self) -> None:
         """Only the exact late open reply may identify the page to close."""
         with self.lock:
+            if self.retired:
+                raise NativeBrowserError("permanently_quarantined")
             if not self.pending_open:
                 if self.unknown_open:
                     raise NativeBrowserError("open_unknown")
                 return
             try:
+                # The late-response poll is also Tern I/O; it must observe
+                # live original scope, selected handlers, consent and CDP.
+                self.scope.require_current()
+                checker = _EFFECT_FENCE.get()
+                if checker is not None:
+                    checker()
                 answer = self.scope.cli.reconcile_open()
                 block = exact_block(answer)
                 if self._taken(block):
@@ -391,9 +406,16 @@ def get_driver_for_tool(profile: str, tool_session_id: str, task_id: str) -> Bro
 def has_native_driver(profile: str) -> bool:
     """Side-effect-free availability witness for previously commissioned sessions."""
     with _LOCK:
-        return any(name == profile and bool(driver.scope.tool_session_id)
+        return any(name == profile and not driver.retired and bool(driver.scope.tool_session_id)
                    and not getattr(getattr(driver.scope.lease, "cancellation", None),
                                    "is_set", lambda: False)()
+                   for (name, _), driver in _DRIVERS.items())
+
+
+def has_quarantined_task(profile: str, task_id: str) -> bool:
+    """Never give another RPC slot a durable task's retired native claim."""
+    with _LOCK:
+        return any(name == profile and driver.retired and driver.scope.task_id == task_id
                    for (name, _), driver in _DRIVERS.items())
 
 
@@ -425,7 +447,7 @@ def unload_profile(profile: str) -> None:
         cleanup_errors += (GatewayScopeError,)
     with _LOCK:
         for key, driver in tuple(_DRIVERS.items()):
-            if key[0] != profile:
+            if key[0] != profile or driver.retired:
                 continue
             try:
                 driver.reconcile_open()
@@ -438,7 +460,12 @@ def unload_profile(profile: str) -> None:
                     "Native browser unload deferred unacknowledged cleanup (%s); retaining original claim",
                     type(exc).__name__,
                 )
-            if not (driver.target or driver.pending_open or driver.unknown_open
+            if (driver.target or driver.pending_open or driver.unknown_open
                     or driver.pending_releases or driver.scope.cli.unknown):
+                # The original registration is being disposed. This claim is
+                # permanently quarantined, even if consent returns later.
+                driver.retired = True
+                logger.warning("Native browser claim permanently quarantined on unload")
+            else:
                 driver.scope.lease.close()
                 _DRIVERS.pop(key, None)

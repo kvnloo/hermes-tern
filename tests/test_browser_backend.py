@@ -170,7 +170,7 @@ def test_without_explicit_consent_discovery_stays_read_only(system):
     assert listing["blocks"][0]["title"] == "Personal"
     assert listing["reason"] == "operator_consent_or_task_authority_required"
     assert clients[0].calls == [{"op": "blocks"}]
-    with pytest.raises(PermissionError, match="explicit"):
+    with pytest.raises(NativeBrowserError, match="operator_consent_required"):
         request("adopt", actor, ctx, target_id="7")
     assert clients[0].calls == [{"op": "blocks"}]
 
@@ -192,9 +192,9 @@ def test_granted_consent_adopts_and_revocation_fences_effects(system):
         "reason": "operator_consent_or_task_authority_required",
     }
     assert len(clients) == 1 and client.calls == before
-    with pytest.raises(PermissionError, match="explicit"):
+    with pytest.raises(NativeBrowserError, match="operator_consent_required"):
         request("release", actor, ctx, target_id="7")
-    with pytest.raises(PermissionError, match="explicit"):
+    with pytest.raises(NativeBrowserError, match="operator_consent_required"):
         request("focus", actor, ctx, target_id="7")
     assert client.calls == before
     assert native.get_driver("work", "s1").owned().adopted
@@ -208,7 +208,7 @@ def test_consent_added_after_load_requires_reload_before_any_claim(system):
     assert found["reason"] == "needs_plugin_reload"
     assert found["blocks"][0]["target_id"] == "7"
     assert native.get_driver("work", "s1") is None
-    with pytest.raises(PermissionError, match="reload plugin"):
+    with pytest.raises(NativeBrowserError, match="needs_plugin_reload"):
         request("adopt", actor, ctx, target_id="7")
     assert all(cli.calls == [{"op": "blocks"}] for cli in clients)
 
@@ -219,7 +219,7 @@ def test_consent_added_after_load_requires_reload_before_any_claim(system):
     assert request("adopt", actor, ctx, target_id="7")["target_id"] == "7"
     ctx.consent = False
     before = list(installed.scope.cli.calls)
-    with pytest.raises(PermissionError, match="explicit"):
+    with pytest.raises(NativeBrowserError, match="operator_consent_required"):
         request("focus", actor, ctx, target_id="7")
     assert installed.scope.cli.calls == before
 
@@ -310,10 +310,10 @@ def test_refuses_original_task_replacement_session_and_profile(system):
     with pytest.raises(NativeBrowserError, match="ownership"):
         request("adopt", actor, ctx, target_id="7")
     alien = Caller(profile="other", sid="s1")
-    with pytest.raises(PermissionError, match="task"):
+    with pytest.raises(NativeBrowserError, match="task_authority_unavailable"):
         request("adopt", alien, ctx, target_id="7")
     other_sid = Caller(profile="work", sid="s2")
-    with pytest.raises(PermissionError, match="task"):
+    with pytest.raises(NativeBrowserError, match="task_authority_unavailable"):
         request("adopt", other_sid, ctx, target_id="7")
     assert clients[0].calls == [{"op": "blocks"}]
 
@@ -346,7 +346,7 @@ def test_canonical_without_task_busy_accessor_lists_but_denies_drive(system, mon
     assert listing == {"available": False, "blocks": [],
                        "reason": "task_authority_unavailable"}
     assert not clients and not native._DRIVERS
-    with pytest.raises(PermissionError, match="task"):
+    with pytest.raises(NativeBrowserError, match="task_authority_unavailable"):
         request("adopt", actor, ctx, target_id="7")
 
 

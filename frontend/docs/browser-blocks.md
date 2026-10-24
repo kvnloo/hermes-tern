@@ -107,12 +107,24 @@ a failed effect never switches to CDP or another page/backend.
 Each model-tool CLI operation checks the original commissioned lease/profile/viewer,
 live operator consent, actual selected native registry handlers and explicit CDP.
 An open already dispatched cannot be cancelled, but a revocation or handler/CDP
-change before its next snapshot/goto refuses that next CLI effect. Unload is
-also fenced: known agent-created page claims and pending/unknown-open quarantine
-remain with the original driver when cleanup is no longer authorized, without
-forced close, guessed page IDs, or a fallback browser. Later cleanup requires
-restored native selection/consent and the original caller-bound RPC; model
-handlers do not fabricate an active RPC or borrow an inactive caller.
+change before its next snapshot/goto refuses that next CLI effect. Native
+navigation and standalone snapshots use Hermes' forced secret redaction BEFORE
+its bounded linewise truncation and optional redacted spill, not raw page text.
+Unload is also fenced and runs **before** the original selected native handlers
+are deregistered. When live consent, original registry selection, CDP preference,
+and the original scope are all valid for each effect, agent-created pages close
+and adopted pages release. Cleanup that fails, is not acknowledged, or cannot
+be authorized leaves exact known claims, pending exact-ID open replies, and
+unknown-open claims in **permanent quarantine** upon unloading the registration.
+Regrant, reload, a new RPC slot, or a different viewer cannot recover the old
+revoked scope or acquire that task/page. Listing reports
+`available=false, reason=permanently_quarantined` without Tern I/O; drive is
+unsupported. No later original-caller cleanup is promised: that original
+registration is disposed. No forced close, guessed target, replacement lease,
+or fallback browser is permitted. Native model schema availability also needs
+the exact current task-local durable key and agent tool SID, never another
+session's profile-wide browser claim; non-native checks retain their original
+Hermes guardrails.
 
 
 **Known canonical prerequisite:** the green registered-method request

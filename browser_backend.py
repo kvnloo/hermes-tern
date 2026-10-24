@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import tern_env
 from .browser_native import (
     BrowserDriver, BrowserScope, NativeBrowserError, TernBrowserCLI,
-    effect_fence, get_driver, get_driver_for_tool, has_native_driver, register_driver, unload_profile,
+    effect_fence, get_driver, get_driver_for_tool, has_quarantined_task, register_driver, unload_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -218,18 +218,18 @@ def _rpc_effect_fence(ctx, request, driver: BrowserDriver, action: str) -> None:
     scope = driver.scope
     scope.require_caller(request)
     if not _native_tools_ready(ctx, scope.profile):
-        raise PermissionError("native browser tool overrides absent or consent revoked; reload plugin")
+        raise NativeBrowserError("operator_consent_required" if not _consented(ctx) else "needs_plugin_reload")
     if _cdp_selected():
         raise NativeBrowserError("ownership")
     resolved = _legacy_identity(scope.rpc_session_id, scope.profile)
     if resolved is None:
-        raise PermissionError("original browser task authority was replaced")
+        raise NativeBrowserError("ownership")
     owner, ids = resolved
     if (request.session_id != ids.rpc_session_id
             or scope.viewer_session_id != ids.viewer_session_id
             or scope.task_id != ids.task_id
             or scope.tool_session_id != ids.tool_session_id):
-        raise PermissionError("original browser task authority was replaced")
+        raise NativeBrowserError("ownership")
     if action not in {"focus", "blocks"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
 
@@ -247,10 +247,22 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
     if params["session_id"] != sid:
         raise PermissionError("session reference does not match caller")
     existing = get_driver(profile, sid)
+    if existing is not None and existing.retired:
+        # The disposed registration's original lease cannot be restored by
+        # consent, reload or even its former live caller.
+        if action == "blocks":
+            return {"available": False, "blocks": [], "reason": "permanently_quarantined"}
+        raise NativeBrowserError("permanently_quarantined")
     if existing is not None:
         # Deny foreign mirrors BEFORE discovery, grant, or owner diagnostics.
         existing.scope.require_caller(request)
     resolved = _legacy_identity(sid, profile)
+    if resolved is not None and has_quarantined_task(profile, resolved[1].task_id):
+        # Another RPC slot must not re-commission this durable task, including
+        # by read-only discovery. Never consult a substitute native browser.
+        if action == "blocks":
+            return {"available": False, "blocks": [], "reason": "permanently_quarantined"}
+        raise NativeBrowserError("permanently_quarantined")
     if action == "blocks":
         # Read-only discovery is the sole lease-start path. A canonical request
         # without a trusted durable viewer identity cannot guess from its RPC SID.
@@ -314,14 +326,14 @@ def _intent(ctx, action: str, request, params: dict) -> dict:
             return {"available": False, "blocks": [], "reason": exc.kind}
 
     if not _consented(ctx):
-        raise PermissionError("native browser drive requires explicit tools.override consent")
+        raise NativeBrowserError("operator_consent_required")
     if resolved is None:
-        raise PermissionError("original task and busy-turn authority unavailable")
+        raise NativeBrowserError("task_authority_unavailable")
     owner, ids = resolved
     if not ids.tool_session_id:
         raise NativeBrowserError("unsupported")
     if not _native_tools_ready(ctx, profile):
-        raise PermissionError("native browser tool handlers absent; reload plugin after consent")
+        raise NativeBrowserError("needs_plugin_reload")
     if action in {"adopt", "release", "frame"} and owner.get("running") is not False:
         raise NativeBrowserError("busy")
     if _cdp_selected():
@@ -360,6 +372,15 @@ def _error(kind: str) -> str:
                        "error": f"Native Tern browser {kind}; no other browser was selected"})
 
 
+def _bounded_snapshot(browser, raw: Any) -> str:
+    """Force-mask browser-originated secrets before Hermes truncation or spill."""
+    if not isinstance(raw, str):
+        raise NativeBrowserError("protocol")
+    return browser._snapshot._truncate_snapshot(
+        browser._snapshot._redact_browser_output(raw)
+    )
+
+
 def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
     """Run the same existing URL/JS policy as Hermes; no sidecar bypass."""
     from tools import browser_tool as browser
@@ -392,10 +413,11 @@ def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
             driver.close()
             return _error("invalid")
         snapshot = driver.command("snapshot")
-        return json.dumps({
+        return json.dumps(browser._snapshot._redact_browser_output({
             "success": True, "url": redirected, "title": identity["title"],
-            "snapshot": snapshot["data"]["snapshot"], "tern_target": identity,
-        })
+            "snapshot": _bounded_snapshot(browser, snapshot["data"].get("snapshot")),
+            "tern_target": identity,
+        }))
     ops = {
         "browser_snapshot": lambda: ("snapshot", ()),
         "browser_click": lambda: ("click", (args.get("ref"),)),
@@ -471,10 +493,11 @@ def _model_action(name: str, args: dict, driver: BrowserDriver) -> str | dict:
         driver.close()
         return json.dumps(blocked)
     if name == "browser_snapshot":
-        return json.dumps({
-            "success": True, "snapshot": browser._snapshot._redact_browser_output(result["data"]["snapshot"]),
+        return json.dumps(browser._snapshot._redact_browser_output({
+            "success": True,
+            "snapshot": _bounded_snapshot(browser, result["data"].get("snapshot")),
             "tern_target": result["tern_target"],
-        })
+        }))
     if name == "browser_get_images":
         raw_images = result["data"].get("result", "[]")
         try:
@@ -530,6 +553,8 @@ def _tool_handler(ctx, name: str, original: Callable) -> Callable:
             # built-agent tool SID, NEVER by a guessed live RPC/durable alias.
             driver = get_driver_for_tool(profile, tool_sid, task_id)
             if driver is not None:
+                if driver.retired:
+                    return _error("permanently_quarantined")
                 driver.scope.require_current()
                 if not _native_tools_ready(ctx, profile):
                     return _error("unsupported")
@@ -564,10 +589,21 @@ def _native_availability(ctx, original_check: Callable | None) -> Callable:
     from tools.registry import no_cache_check_fn
 
     def check() -> bool:
+        from gateway.session_context import bound_session_key, get_session_env
+
         profile = ctx.profile_name
-        if (_native_tools_ready(ctx, profile) and not _cdp_selected()
-                and has_native_driver(profile)):
-            return True
+        # Profile-wide existence is not session-specific authority: native
+        # schemas require a trusted task-local key and exact agent tool SID.
+        task_id = bound_session_key()
+        tool_sid = get_session_env("HERMES_SESSION_ID", "")
+        if (task_id and tool_sid and _native_tools_ready(ctx, profile)
+                and not _cdp_selected()):
+            try:
+                driver = get_driver_for_tool(profile, tool_sid, task_id)
+            except NativeBrowserError:
+                driver = None
+            if driver is not None and not driver.retired:
+                return True
         return bool(original_check()) if original_check is not None else True
 
     return no_cache_check_fn(check)
@@ -592,8 +628,8 @@ def register(ctx) -> None:
         with effect_fence(lambda: _native_effect_authorized(ctx, profile)):
             unload_profile(profile)
 
-    ctx.on_unload(unload_owned_pages)
     if not _consented(ctx):
+        ctx.on_unload(unload_owned_pages)
         logger.info("Native browser drive disabled; grant tools.override in this profile explicitly")
         return
     # The built-in handlers are preserved for explicit CDP or non-Tern calls.
@@ -623,3 +659,6 @@ def register(ctx) -> None:
     with _NATIVE_LOCK:
         _NATIVE_HANDLERS[profile] = handlers
     ctx.on_unload(lambda: _forget_native_tools(profile, handlers))
+    # Core disposes in reverse registration order. Execute cleanup while the
+    # original overrides are still selected and their identity is remembered.
+    ctx.on_unload(unload_owned_pages)

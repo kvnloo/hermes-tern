@@ -226,6 +226,11 @@ def test_unload_defers_revoked_original_lease_without_losing_native_claim(rig, c
     assert cli.calls == before
     assert "unload deferred unacknowledged cleanup (PermissionError)" in caplog.text
     assert not lease.closed  # keep the original quarantined lease; do not retarget it
+    assert driver.retired
+    assert native.has_quarantined_task("work", "task-one")
+    with pytest.raises(NativeBrowserError, match="permanently_quarantined"):
+        driver.release("7")
+    assert cli.calls == before
 
 
 def test_exact_late_open_cleanup_no_discovery_guess(rig):

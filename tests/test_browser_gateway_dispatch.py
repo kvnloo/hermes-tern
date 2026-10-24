@@ -243,6 +243,177 @@ def _reload_granted(manager, plugins, home, monkeypatch):
     return ctx
 
 
+@pytest.mark.parametrize(("ownership", "operation", "block"), [
+    ("created", "close", 10), ("adopted", "release", 7),
+])
+def test_real_unload_cleanup_before_native_registry_disposal(
+    green, monkeypatch, ownership, operation, block,
+):
+    """Cleanup actually executes while original selected handlers/grant remain."""
+    from tools.registry import registry
+
+    server, manager, plugins, home = green
+    ctx = _reload_granted(manager, plugins, home, monkeypatch)
+
+    class ObservedCLI(ActiveCLI):
+        def __call__(self, op):
+            if op["op"] == "open":
+                self.calls.append(dict(op))
+                return {"block": 10}
+            if op["op"] == "goto":
+                self.calls.append(dict(op))
+                return {"url": op["url"]}
+            if op["op"] in {"close", "release"}:
+                assert ctx.has_capability("tools.override")
+                assert backend._native_tools_ready(ctx, "default")
+                assert registry.get_entry("browser_snapshot").handler is (
+                    backend._NATIVE_HANDLERS["default"]["browser_snapshot"]
+                )
+            return super().__call__(op)
+
+    monkeypatch.setattr(backend, "TernBrowserCLI", ObservedCLI)
+    peer = Peer()
+    attach(server, "s1", peer)
+    assert rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")[
+        "result"
+    ]["available"]
+    driver = native.get_driver("default", "s1")
+    assert driver is not None
+    cli = driver.scope.cli
+    if ownership == "created":
+        handler = registry.get_entry("browser_navigate").handler
+        response = json.loads(handler(
+            {"url": "https://example.org/"}, session_id="tool-s1", task_id="durable-s1",
+        ))
+        assert response["success"], response
+        assert driver.target.block == 10 and driver.target.adopted is False
+    else:
+        adopted = rpc(server, peer, "hermes-tern.browser.adopt", session_id="s1", target_id="7")
+        assert adopted["result"]["target_id"] == "7", adopted
+        assert driver.target.block == 7 and driver.target.adopted is True
+    before = list(cli.calls)
+    assert manager.unload("hermes-tern")
+    assert cli.calls == before + [{"op": operation, "block": block}]
+    assert native.get_driver("default", "s1") is None
+    assert driver.retired is False
+    assert "default" not in backend._NATIVE_HANDLERS
+
+
+def test_real_native_navigate_redacts_and_truncates_page_snapshot(green, monkeypatch):
+    """Actual model registry handler and core redaction/truncation, no raw spill."""
+    from tools.registry import registry
+    from tools import browser_tool as browser
+
+    server, manager, plugins, home = green
+    _reload_granted(manager, plugins, home, monkeypatch)
+    secret = "sk-" + "V" * 42
+    huge = "title: safe\nAPI_KEY=" + secret + "\n" + "a" * 24000
+    monkeypatch.setattr(browser, "get_browser_snapshot_threshold", lambda: 1000)
+
+    class SecretCLI(ActiveCLI):
+        def __call__(self, op):
+            if op["op"] == "open":
+                self.calls.append(dict(op))
+                return {"block": 10}
+            if op["op"] == "goto":
+                self.calls.append(dict(op))
+                return {"url": op["url"]}
+            if op["op"] == "snapshot":
+                self.calls.append(dict(op))
+                return {"text": huge}
+            return super().__call__(op)
+
+    monkeypatch.setattr(backend, "TernBrowserCLI", SecretCLI)
+    peer = Peer()
+    attach(server, "s1", peer)
+    assert rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")[
+        "result"
+    ]["available"]
+    navigate = registry.get_entry("browser_navigate").handler
+    response = json.loads(navigate(
+        {"url": "https://example.org/"}, session_id="tool-s1", task_id="durable-s1",
+    ))
+    assert response["success"], response
+    assert secret not in json.dumps(response)
+    assert len(response["snapshot"]) < len(huge)
+    assert "truncated" in response["snapshot"]
+    snap = registry.get_entry("browser_snapshot").handler
+    refreshed = json.loads(snap(
+        {"full": True}, session_id="tool-s1", task_id="durable-s1",
+    ))
+    assert refreshed["success"], refreshed
+    assert secret not in json.dumps(refreshed)
+    assert len(refreshed["snapshot"]) < len(huge)
+    assert "truncated" in refreshed["snapshot"]
+
+
+@pytest.mark.parametrize("transition", ["revoke", "cdp", "replace"])
+def test_real_unload_refuses_cleanup_after_authority_loss(green, monkeypatch, transition):
+    """All three authority changes leave exact original claims and zero effects."""
+    from tools.registry import registry
+
+    server, manager, plugins, home = green
+    ctx = _reload_granted(manager, plugins, home, monkeypatch)
+    peer = Peer()
+    attach(server, "s1", peer)
+    assert rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")[
+        "result"
+    ]["available"]
+    adopted = rpc(server, peer, "hermes-tern.browser.adopt", session_id="s1", target_id="7")
+    assert adopted["result"]["target_id"] == "7", adopted
+    driver = native.get_driver("default", "s1")
+    assert driver is not None
+    cli = driver.scope.cli
+    before = list(cli.calls)
+    if transition == "revoke":
+        _consent(home, False)
+    elif transition == "cdp":
+        monkeypatch.setattr(backend, "_cdp_selected", _REAL_CDP_SELECTED)
+        monkeypatch.setenv("BROWSER_CDP_URL", "http://127.0.0.1:9222")
+        assert backend._cdp_selected()
+    else:
+        # A separately registered, truly selected handler cannot be invalidated
+        # by undoing Hermes-tern's own registrations before cleanup.
+        entry = registry.get_entry("browser_snapshot")
+        def replacement(*_args, **_kwargs):
+            raise AssertionError("replacement must not be called")
+        from hermes_cli.config import save_config
+        save_config({"plugins": {"entries": {
+            "hermes-tern": {"allow_tool_override": True},
+            "other-browser": {"allow_tool_override": True},
+        }}}, strip_defaults=False)
+        other = plugins.PluginContext(plugins.PluginManifest(name="other-browser"), manager)
+        assert other.has_capability("tools.override")
+        handle = other.register_tool(
+            name=entry.name, toolset=entry.toolset, schema=entry.schema,
+            handler=replacement, check_fn=entry.check_fn,
+            requires_env=entry.requires_env, is_async=entry.is_async,
+            description=entry.description, emoji=entry.emoji, override=True,
+        )
+        assert handle is not None
+        assert registry.get_entry("browser_snapshot").handler is replacement
+
+    assert manager.unload("hermes-tern")
+    assert cli.calls == before
+    assert driver.retired and driver.target.block == 7 and driver.target.adopted
+    assert native.get_driver("default", "s1") is driver
+    assert native.has_quarantined_task("default", "durable-s1")
+    assert not backend._NATIVE_HANDLERS.get("default")
+    # Returned consent or CDP preferences cannot revive the disposed lease.
+    if transition == "revoke":
+        _consent(home, True)
+    elif transition == "cdp":
+        monkeypatch.delenv("BROWSER_CDP_URL")
+    else:
+        assert manager.unload("other-browser")
+    backend.register(plugins.PluginContext(plugins.PluginManifest(name="hermes-tern"), manager))
+    listing = rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")
+    assert listing["result"] == {
+        "available": False, "blocks": [], "reason": "permanently_quarantined",
+    }
+    assert cli.calls == before
+
+
 def test_public_context_consent_grant_revoke_reload_and_registry_identity(green, monkeypatch):
     """Consent appearing later cannot silently enable a CLI backend with old handlers."""
     from hermes_cli import plugins
@@ -508,18 +679,30 @@ def test_native_registry_availability_without_external_browser(green, monkeypatc
     assert driver is not None
     baseline = list(driver.scope.cli.calls)
     assert baseline == [{"op": "blocks"}]
-    assert all(e.check_fn() for e in selected)
-    assert native_only() is True
-    schemas = registry.get_definitions(set(backend._TOOL_NAMES))
-    assert {schema["function"]["name"] for schema in schemas} == set(backend._TOOL_NAMES)
+    from gateway.session_context import scoped_current_session_id, scoped_session_key
+
+    # Another session's commissioned native driver is not availability proof.
+    assert not any(e.check_fn() for e in routed)
+    assert native_only() is False
+    with scoped_current_session_id("tool-s2"), scoped_session_key("durable-s2"):
+        assert not any(e.check_fn() for e in routed)
+        assert native_only() is False
+    with scoped_current_session_id("wrong-tool"), scoped_session_key("durable-s1"):
+        assert not any(e.check_fn() for e in routed)
+    with scoped_current_session_id("tool-s1"), scoped_session_key("durable-s1"):
+        assert all(e.check_fn() for e in selected)
+        assert native_only() is True
+        schemas = registry.get_definitions(set(backend._TOOL_NAMES))
+        assert {schema["function"]["name"] for schema in schemas} == set(backend._TOOL_NAMES)
     assert driver.scope.cli.calls == baseline  # schema assembly causes zero CLI effects
 
     assert rpc(server, peer, "hermes-tern.browser.adopt",
                session_id="s1", target_id="7")["result"]["target_id"] == "7"
     before = list(driver.scope.cli.calls)
     _consent(home, False)
-    assert not any(e.check_fn() for e in routed)
-    assert native_only() is False
+    with scoped_current_session_id("tool-s1"), scoped_session_key("durable-s1"):
+        assert not any(e.check_fn() for e in routed)
+        assert native_only() is False
     assert driver.scope.cli.calls == before
 
 
@@ -618,35 +801,40 @@ def test_real_model_tool_fences_each_native_effect_and_retains_claim(
     assert not driver.pending_open and not driver.unknown_open
 
     if transition == "revoke":
-        # Unload must retain the known unacknowledged claim without CLI cleanup.
+        # Once the original registration unloads its lease never comes back.
         assert manager.unload("hermes-tern")
         assert cli.calls == [{"op": "blocks"}, opened]
         assert native.get_driver("default", "s1") is driver
-        assert driver.scope.lease is lease and driver.target.block == 10
+        assert driver.retired and driver.scope.lease is lease
+        assert driver.target.block == 10
         _consent(home, True)
         ctx2 = plugins.PluginContext(plugins.PluginManifest(name="hermes-tern"), manager)
-        assert ctx2.has_capability("tools.override") is True
         backend.register(ctx2)
-        assert registry.get_entry("browser_navigate").handler is (
-            backend._NATIVE_HANDLERS["default"]["browser_navigate"]
-        )
-    elif transition == "replace":
-        assert registry.get_entry("browser_navigate").handler is replacement
-        select_handler(original_handler)
+        listing = rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")
+        assert listing["result"] == {
+            "available": False, "blocks": [], "reason": "permanently_quarantined",
+        }
+        denied = rpc(server, peer, "hermes-tern.browser.release",
+                     session_id="s1", target_id="10")
+        assert denied["error"]["code"] == -32000
+        assert cli.calls == [{"op": "blocks"}, opened]
+        assert driver.target.block == 10 and driver.scope.lease is lease
     else:
-        monkeypatch.delenv("BROWSER_CDP_URL")
-        assert backend._cdp_selected() is False
-
-    # Authorized cleanup is a separate RPC from the SAME original caller,
-    # never an invented RPC associated with the background model invocation.
-    released = rpc(
-        server, peer, "hermes-tern.browser.release",
-        session_id="s1", target_id="10",
-    )
-    assert released["result"] == {"target_id": "10", "released": True}
-    assert cli.calls == [{"op": "blocks"}, opened, {"op": "close", "block": 10}]
-    assert native.get_driver("default", "s1") is driver
-    assert driver.scope.lease is lease and driver.target is None
+        if transition == "replace":
+            assert registry.get_entry("browser_navigate").handler is replacement
+            select_handler(original_handler)
+        else:
+            monkeypatch.delenv("BROWSER_CDP_URL")
+            assert backend._cdp_selected() is False
+        # No unload here: original selection restored while original lease live.
+        released = rpc(
+            server, peer, "hermes-tern.browser.release",
+            session_id="s1", target_id="10",
+        )
+        assert released["result"] == {"target_id": "10", "released": True}
+        assert cli.calls == [{"op": "blocks"}, opened, {"op": "close", "block": 10}]
+        assert native.get_driver("default", "s1") is driver
+        assert driver.scope.lease is lease and driver.target is None
 
 
 class PendingOpenCLI(ActiveCLI):
@@ -706,23 +894,25 @@ def test_real_revoked_unload_keeps_late_open_and_unknown_quarantine(
     backend.register(restored)
     cli.late_reply = late_reply
     listing = rpc(server, peer, "hermes-tern.browser.blocks", session_id="s1")
-    if "block" in late_reply:
-        assert listing["result"]["available"] is True
-        assert cli.calls == [
-            {"op": "blocks"}, opened, {"op": "close", "block": 11},
-            {"op": "blocks"},
-        ]
-        assert driver.target is None
-        assert not driver.pending_open and not driver.unknown_open
-    else:
-        assert listing["result"] == {
-            "available": False, "blocks": [], "reason": "open_unknown",
-        }
-        assert driver.pending_open and driver.unknown_open
-        assert driver.target is None
-        assert cli.calls == [{"op": "blocks"}, opened]  # no guessed close
+    assert listing["result"] == {
+        "available": False, "blocks": [], "reason": "permanently_quarantined",
+    }
+    assert driver.retired and driver.pending_open and driver.target is None
+    assert not driver.unknown_open  # no unauthorized late reply reconciliation
+    assert cli.calls == [{"op": "blocks"}, opened]
     assert native.get_driver("default", "s1") is driver
     assert driver.scope.lease is lease
+    # A new RPC slot for the same durable task cannot discover a substitute.
+    replacement = Peer()
+    attach(server, "s2", replacement)
+    server._sessions["s2"]["session_key"] = "durable-s1"
+    before = list(cli.calls)
+    no_takeover = rpc(server, replacement, "hermes-tern.browser.blocks", session_id="s2")
+    assert no_takeover["result"] == {
+        "available": False, "blocks": [], "reason": "permanently_quarantined",
+    }
+    assert native.get_driver("default", "s2") is None
+    assert cli.calls == before
 
 
 def test_real_create_resume_marker_and_model_tool_original_driver(green, monkeypatch):
