@@ -3915,6 +3915,14 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1",
+    "profile": "work"
+   }
+  },
+  {
    "method": "prompt.submit",
    "params": {
     "session_id": "s1",

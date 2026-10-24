@@ -20,7 +20,7 @@ const legacy = (must: readonly Modifier[], forbid: readonly Modifier[] = []) => 
 export const APP_SHORTCUTS: readonly Shortcut[] = [
   { id: 'app.agents.hub', group: 'Navigation', title: 'Agents', keys: ['alt+a'], legacy: legacy(['alt'], ['ctrl', 'meta']) },
   { id: 'app.jobs', group: 'Navigation', title: 'Background processes', keys: ['alt+j'], legacy: legacy(['alt'], ['ctrl', 'meta']) },
-  { id: 'app.prs', group: 'Navigation', title: 'Linked pull requests', keys: ['alt+p'], legacy: legacy(['alt'], ['ctrl', 'meta']) },
+  { id: 'app.prs', group: 'Navigation', title: 'Linked pull requests', keys: ['alt+p'], legacy: legacy(['alt'], ['ctrl', 'meta', 'shift']) },
   { id: 'app.sidebar', group: 'Navigation', title: 'Session sidebar', keys: ['alt+s'], legacy: legacy(['alt'], ['ctrl', 'meta']) },
   { id: 'app.thinking.cycle', group: 'Control', title: 'Cycle reasoning effort', keys: ['shift+tab'], legacy: legacy(['shift']) },
   { id: 'app.message.dequeue', group: 'Control', title: 'Edit oldest queued prompt', keys: ['alt+up'], legacy: legacy(['alt']) },
@@ -153,6 +153,10 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
       const name = chord.split('+').at(-1) ?? ''
       const mods = chord.split('+').slice(0, -1)
       const typing = (name.length === 1 || name === 'space') && !mods.includes('ctrl') && !mods.includes('alt')
+
+      if (['alt+shift+p', 'alt+shift+f'].includes(chord)) {
+        throw new Error(`Fixed app key chord: ${chord}`)
+      }
 
       if (EDITOR_KEYS.has(chord) || typing) {
         throw new Error(`Composer-owned key chord: ${chord}`)

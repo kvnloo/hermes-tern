@@ -97,16 +97,27 @@ describe('slash name resolution', () => {
     expect(app.session.ref.live).toBe('s2')
   })
 
-  it('loads the catalog once per session, and again after /reload-skills', async () => {
+  it('reuses prefix resolution within the session and invalidates it after /reload-skills', async () => {
     const { submit } = await started()
 
-    await submit('/status')
-    await submit('/heartbeat')
+    // /status is a native report and /heartbeat is an exact command: neither needs a catalog.
+    await submit('/hea every 5m')
+    expect(gw.methods('commands.catalog')).toHaveLength(1)
+    await submit('/hea every 10m')
     expect(gw.methods('commands.catalog')).toHaveLength(1)
 
     await submit('/reload-skills')
-    await submit('/status')
+    await submit('/hea every 15m')
     expect(gw.methods('commands.catalog')).toHaveLength(2)
+    await submit('/hea every 20m')
+    expect(gw.methods('commands.catalog')).toHaveLength(2)
+
+    expect(gw.methods('slash.exec').map(c => c.params['command'])).toEqual([
+      'heartbeat every 5m',
+      'heartbeat every 10m',
+      'heartbeat every 15m',
+      'heartbeat every 20m'
+    ])
   })
 })
 

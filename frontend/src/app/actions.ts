@@ -10,6 +10,7 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { agentName } from '../agents/rows.js'
 import { Artifacts } from '../artifacts.js'
+import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { copyToClipboard } from '../clipboard.js'
@@ -45,7 +46,6 @@ import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
 import { BindingPreferences } from '../shortcuts/binding-preferences.js'
 import { cycleModel } from '../shortcuts/model-cycle.js'
-import { openCommandPalette } from '../shortcuts/palette.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
@@ -64,6 +64,7 @@ import { isModal, shownPills } from '../view/dockModel.js'
 import { openSidebar, specOf } from '../watch/spec.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAppPalette } from './palette.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -73,6 +74,7 @@ export interface ActionsCx {
   readonly gw: GatewayClient
   readonly launch: Pick<LaunchEnv, 'home'>
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'viewNotice' | 'dismissNotice'>
   readonly activity: Activity
   readonly attachments: Attachments
   readonly queue: PromptQueue
@@ -129,6 +131,8 @@ export class AppActions {
     })
 
     this.dock = {
+      onBtwView: notice => cx.btw.viewNotice(notice),
+      onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onEdit: ev => {
         composer.edit(ev)
@@ -229,17 +233,7 @@ export class AppActions {
 
   /** The native command palette dispatches through the existing command route. */
   openPalette() {
-    const { chat, composer } = this.#cx
-    openCommandPalette({
-      changed: () => chat.changed(),
-      close: overlay => chat.close(overlay),
-      composer,
-      gw: chat.gw,
-      open: overlay => chat.open(overlay),
-      run: command => this.submit(command, false),
-      session: chat.session,
-      transcript: chat.transcript
-    })
+    openAppPalette(this.#cx, command => this.submit(command, false))
   }
 
   /** The entry whose Copy button reads Copied. */

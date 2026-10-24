@@ -398,6 +398,16 @@ describe('the key rules', () => {
 })
 
 describe('KEYS', () => {
+  it('keeps fixed plan and fork chords active with profile shortcuts loaded', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({})
+    p.cx.shortcut = (id, event) => actions.some(action => action.id === id && shortcutMatches(action, event))
+    onKey(key('p', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('f', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('p', { alt: true }), p.cx, undefined)
+    expect(p.log).toEqual(['plan', 'fork', 'prs'])
+  })
+
   it('matches the modifiers each shortcut needs and refuses those it must not have', () => {
     expect(matches(key('tab', { shift: true }), KEYS.effort)).toBe(true)
     expect(matches(key('tab'), KEYS.effort)).toBe(false)

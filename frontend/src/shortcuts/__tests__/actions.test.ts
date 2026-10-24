@@ -17,7 +17,10 @@ const action = (id: string, overrides: unknown = {}) => {
 describe('Tern app action registry', () => {
   it('keeps the plugin key ownership and exact new chords', () => {
     expect(effectiveShortcuts({})).toEqual(APP_SHORTCUTS)
-    expect(shortcutMatches(action('app.prs'), key('p', { alt: true, shift: true }))).toBe(true)
+    expect(shortcutMatches(action('app.prs'), key('p', { alt: true, shift: true }))).toBe(false)
+    for (const chord of ['alt+shift+p', 'alt+shift+f']) {
+      expect(() => effectiveShortcuts({ 'app.help': chord })).toThrow(/Fixed app/)
+    }
     expect(shortcutMatches(action('app.prs'), key('p', { alt: true, ctrl: true }))).toBe(false)
     expect(shortcutMatches(action('app.model.cycleBackward'), key('p', { ctrl: true, alt: true }))).toBe(true)
     expect(shortcutMatches(action('app.model.cycleBackward'), key('p', { ctrl: true, shift: true }))).toBe(false)
