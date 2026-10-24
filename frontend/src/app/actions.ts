@@ -8,7 +8,6 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { Key, Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
-import { agentName } from '../agents/rows.js'
 import { Artifacts } from '../artifacts.js'
 import type { BtwThreads } from '../btw.js'
 import type { Hud, SheetPill } from '../chrome/hud.js'
@@ -44,6 +43,8 @@ import { parsePrompt } from '../prompts/parse.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { PrAside } from '../prs/aside.js'
 import { cycleEffort, DEFAULT_EFFORT } from '../session/effort.js'
+import { BindingPreferences } from '../shortcuts/binding-preferences.js'
+import { cycleModel } from '../shortcuts/model-cycle.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
 import type { SessionState } from '../session/state.js'
 import type { ActionCx } from '../surface/actions.js'
@@ -59,9 +60,10 @@ import type { GateState, PromptRouter } from '../turn/router.js'
 import { type BusyMode, busyModeOf } from '../turn/serverQueue.js'
 import type { DockActions } from '../view/dock.js'
 import { isModal, shownPills } from '../view/dockModel.js'
-import { openSidebar, specOf } from '../watch/spec.js'
 import { rpc } from '../wire/rpc.js'
 
+import { openAgentPane } from './agent-pane.js'
+import { openAppPalette } from './palette.js'
 import type { ChatPorts } from './ports.js'
 
 /** The stores the actions act on, and the app's ports for the sheets they open. */
@@ -108,6 +110,7 @@ export class AppActions {
   readonly dock: DockActions
   /** What the key rules (draft/keys.ts) reach. */
   readonly keys: KeyCx
+  readonly bindings: BindingPreferences
   /** What the Tern actions (surface/actions.ts) reach. */
   readonly events: ActionCx
   /** What a slash command reaches (commands/slash.ts). */
@@ -119,6 +122,12 @@ export class AppActions {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
     const changed = () => cx.changed()
+    this.bindings = new BindingPreferences({
+      gw,
+      session: cx.state,
+      changed,
+      notice: text => chat.notice(text, 'warning')
+    })
 
     this.dock = {
       onBtwView: notice => cx.btw.viewNotice(notice),
@@ -176,6 +185,11 @@ export class AppActions {
       openBackground: () => openBackground(chat),
       openExternalEditor: () => void chat.editExternal(),
       openPrs: () => openPrMenu(chat),
+      openModel: () => openModelPicker(chat),
+      openPalette: () => this.openPalette(),
+      openHelp: () => void chat.openHelp(),
+      cycleModel: direction => void cycleModel(chat, direction),
+      shortcut: (id, key) => this.bindings.matches(id, key),
       openPlan: () => openPlanReview(chat),
       presses: cx.presses,
       queue,
@@ -219,6 +233,11 @@ export class AppActions {
       submit: text => this.submit(text, true, 'queue'),
       transcript
     }
+  }
+
+  /** The native command palette dispatches through the existing command route. */
+  openPalette() {
+    openAppPalette(this.#cx, command => this.submit(command, false))
   }
 
   /** The entry whose Copy button reads Copied. */
@@ -569,18 +588,6 @@ export class AppActions {
 
   /** Shows subagent `id` beside the chat in a Tern split; its timeline sheet where no split can open. */
   async openAgent(id: string) {
-    const { chat, state } = this.#cx
-    const a = chat.agents.all().find(x => x.id === id)
-    const sid = state.ref.live
-
-    if (!a || !sid) {
-      return
-    }
-
-    const cwd = state.info?.cwd || this.#cx.launch.home || '/'
-
-    if (!(await openSidebar(specOf(a, agentName(a), sid, state.ref.stored), cwd))) {
-      openAgents(chat, { id, watch: true })
-    }
+    return openAgentPane(this.#cx, id)
   }
 }
