@@ -6,13 +6,15 @@
 
 import type { EditEvent, ImageProps, JSX, SendEvent, Tone } from '@stencil-hq/tern'
 
+import { agentHovercard } from '../agents/tiles.js'
+import type { BtwNotice } from '../btw.js'
 import type { Pill } from '../chrome/hud.js'
 import type { Reconnecting } from '../chrome/reconnect.js'
 import { assertNever, optional } from '../core/assert.js'
 import { plural } from '../core/text.js'
 import type { ComposerImage } from '../draft/attachments.js'
 import type { Composer } from '../draft/composer.js'
-import type { Todo } from '../model.js'
+import type { Subagent, Todo } from '../model.js'
 import { type ChartEntry, glance, glanceSpans, hovercard, latest, miniSpark, summary } from '../processes/widgets/view.js'
 import { DEFAULT_EFFORT, effortText } from '../session/effort.js'
 import { COMPACTING_LABEL } from '../status.js'
@@ -20,6 +22,8 @@ import { todoProgress } from '../transcript/todos.js'
 import type { QueuedRow } from '../turn/queue.js'
 
 import { type AutomationLine, automationNode, reconnectNode } from './automation.js'
+import { btwNoticesNode } from './btwNotices.js'
+import { imageChip } from './image-chip.js'
 import { queuedNode } from './queued.js'
 import { compact } from './time.js'
 import { checklistNode } from './todos.js'
@@ -33,6 +37,8 @@ export interface DockContext {
   /** What holds the session: the working row's state. */
   readonly activity: DockActivity
   readonly composer: DockComposer
+  /** Session- and thread-bound BTW completion notices, above the unchanged main composer. */
+  readonly btwNotices: readonly BtwNotice[]
   /** The model and reasoning effort on the composer's bar. */
   readonly route: DockRoute
   /** The lines and pills between the queue and the composer. */
@@ -84,6 +90,8 @@ export interface DockPills {
   readonly todos?: TodosPill | undefined
   /** Running subagents: the pill above the composer that opens the agents hub (none at 0). */
   readonly agents?: number | undefined
+  /** Active agents for the pill's live wait-frame hover card. */
+  readonly agentTiles?: readonly Subagent[] | undefined
   /** Background processes: the shells pill that opens the Background sheet. */
   readonly shells?: ShellsPill | undefined
   /** The conversation's pull requests: the PR pill that opens the Pull requests sheet. */
@@ -104,6 +112,8 @@ export interface DockQueue {
 
 /** What the dock's buttons and fields do. Bound once: none of them depends on the frame. */
 export interface DockActions {
+  onBtwView(notice: BtwNotice): void
+  onBtwDismiss(notice: BtwNotice): void
   /** Native editing: Tern replaced a range of the composer's text. */
   onEdit(ev: EditEvent): void
   /** Tern submitted text into the composer (`send` feature). */
@@ -187,6 +197,12 @@ export function dockNodes(cx: DockContext, on: DockActions): JSX.Element[] {
     nodes.push(queuedNode(cx.queue.rows, { edit: on.onQueueEdit, steer: cx.queue.canSteer ? on.onQueueSteer : undefined }))
   }
 
+  if (cx.btwNotices.length) {
+    nodes.push(
+      btwNoticesNode(cx.btwNotices, on)
+    )
+  }
+
   if (p.todos?.open) {
     nodes.push(
       <col key="todos" role="hermes.todos">
@@ -210,7 +226,7 @@ export function dockNodes(cx: DockContext, on: DockActions): JSX.Element[] {
   const pills = [
     // While a turn runs the todo pill rides the working line instead.
     p.todos && !busy ? todosPillNode(p.todos, on.onTodos, p.focused === 'todos') : null,
-    p.agents ? agentsPill(p.agents, on.onAgents, p.focused === 'agents') : null,
+    p.agents ? agentsPill(p.agents, p.agentTiles ?? [], cx.now, on.onAgents, p.focused === 'agents') : null,
     p.shells && (p.shells.running || p.shells.exited) ? shellsPill(p.shells, on.onShells, p.focused === 'shells') : null,
     p.prs ? prsPillNode(p.prs, on.onPrs, p.focused === 'prs') : null
   ].filter(n => n !== null)
@@ -357,7 +373,7 @@ function statusLine(cx: DockContext, on: DockActions): JSX.Element {
  * omp's agents pill: a click (or ⌥A) opens the hub. Keyed so updates keep its node and its
  * entrance plays once. The content sits in an `omp.hud.seg`, omp's padded, hoverable pill part.
  */
-function agentsPill(running: number, onOpen: () => void, focused: boolean): JSX.Element {
+function agentsPill(running: number, agents: readonly Subagent[], now: number, onOpen: () => void, focused: boolean): JSX.Element {
   return pill({
     children: [
       <icon key="icon" name="users" />,
@@ -365,6 +381,7 @@ function agentsPill(running: number, onOpen: () => void, focused: boolean): JSX.
       <text key="text" text={`${plural(running, 'agent')} running`} wrap="none" />
     ],
     focused,
+    hovercard: agentHovercard(agents, now),
     key: 'pill',
     onClick: onOpen,
     title: 'Agents  ⌥A'
@@ -498,8 +515,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
         {cx.orb ? <image key="orb" role="hermes.agent.orb" {...cx.orb} /> : null}
         <editor
           key="input"
-          {...optional('anchor', draft.anchor)}
-          cursor={draft.cursor}
+          {...optional('anchor', draft.vim.enabled ? draft.vim.selection.anchor : draft.anchor)}
+          cursor={draft.vim.enabled ? draft.vim.selection.cursor : draft.cursor}
+          {...optional('mode', draft.vim.nativeMode)}
           decor={draft.decor}
           {...optional('ghost', cx.composer.ghost || undefined)}
           maxLines={18}
@@ -529,6 +547,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
           </row>
         ) : null}
         {route.reasons !== false ? effortChip(route, on) : null}
+        {draft.vim.enabled ? (
+          <text key="vim" role="omp.composer.vim" spans={[{ s: 'muted', t: `${draft.vim.mode.toUpperCase()}${draft.vim.pending ? ` ${draft.vim.pending}` : ''}` }]} />
+        ) : null}
         {/* Tern puts its folder chip right before the composer's status node: an empty one keeps
             the chip there and the send key at the end. */}
         <status grow={1} key="extras" role="omp.composer.extras" transparent />
@@ -568,21 +589,4 @@ function contextMeter(ctx: StatusLine['context']): JSX.Element | null {
   )
 }
 
-/**
- * An attached image as omp's composer chip (a card Tern lays out as a 36px thumbnail beside the
- * name and its size), as t3code's composer shows one: a click on the thumbnail opens it large in
- * Tern's lightbox; the ✕ drops it (`onRemove` gets the chip's index).
- */
-export function imageChip(a: ComposerImage, i: number, onRemove: (index: number) => void): JSX.Element {
-  return (
-    <card head={[{ s: 'strong', t: a.label }]} key={`a${i}`} role="omp.composer.chip" title={a.label} tone="accent">
-      {a.image ? <image alt={a.label} key="thumb" {...a.image} /> : <icon key="thumb" name="image" />}
-      <text
-        key="caption"
-        spans={[a.pending ? { fx: 'shimmer', s: 'dim', t: 'Attaching…' } : { s: 'dim', t: a.caption ?? 'image' }]}
-        wrap="none"
-      />
-      <icon key="remove" name="x" onClick={() => onRemove(i)} role="hermes.composer.remove" title={`Remove ${a.label}`} />
-    </card>
-  )
-}
+export { imageChip } from './image-chip.js'

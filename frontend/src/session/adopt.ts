@@ -4,9 +4,13 @@
 // only one), the per-session state, the history, then the stores that follow the session.
 
 import type { SessionResumeResult } from '@hermes/shared/gateway-events'
+
 import type { SessionInfo } from '@tui/types.js'
 
+import type { BtwThreads } from '../btw.js'
+
 import type { Agents } from '../agents/store.js'
+import type { Hud } from '../chrome/hud.js'
 import type { NoticeStrip } from '../chrome/notices.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import type { ConnectWatcher } from '../connections/watcher.js'
@@ -14,10 +18,12 @@ import { durable, type DurableSessionId, type LiveSessionId, type SessionIds, ty
 import type { PullRequests } from '../github/store.js'
 import { storedCompactions } from '../hermes/compactions.js'
 import type { Media } from '../media.js'
+import type { OperationalSheets } from '../operations.js'
 import type { ToolCall } from '../model.js'
 import type { Processes } from '../processes/store.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { Transcript } from '../transcript/store.js'
+import type { TodoHud } from '../todo-hud.js'
 import type { Activity } from '../turn/activity.js'
 import type { PromptQueue } from '../turn/queue.js'
 import type { AdaptedSnapshot } from '../wire/rpc.js'
@@ -53,6 +59,8 @@ export interface Adoptable {
 /** What adopting reaches of the app. */
 export interface AdoptHost {
   readonly state: SessionState
+  readonly btw: Pick<BtwThreads, 'adopt'>
+  readonly operations: Pick<OperationalSheets, 'adopt'>
   readonly activity: Pick<Activity, 'busy' | 'endCompaction' | 'set'>
   readonly agents: Pick<Agents, 'adopt' | 'scan'>
   readonly automation: Pick<Automation, 'adopt'>
@@ -65,9 +73,15 @@ export interface AdoptHost {
   readonly sheets: Pick<PromptSheets, 'dropAll'>
   readonly sidebar: Pick<Sidebar, 'adopt'>
   readonly title: Pick<SessionTitle, 'adopt'>
-  readonly transcript: Pick<Transcript, 'entries' | 'inflight' | 'load' | 'reset'>
+  readonly hud: Pick<Hud, 'adopt'>
+  readonly todoHud: Pick<TodoHud, 'adopt'>
+  readonly transcript: Pick<Transcript, 'currentTodos' | 'entries' | 'inflight' | 'load' | 'reset'>
   /** Reads the adopted session's busy_input_mode into the state. */
   readBusyMode(): void
+  /** Loads shortcuts from the owning gateway after a session is adopted. */
+  readShortcuts(): void
+  /** Reads canonical Hermes display.vim_mode for the adopted session. */
+  readVimPreference(): void
   /** Asks the gateway to stream session `sid`'s reasoning. */
   showThoughts(sid: LiveSessionId): void
   /** Names this pane the viewer of `now` (the plugin's connect results come here), no longer of `before`. */
@@ -97,6 +111,8 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
         state.ref = ref
       }
     },
+    // Side drafts and operational reads are owned by the exact live session.
+    { adopt: ({ ref }) => { host.btw.adopt(ref.live); host.operations.adopt(ref.live) } },
     {
       adopt: ({ previous, r, ref }) => {
         const other = ref.live !== previous.live
@@ -113,6 +129,8 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
     },
     // Read on every adopt: a reconnect may land on a gateway whose config changed.
     { adopt: () => host.readBusyMode() },
+    { adopt: () => host.readShortcuts() },
+    { adopt: () => host.readVimPreference() },
     // The session's own queue, from the snapshot (a reattach's rows of this pane become read-only rows).
     { adopt: ({ r }) => host.queue.server.reset(pendingRows(r.info)) },
     { adopt: ({ ref }) => host.showThoughts(ref.live) },
@@ -156,6 +174,12 @@ export function adoptSteps(host: AdoptHost): readonly Adoptable[] {
         }
       }
     },
+    // After history, restore this session's newest todo snapshot only if no event snapshot was cached.
+    { adopt: ({ ref }) => {
+      const key = durable(ref)
+      host.todoHud.adopt(key, transcript.currentTodos())
+      host.hud.adopt(key)
+    } },
     // Prompts held for another session go back to the composer, not to this one. After the history:
     // load() keeps only the welcome, so the notice that says so is written into the loaded transcript.
     { adopt: ({ ref }) => host.queue.adopt(ref) },

@@ -17,9 +17,11 @@ import { modelPayload, mutateSession } from '../hermes/mutate.js'
 import { providerDisplayNames } from '../hermes/providers.js'
 import { rememberCaps } from '../modelCaps.js'
 import { levelsFor } from '../session/effort.js'
+import { modelRecents, modelId } from '../shortcuts/model-recents.js'
 import { setFast } from '../session/fast.js'
 import { rpc } from '../wire/rpc.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { editQuery, hitRuns, moveSelection, rank } from './search.js'
 
@@ -71,6 +73,12 @@ async function mutateModel(host: ModelsHost, value: string, confirmed: boolean):
 
 /** Switches the session's model to `value` (`<model> [--provider <slug>] [--session|--global]`); reports the switch in the transcript unless it needs a confirmation. */
 export async function switchModel(host: ModelsHost, value: string, confirmed = false): Promise<ConfigSetResult> {
+  const sid = host.session.ref.live
+
+  if (!sid) {
+    throw new Error('No active session for model selection.')
+  }
+
   const r = host.gw.isCanonical
     ? await mutateModel(host, value, confirmed)
     : await rpc(host.gw, 'config.set', {
@@ -80,6 +88,11 @@ export async function switchModel(host: ModelsHost, value: string, confirmed = f
         value
       })
 
+  // A late switch belongs to the old session, never the next pane's route.
+  if (host.session.ref.live !== sid) {
+    return { key: 'model', value: '' }
+  }
+
   if (r.confirm_required) {
     return r
   }
@@ -87,7 +100,9 @@ export async function switchModel(host: ModelsHost, value: string, confirmed = f
   const model = typeof r.value === 'string' ? r.value : ''
 
   if (model) {
-    host.session.info = { ...host.session.info, model }
+    const provider = /--provider\s+(\S+)/.exec(value)?.[1] || host.session.info?.provider || ''
+    modelRecents(host.session).remember(sid, { model, provider })
+    host.session.info = { ...host.session.info, model, ...(provider ? { provider } : {}) }
     host.transcript.notice(r.deferred ? `Model switches to ${model} from the next turn.` : `Switched to ${model}.`)
   }
 
@@ -173,7 +188,12 @@ export function openModelPicker(host: ModelsHost) {
     busy = true
 
     try {
+      const sid = host.session.ref.live
       const r = await switchModel(host, pickerValue(row.model, row.provider.slug, canSave && global), confirmed)
+
+      if (host.session.ref.live !== sid) {
+        return
+      }
 
       if (r.confirm_required) {
         confirm = { row, text: r.confirm_message || r.warning || `${row.model} is expensive. Switch anyway?` }
@@ -242,7 +262,7 @@ export function openModelPicker(host: ModelsHost) {
   const overlay: Overlay = {
     key: KEY,
     modal: true,
-    node: () => {
+    node: id => {
       const { hits, order } = view()
       const priced = rows.some(r => r.provider.pricing?.[r.model])
       const columns: PickerColumn[] = priced ? [{ format: 'price', head: '$/M', id: 'price', priority: 2 }] : []
@@ -271,13 +291,13 @@ export function openModelPicker(host: ModelsHost) {
             { id: 'use', keys: ['enter'], label: 'Switch', primary: true }
           ]}
           columns={columns}
-          key={KEY}
+          key={nativeOverlayKey(id)}
           {...optional('confirm', confirm ? { act: 'confirm', label: 'Switch anyway', text: confirm.text } : undefined)}
           current={current ? [current] : []}
           {...optional('empty', query ? undefined : 'No models in this scope')}
           hits={hits}
           icon="cpu"
-          items={rows.map(itemOf)}
+          items={rows.map(row => itemOf(row, modelRecents(host.session).list(host.session.ref.live ?? '').some(item => modelId(item) === row.id)))}
           layout="rows"
           {...optional('message', state === 'error' ? message : undefined)}
           noun="models"
@@ -423,10 +443,12 @@ export function openModelPicker(host: ModelsHost) {
 
 const caps = (row: Row) => row.provider.capabilities?.[row.model]
 
+const RECENT_BADGE: { text: string; tone: 'info' } = { text: 'recent', tone: 'info' }
+
 /** The model has a fast tier on its provider. */
 const fastable = (row: Row) => Boolean(caps(row)?.fast || caps(row)?.ultrafast)
 
-function itemOf(row: Row): PickerItem {
+function itemOf(row: Row, recent = false): PickerItem {
   const price = row.provider.pricing?.[row.model]
   const caps = row.provider.capabilities?.[row.model]
   const free = Boolean(price?.free)
@@ -434,6 +456,7 @@ function itemOf(row: Row): PickerItem {
 
   return {
     badges: [
+      ...(recent ? [RECENT_BADGE] : []),
       ...(free ? [{ text: 'free', tone: 'success' as const }] : []),
       ...(caps?.ultrafast
         ? [{ text: 'ultrafast', tone: 'info' as const }]

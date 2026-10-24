@@ -12,7 +12,7 @@ import type { Pill } from '../chrome/hud.js'
 import { liveSessionId } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
 import { busyHint } from '../turn/busyInput.js'
-import type { Overlay } from '../overlays/overlay.js'
+import { type Overlay, OverlayStack } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
 import { dockNodes } from '../view/dock.js'
 import { dockModel, shownPills } from '../view/dockModel.js'
@@ -194,8 +194,15 @@ describe('dockModel: removing an attached image', () => {
 function frame(over: Partial<FrameCx> = {}) {
   const log: string[] = []
   let focused: Pill | undefined = 'todos'
+  const stack = new OverlayStack({ changed: () => undefined, closed: () => undefined, opened: () => undefined })
+
+  for (const overlay of over.overlays ?? []) {
+    stack.open(overlay)
+  }
+
   const cx: FrameCx = {
     ...dockSources(),
+    liveVoice: { blocked: false, node: () => null },
     actions: dockActions(),
     aside: () => false,
     completion: { ghost: '', nodes: () => [], update: () => void log.push('completion.update') },
@@ -214,9 +221,10 @@ function frame(over: Partial<FrameCx> = {}) {
     prAside: { node: () => null, open: false },
     sidebar: { node: () => null },
     surface: { closed: false, follow: id => void log.push(`follow ${id}`), render: () => void log.push('render') },
-    transcript: { currentTodos: () => undefined, entries: [] },
+    transcript: { changedEntries: new Set(), currentTodos: () => undefined, entries: [] },
     welcome: { tip: '', version: '' },
-    ...over
+    ...over,
+    stack: over.stack ?? stack
   }
 
   return { cx, log }
@@ -233,7 +241,7 @@ describe('drawFrame', () => {
   })
 
   it('leaves the caret off the composer while a pill still holds the keys', () => {
-    const { cx, log } = frame({ transcript: { currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
+    const { cx, log } = frame({ transcript: { changedEntries: new Set(), currentTodos: () => [{ content: 'Fix it', id: 't1', status: 'pending' }], entries: [] } })
 
     expect(shownPills(cx, NOW)).toEqual(['todos'])
     drawFrame(cx, NOW)
@@ -241,11 +249,11 @@ describe('drawFrame', () => {
   })
 
   it('leaves the completion alone under a modal sheet, and gives the caret to the sheet\'s field', () => {
-    const sheet: Pick<Overlay, 'focus' | 'key' | 'modal' | 'node'> = { focus: id => `${id}.field`, key: 'ask', modal: true, node: () => new Node('col', { key: 'ask' }) }
+    const sheet: Overlay = { focus: id => `${id}.field`, key: 'ask', modal: true, node: id => new Node('col', { key: id }), onKey: () => true }
     const { cx, log } = frame({ overlays: [sheet] })
 
     drawFrame(cx, NOW)
-    expect(log).toEqual(['hud.prune', 'render', 'follow layer.ask.field'])
+    expect(log).toEqual(['hud.prune', 'render', `follow ${cx.stack.rootOf(sheet)}.field`])
   })
 
   it('draws nothing once the surface closed', () => {

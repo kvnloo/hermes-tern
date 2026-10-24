@@ -31,6 +31,10 @@ import { endThinking, shownArgs, trailingText, usageSince } from './turns.js'
 /** The ordered entries of one session, plus the event reducer that grows them. */
 export class Transcript {
   #entries: Entry[] = []
+  /** Incremental presentation changes; retained views consume these only after a sent frame. */
+  readonly changedEntries = new Set<Entry>()
+  /** An adoption/reload replaces the session's action lifetime, even before the next paint. */
+  #lifetime = 0
   #next = 0
   /** The session's running usage at the last completed turn (message.complete reports session totals). */
   #sessionUsage: Usage | undefined
@@ -48,11 +52,42 @@ export class Transcript {
    */
   #ended: TurnEntry | undefined
   /** The compactions part: a compaction's start, end and take-back, the context readings that size it, its stored summary. */
-  readonly compactions = new Compactions({ entries: () => this.#entries, id: prefix => this.id(prefix), live: () => this.#live })
+  readonly compactions = new Compactions({
+    // Compaction state can revise an older settled entry. The existing
+    // Compactions host accesses entries on those events, not on token frames.
+    entries: () => {
+      for (const entry of this.#entries) {
+        if (entry.kind === 'compaction' ||
+          (entry.kind === 'turn' && entry.blocks.some(block => block.kind === 'compaction'))) {
+          this.changedEntries.add(entry)
+        }
+      }
+
+      return this.#entries
+    },
+    id: prefix => this.id(prefix),
+    live: () => {
+      if (this.#live) {
+        this.changedEntries.add(this.#live)
+      }
+
+      return this.#live
+    }
+  })
 
   /** The entries, oldest first; only the transcript's own methods change the list. */
   get entries(): readonly Entry[] {
     return this.#entries
+  }
+
+  get lifetime(): number {
+    return this.#lifetime
+  }
+
+  /** The reducer's single revision + presentation-mutation signal. */
+  #touchTurn(turn: TurnEntry) {
+    turn.rev++
+    this.changedEntries.add(turn)
   }
 
   /**
@@ -63,6 +98,8 @@ export class Transcript {
    */
   reset({ session, usage }: { session: 'other' | 'same'; usage: Usage | undefined }) {
     this.#generation++
+    this.#lifetime++
+    this.changedEntries.clear()
     this.#entries = [{ id: this.id('w'), kind: 'welcome' }]
     this.#live = undefined
     this.#ended = undefined
@@ -103,7 +140,7 @@ export class Transcript {
       turn.cacheHit = hit
       turn.tickTokens = tokens
       turn.tps = tps
-      turn.rev++
+      this.#touchTurn(turn)
     }
   }
 
@@ -140,7 +177,7 @@ export class Transcript {
     }
 
     owner.blocks.push({ at, id: this.id('s'), kind: 'steer', text })
-    owner.rev++
+    this.#touchTurn(owner)
   }
 
   /** Records an acknowledged correction in the current transcript before its draft is taken. */
@@ -174,7 +211,7 @@ export class Transcript {
     if (notice) {
       if (live && !live.blocks.length) {
         live.continued = notice
-        live.rev++
+        this.#touchTurn(live)
       } else {
         this.#continued = notice
       }
@@ -186,7 +223,7 @@ export class Transcript {
       this.#entries.splice(-1, 0, userEntry(this.id('u'), { at, attachments, text }))
       // It answers this prompt; it did not go on on its own.
       live.continued = undefined
-      live.rev++
+      this.#touchTurn(live)
 
       return
     }
@@ -251,7 +288,7 @@ export class Transcript {
       turn.blocks.push({ id: this.id('k'), kind: 'thinking', startedAt: at, text })
     }
 
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   /**
@@ -270,7 +307,7 @@ export class Transcript {
 
     const turn = shown ?? this.#open(at)
     turn.blocks.push({ endedAt: at, id: this.id('k'), kind: 'thinking', startedAt: at, text })
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   /** A Mixture-of-Agents reference model's answer: a sealed thought block of its own, under `label`. */
@@ -278,7 +315,7 @@ export class Transcript {
     const turn = this.#open(at)
     endThinking(turn, at)
     turn.blocks.push({ endedAt: at, id: this.id('k'), kind: 'thinking', label, startedAt: at, text: text.trim() })
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   text(text: string, at = Date.now()) {
@@ -296,7 +333,7 @@ export class Transcript {
       turn.blocks.push({ id: this.id('x'), kind: 'text', text })
     }
 
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   /** Interim commentary: seals the streamed text so the next delta starts a new block. */
@@ -310,7 +347,7 @@ export class Transcript {
 
     // An empty text block marks the seal; `text()` appends to a new one after it.
     turn.blocks.push({ id: this.id('x'), kind: 'text', text: '' })
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   toolStart(p: ToolStartPayload, at = Date.now()) {
@@ -352,7 +389,7 @@ export class Transcript {
     }
 
     turn.blocks.push({ call, id: call.id, kind: 'tool' })
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   toolComplete(p: ToolCompletePayload, at = Date.now()) {
@@ -401,16 +438,17 @@ export class Transcript {
       call.todos = toTodos(p.todos)
     }
 
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   /** The newest todo snapshot lands on the newest todo tool call. */
   todos(todos: unknown[]) {
-    const found = this.#lastTool(c => isTodoName(c.name))
+    // An out-of-band todo.updated is a live projection, never a rewrite of a settled tool card.
+    const found = this.#lastTool(c => isTodoName(c.name) && c.outcome.kind === 'running')
 
     if (found) {
       found.call.todos = toTodos(todos)
-      found.turn.rev++
+      this.#touchTurn(found.turn)
     }
   }
 
@@ -458,7 +496,7 @@ export class Transcript {
       turn.end = { endedAt: at, status: p.status === 'interrupted' ? 'interrupted' : 'done' }
     }
 
-    turn.rev++
+    this.#touchTurn(turn)
   }
 
   /** Seals a live turn the user interrupted before the agent confirmed it. */
@@ -477,6 +515,8 @@ export class Transcript {
    */
   load(messages: TranscriptMessage[], stored: readonly StoredCompaction[] = []) {
     this.#generation++
+    this.#lifetime++
+    this.changedEntries.clear()
     const kept = this.#entries.filter(e => e.kind === 'welcome')
     this.#live = undefined
     this.#ended = undefined
@@ -505,7 +545,7 @@ export class Transcript {
     const found = call && findCall(this.#entries, c => c === call)
 
     if (found) {
-      found.turn.rev++
+      this.#touchTurn(found.turn)
     }
   }
 
