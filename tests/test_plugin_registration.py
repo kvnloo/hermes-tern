@@ -122,3 +122,27 @@ def test_older_plugin_context_does_not_advertise_plan_authority():
     old = OldCtx()
     hermes_tern_plugin.register(old)
     assert not old.of("register_gateway_method")
+
+
+def test_registered_media_gateway_methods_are_strict_and_owned(ctx):
+    from hermes_tern_plugin import media_backend
+
+    methods = [(args, kwargs) for args, kwargs in ctx.of("register_gateway_method") if args[0].startswith("hermes-tern.media.")]
+    assert [args[0] for args, _ in methods] == [
+        "hermes-tern.media.image", "hermes-tern.media.attach_bytes"
+    ]
+    assert [args[1] for args, _ in methods] == [
+        media_backend.read_image, media_backend.attach_bytes
+    ]
+    assert all(kwargs["schema"].model_config.get("extra") == "forbid"
+               for _, kwargs in methods)
+
+
+def test_media_registration_degrades_on_unpinned_older_hermes():
+    class OldContext(RecordingCtx):
+        register_gateway_method = None
+
+    ctx = OldContext()
+    hermes_tern_plugin.register(ctx)
+    assert not ctx.of("register_gateway_method")
+    assert ctx.of("register_cli_command")

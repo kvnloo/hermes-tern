@@ -36,7 +36,7 @@ export type PreviewState =
 
 export interface MediaDeliveryDeps {
   readonly tern: Pick<Session, 'blob' | 'caps'>
-  readonly gw: Pick<GatewayClient, 'attached' | 'request'>
+  readonly gw: Pick<GatewayClient, 'attached' | 'request'> & { readonly isCanonical?: boolean }
   readonly session: () => string | null
   readonly cwd: () => string | undefined
   readonly backend: () => string | null | undefined
@@ -142,7 +142,22 @@ export class MediaDelivery {
     const host = this.context()
     const cached = this.#cache.get(this.#key(source))
 
-    if (host.local || source.host !== host.remoteHost) {
+    // The legacy WS also reports "attached", but has no public durable-key or
+    // successful canonical media receipt. Never paint Load/Retry for it.
+    if (source.host === 'gateway' && source.scope === 'attachment' &&
+        this.deps.gw.attached && this.deps.gw.isCanonical !== true) {
+      return { label: 'Image preview unsupported for legacy sessions', status: 'unsupported' }
+    }
+
+    // An owned prompt attachment is gateway-staged, regardless of UNKNOWN
+    // compute backend. This is only a routing hint for a user-initiated RPC:
+    // Hermes must independently attest stored bytes and session ownership.
+    // Tool-call paths do NOT inherit attachment provenance.
+    const gatewayAttachment = source.host === 'gateway' &&
+      source.scope === 'attachment' && !source.toolCallId && this.deps.gw.attached
+
+    if ((source.scope === 'attachment' && !gatewayAttachment) ||
+        (!gatewayAttachment && (host.local || source.host !== host.remoteHost))) {
       return { label: 'Image path does not belong to the active host.', status: 'unsupported' }
     }
 
@@ -212,13 +227,29 @@ export class MediaDelivery {
       let responseMime = source.mime
 
       if (source.host === 'gateway') {
+        // Discover only on explicit user action, in the attached live RPC
+        // session domain. Older Hermes runtimes do not have plugin methods.
+        const capabilities = await this.deps.gw.request<{ plugin_methods?: unknown }>(
+          'gateway.capabilities', { session_id: session }
+        )
+        const methods = capabilities?.plugin_methods
+
+        if (!Array.isArray(methods) || !methods.includes('hermes-tern.media.image')) {
+          throw new Error('Image preview requires Hermes plugin gateway methods; upgrade Hermes and enable hermes-tern.')
+        }
+
+        if (this.#closed || epoch !== this.#epoch || scope !== this.#scope() || this.#cache.get(key) !== entry) {
+          return
+        }
+
         const response = await this.deps.gw.request<{
           content_base64: string
           bytes: number
           mime: string
-        }>('media.image', {
+        }>('hermes-tern.media.image', {
           session_id: session,
           path: source.path,
+          ...(source.mime ? { mime: source.mime } : {}),
           ...(source.toolCallId ? { tool_call_id: source.toolCallId } : {})
         })
 
@@ -293,7 +324,7 @@ export class MediaDelivery {
     const { gw, env = process.env } = this.deps
 
     const current = JSON.stringify([
-      this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, ternSharesFrontendHost(env)
+      this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, gw.isCanonical, ternSharesFrontendHost(env)
     ])
 
     // Keying solely by the current values resurrects blobs after A -> B -> A.
