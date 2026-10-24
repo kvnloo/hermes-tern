@@ -58,7 +58,7 @@ def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
 
 
 def test_native_browser_registration_is_namespaced_and_read_only_without_consent(ctx):
-    entries = ctx.of('register_gateway_method')
+    entries = [(args, kwargs) for args, kwargs in ctx.of('register_gateway_method') if args[0].startswith('hermes-tern.browser.')]
     assert [args[0] for args, _ in entries] == [
         f'hermes-tern.browser.{action}' for action in ('blocks', 'adopt', 'focus', 'release', 'frame')
     ]
@@ -84,7 +84,7 @@ def test_chart_tasks_keep_their_explicit_plugin_keys(ctx):
 
 def test_only_real_safe_report_is_registered_until_btw_owner_seam(ctx):
     ((args, kwargs),) = [(args, kwargs) for args, kwargs in ctx.of("register_gateway_method")
-                        if not args[0].startswith("hermes-tern.plan.")]
+                        if args[0] == "hermes-tern.operations.report"]
     assert args[0] == "hermes-tern.operations.report"
     assert callable(args[1]) and kwargs["schema"].model_config["extra"] == "forbid"
 

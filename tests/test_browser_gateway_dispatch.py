@@ -944,7 +944,8 @@ def test_real_create_resume_marker_and_model_tool_original_driver(green, monkeyp
     assert server._sessions[sid]["session_key"] == durable
     assert server._sessions[sid]["agent_ready"].wait(30)
     agent = server._sessions[sid]["agent"]
-    assert agent is not None and isinstance(agent.session_id, str) and agent.session_id
+    assert agent is not None, server._sessions[sid]
+    assert isinstance(agent.session_id, str) and agent.session_id
 
     (connections._dir("viewers") / f"{durable}.json").write_text(json.dumps({
         "pid": os.getpid(),
