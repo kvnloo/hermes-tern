@@ -17,6 +17,14 @@ class RecordingCtx:
     def __init__(self):
         self.calls = []
 
+    profile_name = 'fixture'
+
+    def has_capability(self, capability):
+        return False
+
+    def on_unload(self, fn):
+        self.calls.append(('on_unload', (fn,), {}))
+
     def __getattr__(self, name):
         if not name.startswith("register_"):
             raise AttributeError(name)
@@ -36,7 +44,7 @@ def ctx():
 def test_registers_only_public_plugin_apis(ctx):
     assert {n for n, _, _ in ctx.calls} == {
         "register_cli_command", "register_auxiliary_task", "register_tool", "register_system_prompt_section",
-        "register_hook", "register_middleware"}
+        "register_hook", "register_middleware", "register_gateway_method", "on_unload"}
 
 
 def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
@@ -47,6 +55,17 @@ def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
     assert "provides_hooks: [transform_tool_result]" in MANIFEST
     assert [a[0] for a, _ in ctx.of("register_middleware")] == ["tool_request"]
     assert "provides_middleware: [tool_request]" in MANIFEST
+
+
+def test_native_browser_registration_is_namespaced_and_read_only_without_consent(ctx):
+    entries = ctx.of('register_gateway_method')
+    assert [args[0] for args, _ in entries] == [
+        f'hermes-tern.browser.{action}' for action in ('blocks', 'adopt', 'focus', 'release', 'frame')
+    ]
+    assert all('schema' in kwargs for _, kwargs in entries)
+    assert [kwargs['name'] for _, kwargs in ctx.of('register_tool')] == [
+        'link_pull_request', 'unlink_pull_request', 'list_pull_requests'
+    ]
 
 
 def test_the_tern_command_hands_its_flags_to_hermes_chat(ctx):

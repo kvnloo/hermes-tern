@@ -6,7 +6,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { errorText } from '../core/errors.js'
 import { Composer } from '../draft/composer.js'
 import { actionsRow, button } from '../view/ui/button.js'
-import { type BrowserBlock, browserTarget, listBrowserBlocks, releaseBrowserBlock } from '../wire/browser.js'
+import { type BrowserBlock, browserCaller, browserTarget, listBrowserBlocks, releaseBrowserBlock } from '../wire/browser.js'
 
 import type { Overlay } from './overlay.js'
 import { moveSelection } from './search.js'
@@ -18,6 +18,7 @@ const KEY = 'browser-blocks'
 export function openBrowserBlocks(host: BrowserHost): void {
   const sessionRef = host.session.ref
   const sid = sessionRef.live
+  const caller = browserCaller(host.session)
 
   if (!sid) {
     return
@@ -27,7 +28,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
   let available = false
   let loading = false
   let working = false
-  let message = 'Loading Tern browser blocks…'
+  let message = caller ? 'Loading Tern browser blocks…' : 'Native browser unavailable: verified canonical profile identity is missing from this session.'
   let selected: string | undefined
   let editing: BrowserBlock | undefined
   const frame = new Composer()
@@ -47,7 +48,10 @@ export function openBrowserBlocks(host: BrowserHost): void {
     host.changed()
 
     try {
-      const result = await listBrowserBlocks(host.gw, sid)
+      if (!caller || !caller.current()) {
+        throw new Error('Verified canonical profile and original session.ref required for native browser controls')
+      }
+      const result = await listBrowserBlocks(host.gw, caller)
 
       if (!live()) {
         return
@@ -57,7 +61,9 @@ export function openBrowserBlocks(host: BrowserHost): void {
       available = result.available
       selected = blocks.some(block => block.target_id === selected) ? selected : blocks[0]?.target_id
       message = !available
-        ? 'Tern browser interface unavailable. The existing browser backend is unchanged.'
+        ? result.reason === 'operator_consent_or_task_authority_required'
+          ? 'Native drive unsupported: explicit plugins.entries.hermes-tern.allow_tool_override/tools.override consent and a gateway-authorized task/busy fence are required.'
+          : 'Tern browser interface unavailable. The existing browser backend is unchanged.'
         : blocks.length
           ? ''
           : 'No browser blocks. Hermes creates an agent-owned block on first native navigation.'
@@ -67,8 +73,8 @@ export function openBrowserBlocks(host: BrowserHost): void {
       }
 
       const detail = errorText(error)
-      message = /method not found|unknown method|no such method/i.test(detail)
-        ? 'This Hermes gateway does not support browser-block controls. Use a gateway with the ui-tsp browser RPC contract.'
+      message = /method not found|unknown method|no such method|plugin gateway methods/i.test(detail)
+        ? 'Native browser requires Hermes plugin gateway methods and a verified canonical profile. Old runtimes are unsupported.'
         : detail
       available = false
       blocks = []
@@ -85,13 +91,13 @@ export function openBrowserBlocks(host: BrowserHost): void {
   // A rendered handler owns this exact listing instance. A refresh revokes old handlers,
   // even when the native target id is reused; selection alone never redirects an intent.
   const present = (block: BrowserBlock) => blocks.find(item => item.target_id === block.target_id) === block
-  const mayChoose = (block: BrowserBlock) => available && !working && !loading &&
+  const mayChoose = (block: BrowserBlock) => !!caller?.current() && available && !working && !loading &&
     (block.owned || (block.available && !host.busy))
-  const mayModify = (block: BrowserBlock) => available && block.owned && !working && !loading && !host.busy
+  const mayModify = (block: BrowserBlock) => !!caller?.current() && available && block.owned && !working && !loading && !host.busy
 
   /** Pointer actions capture their listing; keyboard selection resolves on keypress, but a frame edit keeps its original owner. */
   const choose = async (block: BrowserBlock | undefined, intent: 'use' | 'release' | 'frame') => {
-    if (!live() || !block || !present(block) || !available || working ||
+    if (!live() || !caller?.current() || !block || !present(block) || !available || working ||
       (intent === 'frame' && editing !== block) ||
       (intent === 'use' ? !mayChoose(block) : !mayModify(block))) {
       return
@@ -102,7 +108,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
 
     try {
       if (intent === 'release') {
-        await releaseBrowserBlock(host.gw, sid, block.target_id)
+        await releaseBrowserBlock(host.gw, caller, block.target_id)
 
         if (live()) {
           if (editing === block) {
@@ -113,7 +119,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
           await refresh()
         }
       } else if (intent === 'frame') {
-        const result = await browserTarget(host.gw, 'browser.frame', sid, block.target_id, frame.text.trim())
+        const result = await browserTarget(host.gw, 'hermes-tern.browser.frame', caller, block.target_id, frame.text.trim())
 
         if (live()) {
           message = `Block ${result.target_id} · evaluation frame ${result.frame ?? 'main'}`
@@ -122,7 +128,7 @@ export function openBrowserBlocks(host: BrowserHost): void {
           }
         }
       } else {
-        await browserTarget(host.gw, block.owned ? 'browser.focus' : 'browser.adopt', sid, block.target_id)
+        await browserTarget(host.gw, block.owned ? 'hermes-tern.browser.focus' : 'hermes-tern.browser.adopt', caller, block.target_id)
 
         if (live()) {
           host.close(overlay)
