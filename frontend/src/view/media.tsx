@@ -10,7 +10,10 @@ import { button } from './ui/button.js'
 /** A stored attachment path stays authoritative as a gateway-owned ref, never a Tern path. */
 export function attachmentImagePath(path: string, delivery: MediaDelivery): MediaPath | undefined {
   const absolute = localMediaPath(path, undefined)
-  const host = delivery.context().remoteHost
+  // Gateway staging is a separate origin from the compute backend. The
+  // actual registered RPC proves byte ownership; a typed path never does.
+  // session.info may omit terminal_backend even for a healthy gateway.
+  const host = delivery.deps.gw.attached ? 'gateway' : delivery.context().remoteHost
 
   return absolute && (host === 'frontend' || host === 'gateway')
     ? { host, id: 'attachment:' + absolute, kind: 'path', path: absolute, scope: 'attachment' }

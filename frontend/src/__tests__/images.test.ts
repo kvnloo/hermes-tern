@@ -347,6 +347,38 @@ function attachments({ blob, canonical = true, clipboard = clipboardOf(holding),
 }
 
 describe('Attachments: the draft\'s images', () => {
+  it('uses the namespaced staged-bytes path only when the canonical gateway advertises it', async () => {
+    const { a, gw } = attachments()
+    gw.handlers.set('gateway.capabilities', () => ({
+      plugin_methods: ['hermes-tern.media.attach_bytes']
+    }))
+    gw.handlers.set('hermes-tern.media.attach_bytes', () => ({
+      path: '/uploads/attested.png'
+    }))
+    await a.fromPath(shot)
+    expect(gw.sent('gateway.capabilities')).toEqual([{ session_id: 's1' }])
+    expect(gw.sent('hermes-tern.media.attach_bytes')).toEqual([
+      expect.objectContaining({ filename: 'image.png', session_id: 's1' })
+    ])
+    expect(gw.sent('image.attach_bytes')).toEqual([])
+    expect(a.items[0]?.path).toBe('/uploads/attested.png')
+  })
+
+  it('preserves original upload when the plugin capability is unavailable or gateway is legacy', async () => {
+    const older = attachments()
+    older.gw.handlers.set('gateway.capabilities', () => {
+      throw new Error('not implemented')
+    })
+    await older.a.fromPath(shot)
+    expect(older.gw.sent('image.attach_bytes')).toHaveLength(1)
+    expect(older.gw.sent('hermes-tern.media.attach_bytes')).toEqual([])
+
+    const legacy = attachments({ canonical: false })
+    await legacy.a.fromPath(shot)
+    expect(legacy.gw.sent('gateway.capabilities')).toEqual([])
+    expect(legacy.gw.sent('image.attach_bytes')).toHaveLength(1)
+  })
+
   it('an empty paste reads the clipboard\'s image and uploads it, with its size and thumbnail', async () => {
     const { a, gw } = attachments({ blob: 'b1' })
 

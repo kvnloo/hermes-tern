@@ -36,7 +36,7 @@ def ctx():
 def test_registers_only_public_plugin_apis(ctx):
     assert {n for n, _, _ in ctx.calls} == {
         "register_cli_command", "register_auxiliary_task", "register_tool", "register_system_prompt_section",
-        "register_hook", "register_middleware"}
+        "register_hook", "register_middleware", "register_gateway_method"}
 
 
 def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
@@ -60,3 +60,27 @@ def test_the_tern_command_hands_its_flags_to_hermes_chat(ctx):
 def test_the_chart_task_has_a_plugin_namespaced_key(ctx):
     ((args, kwargs),) = ctx.of("register_auxiliary_task")
     assert args[0] == "tern_charts" and kwargs["display_name"]
+
+
+def test_registered_media_gateway_methods_are_strict_and_owned(ctx):
+    from hermes_tern_plugin import media_backend
+
+    methods = ctx.of("register_gateway_method")
+    assert [args[0] for args, _ in methods] == [
+        "hermes-tern.media.image", "hermes-tern.media.attach_bytes"
+    ]
+    assert [args[1] for args, _ in methods] == [
+        media_backend.read_image, media_backend.attach_bytes
+    ]
+    assert all(kwargs["schema"].model_config.get("extra") == "forbid"
+               for _, kwargs in methods)
+
+
+def test_media_registration_degrades_on_unpinned_older_hermes():
+    class OldContext(RecordingCtx):
+        register_gateway_method = None
+
+    ctx = OldContext()
+    hermes_tern_plugin.register(ctx)
+    assert not ctx.of("register_gateway_method")
+    assert ctx.of("register_cli_command")

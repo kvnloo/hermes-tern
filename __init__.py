@@ -107,3 +107,7 @@ def register(ctx) -> None:
     pull_requests.register(ctx)
     connections.register(ctx)
     tern_env.register(ctx)
+    # Gateway RPCs are optional: older Hermes still launches and uploads normally.
+    if callable(getattr(ctx, 'register_gateway_method', None)):
+        from . import media_backend
+        media_backend.register(ctx)
