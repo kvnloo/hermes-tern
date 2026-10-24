@@ -304,7 +304,7 @@ const SHEETS: readonly [KeyMatch, (cx: KeyCx) => void][] = [
 ]
 
 const sheets: KeyRule = (key, cx) => {
-  const ids = ['app.agents.hub', 'app.jobs', 'app.sidebar', 'app.prs']
+  const ids = ['app.agents.hub', 'app.jobs', undefined, 'app.sidebar', 'app.prs']
   const hit = SHEETS.find(([match], index) => {
     const id = ids[index]
 
