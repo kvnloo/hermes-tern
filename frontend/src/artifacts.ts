@@ -127,7 +127,10 @@ async function download(source: string, target: string): Promise<void> {
     const file = await open(target, 'w', 0o600)
     try {
       let bytes = 0
-      for await (const chunk of response.body) {
+      for await (const chunk of response.body as AsyncIterable<unknown>) {
+        if (!(chunk instanceof Uint8Array)) {
+          throw new Error('Model download returned a non-byte chunk')
+        }
         bytes += chunk.length
         if (bytes > MAX_BYTES) {
           throw new Error('Model exceeds the 128 MiB download limit')
