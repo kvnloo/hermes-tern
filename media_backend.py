@@ -2,8 +2,8 @@
 
 No core overrides, private legacy transport inspection, or guessed host identity.
 Pending authority requires a successful scoped upload lease. Resumed authority
-requires a real, terminal canonical admission of matching bytes AND an owning
-durable user-row reference; text-only persistence cannot carry image bytes.
+requires the exact committed native-inputs path, the real terminal canonical
+admission of those bytes, a real staging witness, and an owning durable user row.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import binascii
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -139,6 +140,35 @@ def _roots(owner: _Owner) -> tuple[Path, ...]:
     return tuple(paths)
 
 
+def _native_roots(owner: _Owner) -> tuple[Path, ...]:
+    """The core's actual retained native-inputs root, never an arbitrary document path.
+
+    A configured HOME symlink is permitted; every child is walked with NOFOLLOW.
+    The digest directory and leaf are independently checked by read_image.
+    """
+    from gateway.session_ingress_media import native_inputs_store
+
+    native = Path(os.path.abspath(native_inputs_store()))
+    rel = None
+    for home in (owner.alias, owner.home):
+        try:
+            rel = native.relative_to(home)
+            break
+        except ValueError:
+            continue
+    if rel is None or rel.parts not in (
+        ("cache", "documents", "native-inputs"),
+        ("document_cache", "native-inputs"),
+    ):
+        raise _refuse("Canonical image store is outside the configured profile")
+    paths: list[Path] = []
+    for home in (owner.alias, owner.home):
+        candidate = home / rel
+        if candidate not in paths:
+            paths.append(candidate)
+    return tuple(paths)
+
+
 def _root_parts(root: Path) -> tuple[Path, tuple[str, ...]]:
     from hermes_constants import get_hermes_home
 
@@ -251,24 +281,6 @@ def _read_regular(path: Path, root: Path) -> tuple[bytes, os.stat_result]:
     finally:
         _close_staging_root(root_fd, chain)
 
-def _reference(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] in ("'", '"', chr(96)) and value[-1] == value[0]:
-        return value[1:-1]
-    return value
-
-
-def _references_path(text: str, path: str) -> bool:
-    """Recognize the genuine prompt reference syntax, not a substring match."""
-    for line in text.splitlines():
-        if line.startswith("@image:") and _reference(line[len("@image:"):]) == path:
-            return True
-        if line.startswith("[Image attached at: ") and line.endswith("]"):
-            if line[len("[Image attached at: "):-1] == path:
-                return True
-    return False
-
-
 def _proof_name(path: Path) -> str:
     return path.name + ".tern-proof"
 
@@ -280,9 +292,10 @@ def _stage_proof(owner: _Owner, path: Path, data: bytes, source: os.stat_result)
     canonical admission AND persisted owning user row are still required.
     """
     proof = {
-        "version": 1, "profile": owner.profile, "stored_id": owner.stored_id,
+        "version": 2, "profile": owner.profile, "stored_id": owner.stored_id,
         "path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
-        "size": len(data), "dev": source.st_dev, "ino": source.st_ino,
+        "size": len(data), "mime": _mime(data)[0],
+        "dev": source.st_dev, "ino": source.st_ino,
     }
     content = json.dumps(proof, sort_keys=True, separators=(",", ":")).encode("utf8")
     fd, chain = _open_staging_root(path.parent)
@@ -301,57 +314,93 @@ def _stage_proof(owner: _Owner, path: Path, data: bytes, source: os.stat_result)
         _close_staging_root(fd, chain)
 
 
-def _stage_attested(owner: _Owner, path: Path, data: bytes, source: os.stat_result) -> bool:
+def _read_stage_proof(path: Path) -> dict | None:
+    """Verify the plugin-created witness under the original no-follow staging root."""
+    root_fd, chain = _open_staging_root(path.parent)
+    try:
+        proof_fd = os.open(
+            _proof_name(path), os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0), dir_fd=root_fd,
+        )
+        try:
+            before = os.fstat(proof_fd)
+            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                    or before.st_size <= 0 or before.st_size > 4096):
+                return None
+            with os.fdopen(proof_fd, "rb", closefd=False) as stream:
+                raw = stream.read(4097)
+            after = os.fstat(proof_fd)
+            named = os.stat(_proof_name(path), dir_fd=root_fd, follow_symlinks=False)
+            if (len(raw) != before.st_size or not stat.S_ISREG(named.st_mode)
+                    or named.st_nlink != 1
+                    or any(getattr(a, field) != getattr(b, field)
+                           for a, b in ((before, after), (before, named))
+                           for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
+                return None
+            _check_staging_root(path.parent, root_fd, chain)
+        finally:
+            os.close(proof_fd)
+    finally:
+        _close_staging_root(root_fd, chain)
+    proof = json.loads(raw)
+    return proof if type(proof) is dict else None
+
+
+def _stage_attested(owner: _Owner, committed: Path, data: bytes, mime: str) -> bool:
+    """Rejoin a completed canonical input with its real plugin upload witness.
+
+    The original disposable staging bytes can already have been pruned. Its
+    private sidecar still binds the genuine plugin upload's filename, profile,
+    durable SID, MIME, digest, size and original inode. When the original leaf
+    still exists, its inode and bytes must match too; no same-byte replacement.
+    The sidecar is never an authority without a matching completed CORE receipt.
+    """
     if owner.legacy:
         return False
-    try:
-        root_fd, chain = _open_staging_root(path.parent)
+    digest = hashlib.sha256(data).hexdigest()
+    for root in _roots(owner)[:2]:
+        original = root / committed.name
         try:
-            proof_fd = os.open(_proof_name(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-                               dir_fd=root_fd)
-            try:
-                before = os.fstat(proof_fd)
-                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > 4096:
-                    return False
-                with os.fdopen(proof_fd, "rb", closefd=False) as stream:
-                    raw = stream.read(4097)
-                after = os.fstat(proof_fd)
-                named = os.stat(_proof_name(path), dir_fd=root_fd, follow_symlinks=False)
-                if (len(raw) != before.st_size or not stat.S_ISREG(named.st_mode)
-                        or any((a.st_dev, a.st_ino, a.st_size, a.st_mtime_ns) !=
-                               (b.st_dev, b.st_ino, b.st_size, b.st_mtime_ns)
-                               for a, b in ((before, after), (before, named)))):
-                    return False
-                _check_staging_root(path.parent, root_fd, chain)
-            finally:
-                os.close(proof_fd)
-        finally:
-            _close_staging_root(root_fd, chain)
-        proof = json.loads(raw)
+            proof = _read_stage_proof(original)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, GatewayMethodFailure):
+            continue
+        if (proof is None or type(proof.get("dev")) is not int or proof["dev"] <= 0
+                or type(proof.get("ino")) is not int or proof["ino"] <= 0):
+            continue
         expected = {
-            "version": 1, "profile": owner.profile, "stored_id": owner.stored_id,
-            "path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
-            "size": len(data), "dev": source.st_dev, "ino": source.st_ino,
+            "version": 2, "profile": owner.profile, "stored_id": owner.stored_id,
+            "path": str(original), "sha256": digest, "size": len(data),
+            "mime": mime, "dev": proof["dev"], "ino": proof["ino"],
         }
-        return type(proof) is dict and proof == expected
-    except (OSError, ValueError, json.JSONDecodeError, TypeError):
-        return False
-
+        if proof != expected:
+            continue
+        try:
+            staged, source = _read_regular(original, root)
+        except FileNotFoundError:
+            # The core is free to delete its disposable staging copy after it
+            # atomically captures and persists the committed native input.
+            return True
+        except (OSError, ValueError, GatewayMethodFailure):
+            return False
+        return (staged == data and source.st_dev == proof["dev"]
+                and source.st_ino == proof["ino"])
+    return False
 
 def _persisted(owner: _Owner, path: str, data: bytes) -> bool:
-    """Require two independent production records, not an impossible image_url row.
+    """Authorize ONLY the exact core-committed canonical image reference.
 
-    Core session_persistence._durable_content converts all image_url parts to
-    text. A user-typed path or screenshot marker cannot grant access. A canonical
-    terminal prompt admission, committed by core with the SHA-256 of its captured
-    image bytes, is independent proof. Legacy has no public durable-key mapping or
-    prompt admission receipt, so no legacy persisted fallback is attempted.
+    The durable row must contain the production image builder's committed-path
+    marker, not a manually authored original-staging @image ref. Independent
+    core session_admissions records bind the exact path, digest, size and MIME.
     """
     if owner.legacy:
         return False
     from hermes_state import SessionDB
     from hermes_state_runtime import list_session_admissions
 
+    digest, mime = hashlib.sha256(data).hexdigest(), _mime(data)[0]
+    if not _stage_attested(owner, Path(path), data, mime):
+        return False
     try:
         db = SessionDB(db_path=owner.home / "state.db", read_only=True)
     except (OSError, sqlite3.Error):
@@ -359,97 +408,116 @@ def _persisted(owner: _Owner, path: str, data: bytes) -> bool:
     try:
         if db.get_session(owner.stored_id) is None:
             return False
-        if not _stage_attested(owner, Path(path), data, os.lstat(path)):
-            return False
         conversation = db.get_messages_as_conversation(owner.stored_id, include_ancestors=True)
-        if not any(m.get("role") == "user" and isinstance(m.get("content"), str)
-                   and _references_path(m["content"], path) for m in conversation):
+        marker = f"[Image attached at: {path}]"
+        if not any(
+            m.get("role") == "user" and isinstance(m.get("content"), str)
+            and marker in m["content"].splitlines() for m in conversation
+        ):
             return False
-        digest = hashlib.sha256(data).hexdigest()
-        # Do not accept queued/cancelled/failed work, foreign admissions,
-        # forged typed hints, or a different image with the same file name.
         for row in list_session_admissions(db, session_id=owner.stored_id, pending_only=False):
-            if row.get("status") != "terminal" or row.get("outcome") != "completed":
+            if (row.get("target_session_id") != owner.stored_id
+                    or row.get("status") != "terminal" or row.get("outcome") != "completed"):
                 continue
-            attached = row.get("payload", {}).get("attachments_v1", {})
-            media = attached.get("media")
-            mimes = attached.get("media_types")
-            if not isinstance(media, list) or not isinstance(mimes, list) or len(media) != len(mimes):
+            payload = row.get("payload")
+            attached = payload.get("attachments_v1") if isinstance(payload, dict) else None
+            if not isinstance(attached, dict):
                 continue
-            for ref, mime in zip(media, mimes):
-                if (isinstance(ref, dict) and ref.get("sha256") == digest
-                        and ref.get("size") == len(data) and mime == _mime(data)[0]):
+            media, mimes = attached.get("media"), attached.get("media_types")
+            if (not isinstance(media, list) or not isinstance(mimes, list)
+                    or len(media) != len(mimes)):
+                continue
+            for ref, declared in zip(media, mimes):
+                if (type(ref) is dict and set(ref) == {"path", "sha256", "size"}
+                        and ref["path"] == path and ref["sha256"] == digest
+                        and type(ref["size"]) is int and ref["size"] == len(data)
+                        and declared == mime):
                     return True
         return False
-    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError):
         return False
     finally:
         db.close()
 
-def _authority(owner: _Owner, request, path: str, data: bytes, fingerprint: os.stat_result) -> None:
+def _authority(
+    owner: _Owner, request, path: str, data: bytes,
+    fingerprint: os.stat_result, *, committed: bool,
+) -> None:
+    if committed:
+        if not _persisted(owner, path, data):
+            raise _refuse("Image is not an owned completed canonical attachment")
+        return
+    # Original staging is NEVER a durable fallback. Its successful originating
+    # lease is revoked on turn-generation change, detach or plugin retirement.
     with _PENDING_LOCK:
         pending = _PENDING.get(_key(owner, path))
-    if pending is not None:
-        if (pending.sha256 != hashlib.sha256(data).hexdigest()
-                or (pending.dev, pending.ino) != (fingerprint.st_dev, fingerprint.st_ino)):
-            raise _refuse("Uploaded image source was replaced")
-        try:
-            # This is the current *different* registered read invocation, never
-            # the original provisional upload request or a reconstructed token.
-            pending.lease.assert_caller(request)
-            return
-        except GatewayScopeError:
-            pass
-    if not _persisted(owner, path, data):
+    if pending is None or pending.sha256 != hashlib.sha256(data).hexdigest() or (
+        pending.dev, pending.ino
+    ) != (fingerprint.st_dev, fingerprint.st_ino):
         raise _refuse()
-
+    try:
+        pending.lease.assert_caller(request)
+    except GatewayScopeError as exc:
+        raise _refuse("Image upload authority was revoked") from exc
 
 def read_image(request, params: dict) -> dict:
     owner = _identity(request, params)
+    if owner.legacy:
+        raise _refuse("Image preview unsupported for legacy sessions")
     if params.get("tool_call_id"):
-        # Neither request context has public compute-host provenance or exact
-        # completed-tool attestation. A path/ID asserted by the client proves none.
+        # A client tool_call_id proves neither completed provenance nor host.
         raise _refuse("Tool image preview requires authoritative gateway host and tool evidence")
     raw = params.get("path")
-    if not isinstance(raw, str) or not raw or len(raw) > 4096 or not Path(raw).is_absolute():
+    if (not isinstance(raw, str) or not raw or len(raw) > 4096
+            or not Path(raw).is_absolute() or ".." in Path(raw).parts
+            or str(Path(raw)) != raw):
         raise _refuse("Invalid image path")
     path = Path(raw)
-    roots = _roots(owner)
-    root = next((item for item in roots if path.parent == item), None)
-    if root is None or path.name in (".", "..") or ".." in path.parts:
-        raise _refuse("Image path is outside this profile's staging directories")
+    staging_root = next((root for root in _roots(owner) if path.parent == root), None)
+    canonical = staging_root is None
+    if canonical:
+        digest = path.parent.name
+        if (not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or path.name in ("", ".", "..")
+                or not path.name.startswith("tern_upload_")
+                or not (any(path.name.endswith(ext) for _, _, ext in _MIMES)
+                        or path.name.endswith(".webp"))
+                or not any(path.parent.parent == root for root in _native_roots(owner))):
+            raise _refuse("Image is not an exact canonical native-inputs reference")
+        root = path.parent
+    else:
+        root = staging_root
     try:
         data, fingerprint = _read_regular(path, root)
     except (OSError, ValueError) as exc:
         raise _refuse("Image source is missing, nonregular or stale") from exc
-    mime, _ = _mime(data)
+    mime, ext = _mime(data)
     _mime_matches(mime, params.get("mime"))
-    _authority(owner, request, raw, data, fingerprint)
+    if canonical and (hashlib.sha256(data).hexdigest() != path.parent.name
+                      or not path.name.endswith(ext)):
+        raise _refuse("Canonical image digest or extension mismatch")
+    _authority(owner, request, raw, data, fingerprint, committed=canonical)
     request.assert_attached()
     if _identity(request, params) != owner:
         raise _refuse("Image caller/session identity changed")
-    # Source identity after provenance/DB reads: a removed or replaced file
-    # must never become a ready SDK blob.
+    # Re-open the same NOFOLLOW ancestry and leaf after proof and SQLite reads.
+    # Same-byte replacement, a renamed root or a changed hardlink must refuse.
     try:
+        reread, again = _read_regular(path, root)
+        if (reread != data or any(getattr(again, field) != getattr(fingerprint, field)
+                                for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
+            raise _refuse("Image changed after authority verification")
         named = os.lstat(path)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise _refuse("Image source disappeared after reading") from exc
-    if (not stat.S_ISREG(named.st_mode)
+    if (not stat.S_ISREG(named.st_mode) or named.st_nlink != 1
             or any(getattr(named, field) != getattr(fingerprint, field)
                    for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
         raise _refuse("Image source was replaced after reading")
-    with _PENDING_LOCK:
-        pending = _PENDING.get(_key(owner, raw))
-    if pending is not None:
-        try:
-            pending.lease.assert_caller(request)
-        except GatewayScopeError:
-            if not _persisted(owner, raw, data):
-                raise _refuse("Image upload authority was revoked")
+    _authority(owner, request, raw, data, fingerprint, committed=canonical)
     request.assert_attached()
     return {"content_base64": base64.b64encode(data).decode("ascii"),
             "mime": mime, "bytes": len(data)}
-
 
 def attach_bytes(request, params: dict) -> dict:
     owner = _identity(request, params)

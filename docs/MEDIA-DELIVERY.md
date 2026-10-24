@@ -1,149 +1,145 @@
-# Media delivery: registered gateway backend
+# Media delivery: exact canonical attachment resume
 
-Stack: port/media-backend into port/media-delivery (fork only). This continues the
-original alt-glitch Hermes × Tern integration and Tern SDK from OMP/Stencil,
-not a second router, runtime pin or core method override. The Hermes donor
-implementation is at kvnloo/hermes-agent 724b2aaec5981eb264f65923f72858faff27bb5b,
-ui-tsp/MEDIA-DELIVERY.md and tui_gateway/media_delivery.py. Its private
-history-dictionary/transport helpers are not plugin authority.
+This is a fork-only correction to Draft PR #24, stacked on
+`port/media-delivery`. The original alt-glitch Hermes × Tern
+integration and Can Bölük / Stencil's `@stencil-hq/tern` SDK
+remain the implementation base. No core patch, second admission, image queue,
+runtime pin, upstream write or global registration change is made here.
 
-## Source of truth
+## Verified source and actual canonical path
 
-The exact-green gateway seam at kvnloo/hermes-agent
-0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5 exposes:
+Use Hermes PR650's exact core
+`0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5`:
 
-- PluginContext.register_gateway_method, strict Pydantic schema and the
-  synchronous callback(request, params) in hermes_cli/plugins.py;
-- GatewayRequestContext.assert_attached/capture_scope in
-  hermes_cli/plugin_gateway_methods.py;
-- GatewayScopeLease.assert_current, assert_caller, publish and close in
-  hermes_cli/plugin_gateway_scopes.py. An upload request's capture is
-  provisional until its originating RPC succeeds. The preview request uses
-  assert_caller with the actual new registered request, never a fabricated
-  context, nonce or copied actor identity;
-- Canonical gateway/session_plugin_methods.py: the RPC session_id is the
-  durable session key, tied to original subscription, profile, live session
-  generation, transport and runtime epoch;
-- Legacy tui_gateway/methods_session.py:377/432/477 exposes both live RPC
-  session_id and a distinct stored_session_id to its own client. However the
-  public registered GatewayRequestContext exposes only the live SID and profile,
-  not an authenticated live-to-stored projection. This plugin does **not**
-  inspect the server's private session table/transport helper or infer an owned
-  durable key from user-supplied values; legacy preview remains unsupported.
+- `hermes_cli/plugin_gateway_methods.py`: public authenticated
+  `GatewayRequestContext.session_id`, `profile`,
+  `assert_attached()`, `capture_scope()`.
+  `hermes_cli/plugin_gateway_scopes.py`:
+  `GatewayScopeLease.assert_caller(current_request)`
+  authenticates only a later live invocation by the same original caller.
+- `gateway/session_plugin_methods.py`:
+  canonical registered dispatch ties the request SID to the attached,
+  authorized durable session and the live runtime generation. Legacy
+  `tui_gateway/plugin_methods.py` has no public authenticated
+  live-SID-to-durable-key mapping; legacy preview stays unsupported.
+- `gateway/session_ingress_media.py`: public
+  `prompt.submit` admission captures staged bytes as immutable
+  `attachments_v1.media` references with an **exact**
+  `{path, sha256, size}` in the profile-owned
+  `cache/documents/native-inputs/<sha256>/<original-staging-filename>`
+  (or the configured `document_cache` fallback). The
+  original upload at `cache/images/tern_upload_*.png` is
+  disposable. `restore_attachments` calls the real
+  `restore_native_media` to revalidate the committed bytes.
+- `agent/image_routing.py:build_native_content_parts`
+  produces the real user text
+  `[Image attached at: <COMMITTED_NATIVE_INPUT_PATH>]`
+  and a live `image_url` part. The actual
+  `agent/session_persistence.py:SessionPersistenceMixin`
+  durable flush stores that **committed-path** marker plus
+  `[screenshot]` as text; it does not store image bytes
+  or an original staging `@image:` reference.
 
-No public plugin request contains an authoritative tool execution host or
-completed tool-result provenance. A tool_call_id provided by a client is
-therefore refused, even if the path exists on the gateway. This is **not** a
-successful tool preview. Hermes must expose caller-bound host/source facts in
-a future public seam before a tool-path transfer can be supported.
+The former green test manually authored
+`@image:<ORIGINAL_STAGING_PATH>` in the persisted user
+message. Production canonical admission does **not** generate that path.
+That false positive is replaced with an actual authenticated public
+`prompt.submit` → `attachments_v1` →
+`restore_native_media` → real content builder →
+`SessionPersistenceMixin` flush → fresh read-only reload →
+registered plugin read chain. A queued, failed, foreign or missing receipt
+does not authorize even if text or image bytes happen to match.
 
-## Registered methods
+## Plugin-owned proof and read gates
 
-The plugin optionally registers hermes-tern.media.image and
-hermes-tern.media.attach_bytes. Registration imports the new backend lazily:
-on older Hermes without register_gateway_method, the original CLI, prompt
-upload and card behavior remains available.
+The existing optional gateway methods are unchanged:
 
-- Canonical composer uploads prefer hermes-tern.media.attach_bytes only when
-  the attached gateway.capabilities list explicitly advertises it. The method
-  strictly decodes at most 20 MiB, sniffs PNG/JPEG/GIF/WebP and stages **once**
-  with the existing tui_gateway.prompt_attachments.stage_image_bytes in the
-  original canonical cache/images root. A plugin-owned record binds original
-  caller lease, profile home, durable session, exact random path, byte hash
-  and file identity. No duplicate upload, private core image list or image
-  blob ID is persisted.
-- Old canonical gateways and all legacy sessions keep their original
-  image.attach_bytes path: the legacy method also queues the next prompt,
-  behavior the plugin cannot safely replace. Its canonical sibling does not
-  provide a per-session staging list by itself; plugin-owned staging avoids
-  treating unscoped cache files as permission.
-- A staged image remains previewable only to its original attached
-  controller under the original successful lease. Detach, generation change,
-  session replacement or plugin unload revokes pending scope. Another viewer
-  or profile cannot claim it by replaying the path.
-- Actual core agent/session_persistence.py:_durable_content transforms inline
-  image_url parts into a **text-only** stored representation. It does not
-  preserve structured image bytes. Therefore a bare durable @image: reference
-  or [Image attached at:] hint is not proof. The old fixture that appended
-  structured image_url parts directly to SessionDB could not occur through
-  production flush and has been replaced by a real write/flush/reload test.
-- For a **canonical** resumed image, all three independent conditions are
-  required: (1) a plugin-owned sidecar witness created **only after successful
-  stage_image_bytes** with exact profile, durable session, path, SHA-256, size
-  and inode; (2) an owning public SessionDB durable user row referencing this
-  exact path; (3) an actual **terminal/completed** canonical
-  session_admissions receipt (read with hermes_state_runtime.list_session_admissions)
-  whose server-captured attachments_v1 contains the same committed SHA-256,
-  byte length and MIME. A staged-only image, failed/queued admission, text
-  marker alone, foreign session, altered file, un-attested same-byte copy
-  or missing/invalid sidecar refuses preview. This is a conservative
-  cryptographically fingerprinted byte witness, not a new input registry or
-  override of canonical admission.
-- Legacy original image.attach_bytes still stages and queues through core;
-  namespaced attach_bytes refuses legacy to prevent duplicate enqueue. Since
-  legacy has neither a plugin staging lease nor a public durable admission
-  receipt plus live-SID mapping, **legacy resumed previews are unsupported**
-  rather than pretending typed paths confer permission.
-- The image read validates an exact configured profile staging parent
-  (including the configured HOME symlink alias, never aliases below HOME),
-  no-follow directory fd ancestry, regular non-symlink and non-hardlinked
-  image and proof files, bounded fd-relative read (16 MiB), raster magic,
-  supplied MIME, original stage byte/inode, and after-read
-  file/root/owner/authority checks. It never reads a same-named gateway path for a
-  remote compute source. No owner-loop waits, polling or background IO.
+- `hermes-tern.media.attach_bytes` (canonical only) stages
+  PNG/JPEG/GIF/WebP with the original `stage_image_bytes`,
+  retains the successful upload's original scoped lease, and writes the
+  version-2 private `.tern-proof` witness only at staging time.
+  Its exact original filename/path, profile, durable SID, SHA-256, size,
+  MIME and original dev/inode are independently checked. There is no
+  second image admission or queue.
+- `hermes-tern.media.image` accepts an original staging
+  path only while `lease.assert_caller(current_request)`
+  remains valid. A real `claim_session_input`
+  increments runtime generation and revokes that staging authority.
+  Detach, re-attach under another subscription, plugin unload, and
+  original staging cleanup never renew it.
+- A resumed **canonical** read accepts **only** an exact retained
+  `native-inputs/<sha256>/<original-filename>` path,
+  with matching signed-in session/profile/home, version-2 stage witness,
+  genuine persisted **user** marker for that committed path, and a real
+  terminal/completed `session_admissions` receipt whose
+  `attachments_v1.media` **path, digest and size** plus
+  corresponding MIME match the requested bytes. A new file with the
+  same content, a typed image hint, a malformed/queued/failed receipt,
+  a different session, an unproven staging file, or a supplied
+  `tool_call_id` never grants permission.
+- The retained file is read through a **bounded (16 MiB),
+  fd-relative O_NOFOLLOW walk** from the actual profile native-inputs
+  root through the digest directory to a regular single-linked leaf.
+  The same no-follow ancestry, file dev/inode/size/mtime, MIME/magic,
+  SHA-256 and caller are validated after proof/DB reads. The witness
+  itself is also a bounded single-linked no-follow file in the
+  original staging root. If the original staging leaf still exists,
+  its bytes and original inode must match; if it has been cleaned,
+  the proven witness **and** real committed receipt remain necessary.
+- Core may prune a terminal attachment's retained bytes; missing
+  committed bytes always refuse (never reopen the original staging
+  path or recreate media).
 
-The frontend only probes capabilities on explicit preview load, then calls
-hermes-tern.media.image. It never invokes an unregistered media.image RPC,
-opens a nonexistent image or synthesizes an SDK blob. Returned bytes pass
-existing canonical base64, MIME and size checks and the negotiated
-Session.blob(bytes, mime) API.
+The plugin does not inspect private session tables, runtime actors,
+transports or tool-call host identities. It never uses a client-supplied
+`tool_call_id` as provenance. An unknown tool compute host,
+PDF, GLB or other binary read is still unsupported; the original
+binary refusals and PDF text extraction remain unchanged.
 
-## Host boundary and current limits
+## Tern frontend and legacy sessions
 
-Real Tern 0.9.5 negotiates media/image/blobs, but session.info can omit
-terminal_backend. That absence **does not** imply that a normal successful
-gateway-staged composer attachment lives on the compute host. This slice's
-attachmentImagePath and MediaDelivery now treat the independently established
-active gateway attachment route as eligible for a **Load image preview**
-control, even when terminal_backend is unknown. It performs no renderer IO,
-assumes no local backend, and does not treat the client path as final proof:
-the registered backend must positively attest bytes and ownership before
-Session.blob is called. Unsupported/denied RPCs show retry errors, never
-a made-up image or cached blob.
+Tern `session.info` can omit `terminal_backend`.
+A confirmed **canonical** attached gateway's genuine stored prompt
+attachment can still present the explicit Load preview action:
+`frontend/src/view/media.tsx` routes only the
+attachment path, then `frontend/src/media-delivery.ts`
+discovers `gateway.capabilities` only on click, requests
+the registered backend, verifies decoded bytes/MIME/size, and calls
+Tern `Session.blob` within its quota. Local nonattached
+previews and the old prompt composer thumbnail path are unchanged.
 
-For **tool results**, remote compute locality and completed-tool provenance
-remain unknown without a public server-authenticated contract. Unknown
-terminal_backend still projects tool paths as unavailable. A client-provided
-tool_call_id, a guessed path or a copied attachment scope cannot make the
-server authorize those bytes. The renderer must not probe such paths locally.
+A legacy WS also sets `gw.attached` but is **not
+canonical**. The frontend therefore requires actual
+`gw.isCanonical === true` for this gateway attachment
+preview; otherwise its text notice says exactly
+**"Image preview unsupported for legacy sessions"**. It never renders
+an always-failing Load/Retry control, calls capabilities or sends a
+namespaced media RPC for legacy. The original legacy
+`image.attach_bytes` stages **and queues once**, unchanged.
+Capability-mode switches invalidate cached blobs; no previously
+authorized canonical blob is reused after a legacy transition.
 
-Legacy PNG/GLB read_file binary refusals remain refusals; a PDF extracting
-text remains a document extraction, not an image. Remote PDF/video/audio/3D
-previews are unsupported. Native positively-known-local media, ordinary text
-extraction and original prompt staging retain their existing behavior.
-
-| Resource | Limit |
+| Limit | Policy |
 | --- | --- |
-| Single plugin image preview | 16 MiB |
-| Original/new composer upload | 20 MiB per image |
-| Composer pending images / encoded retained payload | 8 images / 40 MiB |
-| Preview loads | One at a time, explicit click/retry |
-| Preview metadata | 32 entries, insertion-order eviction |
-| SDK connection lifetime | 64 uploads / 64 MiB cumulatively across sessions |
-| Optional plugin staging metadata | 256 path/lease records per process; oldest retired |
+| Plugin image read | 16 MiB per regular file |
+| Composer upload | 20 MiB |
+| Pending composer images | 8 images / 40 MiB encoded payload |
+| Preview metadata | 32 entries, bounded insertion-order eviction |
+| Tern connection blob budget | 64 uploads / 64 MiB |
+| Plugin pending scoped upload records | 256 records |
 
-Never reset the SDK blob budget at session change or reuse a blob ID after
-detach; Session.blob and Tern own encoding and wire caching.
+## Frozen exact-head qualification: OMP only
 
-## Verification to run on OMP's MBP
+**No build, test, lint or native smoke was executed by this
+GitHub-connector-only worker. Zero new passing tests claimed.**
+Previous MBP receipts (frontend 978/978, targeted 132/132, actual
+core Python 57/57, ratchets and bundle) are for earlier exact heads
+and do not prove this correction. The known baseline GitHub Python
+CI failure lacks the required `hermes_cli` setup; use
+the pinned actual core checkout for these commands:
 
-**Not executed in this GitHub-connector-only worker. Zero new pass counts
-are claimed.** Use the exact hermes-agent PR650 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5
-source in an isolated profile; never touch clean Hermes profile, defaults,
-account settings or unowned Tern windows.
-
-~~~sh
-# repository root, on the exact port/media-backend head
+```sh
+# From kvnloo/hermes-tern, on the NEW exact PR #24 head
 export HERMES_PYTHON_SRC_ROOT=/absolute/path/to/hermes-agent-at-0ac4e9df
 PYTHONPATH="$PWD:$HERMES_PYTHON_SRC_ROOT" python -m pytest -q tests/test_media_backend.py tests/test_plugin_registration.py
 PYTHONPATH="$PWD:$HERMES_PYTHON_SRC_ROOT" python -m pytest -q tests
@@ -151,47 +147,42 @@ PYTHONPATH="$PWD:$HERMES_PYTHON_SRC_ROOT" python -m pytest -q tests
 cd frontend
 node scripts/hermes-src.mjs
 bun install --frozen-lockfile --prefer-offline
-bun run check
 bun run test -- src/__tests__/media-delivery.test.ts src/__tests__/images.test.ts src/__tests__/read-media.test.ts
+bun run check
 bun run bundle
-~~~
+```
 
-On the isolated signed-in Tern 0.9.5 AgentDisplay window, confirm the
-existing UNKNOWN backend notice for unproven tool and attachment paths;
-verify original core uploads with and without optional plugin methods; run
-approved canonical image attach/read against the same controller, and
-genuinely submit + complete a canonical input carrying the image. Confirm
-pending before submit, then detach, resume, switch profile, change backend
-and attempt another transport read. Preview under UNKNOWN terminal_backend
-must show an explicit Load for a gateway-owned staged image; no tool preview
-must appear without independent server host/provenance evidence. Verify
-that only a real stored user reference plus a settled core admission plus
-the plugin's genuine stage witness survives resume. Exercise PNG and JPEG,
-HOME symlink alias, malformed/failed uploads and no stale blob after reset.
-PDF/video/audio/3D and binary producer refusals must remain unchanged. Each
-outside-pane CLI mutation needs an explicitly verified owned --window key.
+OMP must preserve the exact new head, repeat its full
+frontend/targeted/Python/bundle ratchets, then use an owned isolated
+canonical Tern connection and actual signed-in `prompt.submit`
+for genuine PNG **and** JPEG: staging preview while the original lease
+is valid; admission of the original stage; real native committed
+reference; generation advance and original lease revocation;
+production content build, flush and reload; staging deletion;
+fresh authenticated resume; successful committed preview. Repeat
+negative cases for same-byte copy, forged text, missing/queued/failed
+or foreign receipt, replaced inode, symlink/hardlink/digest ancestry,
+profile switch, detach and unknown tool host. Separately check the
+legacy explicit unsupported notice without Load/Retry; retain
+original legacy attach-and-queue behavior once.
 
-## Next slices (owned separately; not claimed complete)
+## Ordered remaining slices (exact ownership)
 
-1. **Legacy public proof seam — upstream core owner, NOT this PR**:
-   kvnloo/hermes-agent `hermes_cli/plugin_gateway_methods.py`,
-   `tui_gateway/plugin_methods.py`, `tui_gateway/methods_session.py`,
-   `gateway/session_ingress_media.py` plus their production authority
-   tests. A public authenticated live-to-durable SID identity and successful
-   original queued-image attestation are prerequisite for legacy resumed
-   preview. Do not expose private server session handles or copy grants.
-2. **Tool host/provenance — upstream core owner, NOT this PR**:
-   kvnloo/hermes-agent `hermes_cli/plugin_gateway_methods.py`,
-   `gateway/session_plugin_methods.py`, `tui_gateway/plugin_methods.py`,
-   and exact completed-tool/source tests. Expose public caller-bound compute
-   host and finished-tool witnesses before adding tool image transfers.
-3. **OMP qualification — fork-only Draft PR #24, these owned paths**:
+1. **OMP exact-head proof and correction if needed** — this PR's
    `media_backend.py`, `tests/test_media_backend.py`,
-   `frontend/src/media-delivery.ts`, `frontend/src/view/media.tsx`,
+   `frontend/src/media-delivery.ts`,
    `frontend/src/__tests__/media-delivery.test.ts`,
-   `frontend/src/__tests__/images.test.ts`,
-   `frontend/src/__tests__/read-media.test.ts`, `docs/MEDIA-DELIVERY.md`.
-   Run the frozen-offline commands above and the isolated native
-   Tern 0.9.5 positive PNG/JPEG, reset, attach, profile, and host-proof
-   regressions. No test/build/lint commands were executed in this
-   GitHub-only implementation worker.
+   `docs/MEDIA-DELIVERY.md`. Verify public
+   production evidence and negative authorization fixtures.
+2. **Owned signed-in native Tern acceptance** — new evidence in
+   `docs/MEDIA-DELIVERY.md` with tests in
+   `tests/test_media_backend.py` and
+   `frontend/src/__tests__/media-delivery.test.ts`.
+   Record PNG/JPEG, legacy, detach/reconnect, file cleanup and
+   exact commands at the frozen head; keep PR Draft until verified.
+3. **Out-of-scope optional tool provenance** — no implementation
+   in this PR. Public authenticated compute-host / completed-tool
+   evidence would require a separately approved core ownership
+   decision before any future module in `media_backend.py`
+   or tests are expanded. The current behavior remains explicit
+   refusal; **no new core seam is requested or implied here**.

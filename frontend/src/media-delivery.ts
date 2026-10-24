@@ -36,7 +36,7 @@ export type PreviewState =
 
 export interface MediaDeliveryDeps {
   readonly tern: Pick<Session, 'blob' | 'caps'>
-  readonly gw: Pick<GatewayClient, 'attached' | 'request'>
+  readonly gw: Pick<GatewayClient, 'attached' | 'request'> & { readonly isCanonical?: boolean }
   readonly session: () => string | null
   readonly cwd: () => string | undefined
   readonly backend: () => string | null | undefined
@@ -141,6 +141,13 @@ export class MediaDelivery {
   preview(source: MediaPath): PreviewState {
     const host = this.context()
     const cached = this.#cache.get(this.#key(source))
+
+    // The legacy WS also reports "attached", but has no public durable-key or
+    // successful canonical media receipt. Never paint Load/Retry for it.
+    if (source.host === 'gateway' && source.scope === 'attachment' &&
+        this.deps.gw.attached && this.deps.gw.isCanonical !== true) {
+      return { label: 'Image preview unsupported for legacy sessions', status: 'unsupported' }
+    }
 
     // An owned prompt attachment is gateway-staged, regardless of UNKNOWN
     // compute backend. This is only a routing hint for a user-initiated RPC:
@@ -317,7 +324,7 @@ export class MediaDelivery {
     const { gw, env = process.env } = this.deps
 
     const current = JSON.stringify([
-      this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, ternSharesFrontendHost(env)
+      this.deps.session(), this.deps.cwd(), this.deps.backend(), gw.attached, gw.isCanonical, ternSharesFrontendHost(env)
     ])
 
     // Keying solely by the current values resurrects blobs after A -> B -> A.

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import os
+import shutil
 import queue
 import threading
 from pathlib import Path
@@ -27,8 +29,8 @@ def install():
     return manager
 
 
-def flush_real_user(db, stored, path, *, image_bytes=PNG, with_bytes=True):
-    """Run the actual session-persistence flush and reload, not a synthetic row."""
+def flush_user(db, stored, content):
+    """The real SessionPersistence writer, then an independent read-only reload."""
     from agent.session_persistence import SessionPersistenceMixin
 
     class Writer(SessionPersistenceMixin):
@@ -38,38 +40,77 @@ def flush_real_user(db, stored, path, *, image_bytes=PNG, with_bytes=True):
             self._session_db_created = True
             self._last_flushed_db_idx = 0
 
-    prompt = f"Actual prompt\n@image:{path}"
-    content = prompt if not with_bytes else [
-        {"type": "text", "text": prompt},
-        {"type": "image_url", "image_url": {
-            "url": "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")}},
-    ]
     assert Writer()._flush_messages_to_session_db([{"role": "user", "content": content}]) is True
-    rows = db.get_messages_as_conversation(stored, include_ancestors=True)
-    assert rows and isinstance(rows[-1]["content"], str)
-    assert "@image:" in rows[-1]["content"]
-    assert "data:image/png;base64" not in rows[-1]["content"]
-    return rows[-1]
+    reloaded = SessionDB(db_path=db.db_path, read_only=True)
+    try:
+        rows = reloaded.get_messages_as_conversation(stored, include_ancestors=True)
+        assert rows and isinstance(rows[-1]["content"], str)
+        assert "data:image/" not in rows[-1]["content"]
+        return rows[-1]
+    finally:
+        reloaded.close()
 
 
-def committed_attachment(db, stored, path, *, epoch, request_id="image-1", outcome="completed"):
-    """Core image admission, immutable capture, claim, and terminal settlement."""
-    from gateway.session_ingress_media import admit_attachments, capture_lease
-    from hermes_state_runtime import admit_session_input, claim_session_input, settle_session_input
+def flush_typed_user(db, stored, path):
+    """Negative control: arbitrary original-staging @image text is NOT core media."""
+    return flush_user(db, stored, f"Actual prompt\n@image:{path}")
 
-    with capture_lease():
-        fields = admit_attachments([{"path": str(path), "mime": "image/png"}])
-        queued = admit_session_input(
-            db, epoch=epoch, principal_id="local-test", session_id=stored,
-            request_id=request_id, payload={"text": "Actual prompt", **fields})
-        assert queued["status"] == "queued"
-        running = claim_session_input(db, epoch=epoch, session_id=stored)
-        assert running is not None and running["status"] == "started"
-        settled = settle_session_input(
-            db, epoch=epoch, admission_id=running["admission_id"],
-            generation=running["generation"], outcome=outcome)
-        assert settled["status"] == "terminal"
-        return settled
+
+def flush_committed_user(db, stored, admission):
+    """REAL core restore → image_routing builder → durable flush → fresh reload."""
+    from agent.image_routing import build_native_content_parts
+    from gateway.session_ingress_media import restore_attachments
+
+    restored = restore_attachments(admission["payload"])
+    (committed,) = restored["media_urls"]
+    parts, skipped = build_native_content_parts(admission["payload"]["text"], restored["media_urls"])
+    assert skipped == []
+    assert len(parts) == 2 and parts[0]["type"] == "text" and parts[1]["type"] == "image_url"
+    assert parts[1]["image_url"]["url"].startswith("data:image/")
+    marker = f"[Image attached at: {committed}]"
+    assert marker in parts[0]["text"].splitlines()
+    stored_row = flush_user(db, stored, parts)
+    assert marker in stored_row["content"].splitlines()
+    assert "[screenshot]" in stored_row["content"]
+    return committed
+
+
+async def admit_canonical(viewer, db, stage, *, sid="owned", mime="image/png", request_id="real-1"):
+    """Only the public authenticated canonical prompt.submit makes a receipt."""
+    from hermes_state_runtime import get_session_admission
+
+    response = await rpc(viewer, "prompt.submit", {
+        "session_id": sid, "submission_id": request_id, "text": "Actual prompt",
+        "attachments": [{"path": str(stage), "mime": mime}],
+    })
+    assert "result" in response, response
+    row = get_session_admission(db, admission_id=response["result"]["admission_id"])
+    assert row is not None and row["status"] == "queued"
+    assert row["target_session_id"] == sid and row["payload"]["text"] == "Actual prompt"
+    return row
+
+
+def settle_core(db, sid, epoch, *, outcome="completed"):
+    from hermes_state_runtime import claim_session_input, settle_session_input
+
+    started = claim_session_input(db, epoch=epoch, session_id=sid)
+    assert started is not None and started["status"] == "started"
+    terminal = settle_session_input(
+        db, epoch=epoch, admission_id=started["admission_id"],
+        generation=started["generation"], outcome=outcome,
+    )
+    assert terminal["status"] == "terminal" and terminal["outcome"] == outcome
+    return terminal
+
+
+def jpeg_bytes():
+    """A genuine JPEG, not an invalid magic-only payload."""
+    from PIL import Image
+
+    image = Image.new("RGB", (1, 1), (16, 32, 48))
+    out = io.BytesIO()
+    image.save(out, format="JPEG")
+    return out.getvalue()
 
 class Peer:
     def __init__(self):
@@ -130,7 +171,7 @@ def test_real_legacy_cannot_invent_durable_authority_from_a_live_sid(legacy):
     image.write_bytes(PNG)
     read = lambda peer, sid="live-alice": legacy.call(
         peer, media.IMAGE_METHOD, sid=sid, path=str(image), mime="image/png")
-    flush_real_user(legacy.db, "durable-alice", image)
+    flush_typed_user(legacy.db, "durable-alice", image)
     # The core writer projects inline images to text and the public legacy
     # GatewayRequestContext has no authenticated live->durable key mapping.
     assert read(legacy.alice)["error"]["code"] == 4016
@@ -144,7 +185,7 @@ def test_real_legacy_rejects_cross_session_profile_path_and_tool_claims(legacy):
     image = legacy.home / "images" / "same.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(PNG)
-    flush_real_user(legacy.db, "durable-alice", image)
+    flush_typed_user(legacy.db, "durable-alice", image)
     call = legacy.call
     assert call(legacy.bob, media.IMAGE_METHOD, sid="live-bob", path=str(image))["error"]["code"] == 4016
     assert call(legacy.alice, media.IMAGE_METHOD, sid="live-alice",
@@ -164,7 +205,7 @@ def test_legacy_file_nonregular_removed_oversized_and_mismatched_magic(legacy):
     image = legacy.home / "images" / "bounded.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(PNG)
-    flush_real_user(legacy.db, "durable-alice", image)
+    flush_typed_user(legacy.db, "durable-alice", image)
     read = lambda: legacy.call(legacy.alice, media.IMAGE_METHOD, sid="live-alice", path=str(image))
     assert read()["error"]["code"] == 4016
     image.unlink()
@@ -260,7 +301,10 @@ async def preview(connection, path, sid="owned", **params):
 
 
 @pytest.mark.asyncio
-async def test_canonical_registered_dispatch_pending_caller_and_persisted_resume(native):
+@pytest.mark.parametrize("mime,payload", [("image/png", PNG), ("image/jpeg", None)])
+async def test_canonical_registered_dispatch_pending_caller_and_persisted_resume(
+    native, monkeypatch, mime, payload,
+):
     viewer, different = connect(native.authority), connect(native.authority)
     try:
         token = await resume(viewer)
@@ -268,30 +312,52 @@ async def test_canonical_registered_dispatch_pending_caller_and_persisted_resume
         await resume(viewer, "foreign")
         methods = (await rpc(viewer, "gateway.capabilities", {"session_id": "owned"}))["result"]["plugin_methods"]
         assert media.IMAGE_METHOD in methods and media.ATTACH_METHOD in methods
-        uploaded = await staged(viewer)
+        content = payload if payload is not None else jpeg_bytes()
+        uploaded = await staged(viewer, content=content)
         assert "result" in uploaded, uploaded
-        path = uploaded["result"]["path"]
-        assert path.startswith(str(native.home / "cache" / "images"))
-        assert path.endswith(".png")  # bytes win over the claimed .jpg filename
-        answer = await preview(viewer, path, mime="image/png")
-        assert answer["result"]["content_base64"] == base64.b64encode(PNG).decode()
-        assert (await preview(different, path))["error"]["code"] == 4016
-        assert (await preview(viewer, path, sid="foreign"))["error"]["code"] == 4016
-        assert (await preview(viewer, path, tool_call_id="read-1"))["error"]["code"] == 4016
-        assert (await preview(viewer, path, mime="image/jpeg"))["error"]["code"] == 4016
+        stage = uploaded["result"]["path"]
+        assert stage.startswith(str(native.home / "cache" / "images"))
+        assert stage.endswith(".png" if mime == "image/png" else ".jpg")
+        assert (await preview(viewer, stage, mime=mime))["result"]["content_base64"] == base64.b64encode(content).decode()
+        assert (await preview(different, stage))["error"]["code"] == 4016
+        assert (await preview(viewer, stage, sid="foreign"))["error"]["code"] == 4016
+        assert (await preview(viewer, stage, tool_call_id="read-1"))["error"]["code"] == 4016
+        assert (await preview(viewer, stage, mime="image/gif"))["error"]["code"] == 4016
+
+        # Prevent a real worker from executing a model; admission still travels
+        # through the authenticated public canonical request and core store.
+        monkeypatch.setattr(native.authority, "_schedule", lambda ref: None)
+        queued = await admit_canonical(viewer, native.db, stage, mime=mime, request_id="real-" + mime)
+        committed = queued["payload"]["attachments_v1"]["media"][0]["path"]
+        assert committed != stage and "/native-inputs/" in committed
+        assert Path(committed).parent.name == queued["payload"]["attachments_v1"]["media"][0]["sha256"]
+        assert Path(committed).name == Path(stage).name
+        # A genuine captured file is not yet sufficient: queued work is never authority.
+        assert (await preview(viewer, committed))["error"]["code"] == 4016
+        assert flush_committed_user(native.db, "owned", queued) == committed
+        assert (await preview(viewer, committed))["error"]["code"] == 4016
+        settle_core(native.db, "owned", native.authority.epoch)
+        # claim_session_input advances runtime_generation and revokes the original stage lease.
+        assert (await preview(viewer, stage))["error"]["code"] == 4016
+        assert (await preview(viewer, committed, mime=mime))["result"]["content_base64"] == base64.b64encode(content).decode()
+
         assert (await rpc(viewer, "session.detach", {
             "session_id": "owned", "subscription_id": token}))["result"]["detached"] is True
-        assert (await preview(viewer, path))["error"]["code"] == 4001
+        assert (await preview(viewer, committed))["error"]["code"] == 4001
+        # The original staging leaf is disposable; resume must read the retained
+        # core capture, on a FRESH real authorized subscription.
+        Path(stage).unlink()
         await resume(viewer)
-        assert (await preview(viewer, path))["error"]["code"] == 4016
-        flush_real_user(native.db, "owned", path)
-        assert (await preview(viewer, path))["error"]["code"] == 4016
-        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch)
-        assert (await preview(viewer, path))["result"]["mime"] == "image/png"
+        answer = await preview(viewer, committed, mime=mime)
+        assert answer["result"]["mime"] == mime and answer["result"]["bytes"] == len(content)
+        assert answer["result"]["content_base64"] == base64.b64encode(content).decode()
+        assert (await preview(different, committed, mime=mime))["result"]["bytes"] == len(content)
+        assert (await preview(viewer, committed, sid="foreign"))["error"]["code"] == 4016
+        assert (await preview(viewer, committed, tool_call_id="typed-only"))["error"]["code"] == 4016
+        assert (await preview(viewer, committed, mime="application/pdf"))["error"]["code"] == 4016
     finally:
         await viewer.close()
         await different.close()
-
 
 @pytest.mark.asyncio
 async def test_canonical_stale_source_after_read_unload_and_strict_params(native, monkeypatch):
@@ -339,41 +405,107 @@ async def test_canonical_removed_and_replaced_source_and_generation(native):
 
 
 @pytest.mark.asyncio
-async def test_durable_image_needs_real_stage_and_successful_owned_admission(native):
-    viewer, other = connect(native.authority), connect(native.authority)
+async def test_canonical_requires_plugin_stage_real_receipt_and_exact_core_path(native, monkeypatch):
+    viewer, foreign = connect(native.authority), connect(native.authority)
     try:
-        token = await resume(viewer)
-        await resume(other, "foreign")
-        upload = await staged(viewer)
-        assert "result" in upload, upload
-        path = upload["result"]["path"]
-        flush_real_user(native.db, "owned", path, with_bytes=False)
-        await rpc(viewer, "session.detach", {
-            "session_id": "owned", "subscription_id": token})
         await resume(viewer)
-        assert (await preview(viewer, path))["error"]["code"] == 4016
+        await resume(foreign, "foreign")
+        monkeypatch.setattr(native.authority, "_schedule", lambda ref: None)
+        uploaded = await staged(viewer)
+        assert "result" in uploaded, uploaded
+        stage = uploaded["result"]["path"]
+        # A durable typed marker for the original upload is not proof.
+        flush_typed_user(native.db, "owned", stage)
+        assert (await preview(viewer, stage))["result"]["bytes"] == len(PNG)
+        queued = await admit_canonical(viewer, native.db, stage, request_id="failed-1")
+        committed = flush_committed_user(native.db, "owned", queued)
+        assert (await preview(viewer, committed))["error"]["code"] == 4016
+        settle_core(native.db, "owned", native.authority.epoch, outcome="failed")
+        assert (await preview(viewer, committed))["error"]["code"] == 4016
+        assert (await preview(viewer, stage))["error"]["code"] == 4016
+        assert (await preview(foreign, committed, sid="foreign"))["error"]["code"] == 4016
 
-        # Actual persisted user text plus failed work still has no authority.
-        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch,
-                             request_id="failed-1", outcome="failed")
-        assert (await preview(viewer, path))["error"]["code"] == 4016
-        assert (await preview(other, path, sid="foreign"))["error"]["code"] == 4016
+        # A second genuine capture of the SAME bytes is a separate filename,
+        # and only its real completed receipt is eligible.
+        second = (await staged(viewer))["result"]["path"]
+        second_queued = await admit_canonical(viewer, native.db, second, request_id="completed-2")
+        retained = flush_committed_user(native.db, "owned", second_queued)
+        assert retained != committed
+        settle_core(native.db, "owned", native.authority.epoch)
+        assert (await preview(viewer, retained))["result"]["bytes"] == len(PNG)
+        assert (await preview(viewer, committed))["error"]["code"] == 4016
+        assert (await preview(viewer, second))["error"]["code"] == 4016
 
-        # A second real core stage lacks the plugin-owned upload witness even
-        # when its bytes match another session-owned terminal admission.
+        # Same-byte copies and user-typed committed-path markers may not borrow
+        # a different core receipt or a different successful plugin witness.
+        copied = str(Path(retained).with_name("tern_upload_unproven.png"))
+        shutil.copyfile(retained, copied)
+        flush_typed_user(native.db, "owned", copied)
+        assert (await preview(viewer, copied))["error"]["code"] == 4016
+        assert (await preview(viewer, retained + "-renamed"))["error"]["code"] == 4016
+
+        # A newly staged core-only attachment lacks plugin proof even if
+        # the bytes, owning SID and profile otherwise match.
         from tui_gateway.prompt_attachments import stage_image_bytes
         from gateway.platforms.base import get_image_cache_dir
-        unproven = stage_image_bytes(get_image_cache_dir(), PNG, ".png", prefix="unproven")
-        flush_real_user(native.db, "owned", unproven, with_bytes=False)
-        committed_attachment(native.db, "owned", path, epoch=native.authority.epoch,
-                             request_id="success-2")
-        assert (await preview(viewer, str(unproven)))["error"]["code"] == 4016
-        assert (await preview(viewer, path))["result"]["bytes"] == len(PNG)
-        assert (await preview(other, path, sid="foreign"))["error"]["code"] == 4016
+        unproven = stage_image_bytes(get_image_cache_dir(), PNG, ".png", prefix="core")
+        unproven_row = await admit_canonical(viewer, native.db, unproven, request_id="core-only-3")
+        unproven_retained = flush_committed_user(native.db, "owned", unproven_row)
+        settle_core(native.db, "owned", native.authority.epoch)
+        assert (await preview(viewer, unproven_retained))["error"]["code"] == 4016
     finally:
         await viewer.close()
-        await other.close()
+        await foreign.close()
 
+
+@pytest.mark.asyncio
+async def test_committed_native_inputs_nofollow_links_and_replacement(native, monkeypatch):
+    viewer = connect(native.authority)
+    try:
+        await resume(viewer)
+        monkeypatch.setattr(native.authority, "_schedule", lambda ref: None)
+        stage = (await staged(viewer))["result"]["path"]
+        queued = await admit_canonical(viewer, native.db, stage, request_id="paths-1")
+        committed = Path(flush_committed_user(native.db, "owned", queued))
+        settle_core(native.db, "owned", native.authority.epoch)
+        assert (await preview(viewer, str(committed)))["result"]["mime"] == "image/png"
+
+        hardlink = committed.with_name("other.png")
+        os.link(committed, hardlink)
+        assert (await preview(viewer, str(committed)))["error"]["code"] == 4016
+        hardlink.unlink()
+        assert (await preview(viewer, str(committed)))["result"]["bytes"] == len(PNG)
+
+        moved = committed.with_name("moved.png")
+        committed.rename(moved)
+        committed.symlink_to(moved)
+        assert (await preview(viewer, str(committed)))["error"]["code"] == 4016
+        committed.unlink()
+        moved.rename(committed)
+
+        # A symlink in a *parent* of the committed native file is refused even
+        # if it still points at exactly the prior content-addressed directory.
+        digest_root = committed.parent
+        saved = digest_root.with_name(digest_root.name + "-saved")
+        digest_root.rename(saved)
+        digest_root.symlink_to(saved, target_is_directory=True)
+        assert (await preview(viewer, str(committed)))["error"]["code"] == 4016
+        digest_root.unlink()
+        saved.rename(digest_root)
+
+        stage_proof = Path(stage).with_name(Path(stage).name + ".tern-proof")
+        original = stage_proof.read_bytes()
+        stage_proof.write_bytes(b'{"version":2}')
+        assert (await preview(viewer, str(committed)))["error"]["code"] == 4016
+        stage_proof.write_bytes(original)
+        assert (await preview(viewer, str(committed)))["result"]["bytes"] == len(PNG)
+
+        # Replace an existing staging copy with identical bytes: inode fence.
+        Path(stage).unlink()
+        Path(stage).write_bytes(PNG)
+        assert (await preview(viewer, str(committed)))["error"]["code"] == 4016
+    finally:
+        await viewer.close()
 
 def test_real_staging_helper_accepts_home_alias_but_rejects_children_links(tmp_path, monkeypatch):
     from gateway.platforms.base import get_image_cache_dir

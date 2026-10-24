@@ -33,14 +33,15 @@ const image = (id = '1', host: MediaPath['host'] = 'gateway'): MediaPath => ({
 interface Setup {
   readonly blobs?: boolean
   readonly attached?: boolean
+  readonly canonical?: boolean
   readonly backend?: string | null | undefined
   readonly env?: NodeJS.ProcessEnv
   readonly native?: boolean
 }
 
 function setup(options: Setup = {}) {
-  const { blobs = true, attached = true, env = {}, native = false } = options
-  const gw = new FakeGateway({ replies: {
+  const { blobs = true, attached = true, canonical = true, env = {}, native = false } = options
+  const gw = new FakeGateway({ canonical, replies: {
     'gateway.capabilities': () => ({ plugin_methods: ['hermes-tern.media.image'] }),
     'hermes-tern.media.image': response
   } })
@@ -481,6 +482,65 @@ describe('gateway-owned prompt attachments with absent terminal_backend', () => 
       now: 0, welcome: { tip: '', version: '' }
     }))
   }
+
+  it('shows unsupported for legacy sessions, never a Load or Retry preview control', async () => {
+    const { delivery, gw, blob } = setup({ attached: true, canonical: false, backend: undefined, native: true })
+    const source = attachmentImagePath(attachedImage, delivery)
+    expect(source).toMatchObject({ host: 'gateway', scope: 'attachment' })
+    if (!source) {
+      throw new Error('missing gateway attachment source')
+    }
+
+    const state = delivery.preview(source)
+    expect(state).toEqual({ status: 'unsupported', label: 'Image preview unsupported for legacy sessions' })
+    const legacy = JSON.stringify(draw(delivery))
+    expect(legacy).toContain('unsupported for legacy sessions')
+    expect(legacy).not.toMatch(/Load image preview|Retry preview/)
+    await delivery.load(source)
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([])
+    expect(blob).not.toHaveBeenCalled()
+
+    // An attached canonical transport can still explicitly load, but cached
+    // canonical bytes never survive a transition back to legacy on this pane.
+    gw.isCanonical = true
+    expect(delivery.preview(source).status).toBe('available')
+    await delivery.load(source)
+    expect(delivery.preview(source).status).toBe('ready')
+    expect(blob).toHaveBeenCalledOnce()
+    gw.isCanonical = false
+    expect(delivery.preview(source).status).toBe('unsupported')
+    expect(JSON.stringify(draw(delivery))).not.toMatch(/Load image preview|Retry preview/)
+    await delivery.load(source)
+    expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
+  })
+
+  it('routes only canonical committed native-input paths to the explicit backend proof', async () => {
+    const { delivery, gw, blob } = setup({ attached: true, backend: undefined, native: true })
+    const committed = '/profile/cache/documents/native-inputs/' + 'a'.repeat(64) + '/tern_upload_abcd1234.png'
+    const source = attachmentImagePath(committed, delivery)
+    expect(source).toMatchObject({ path: committed, host: 'gateway', scope: 'attachment' })
+    if (!source) {
+      throw new Error('missing committed attachment route')
+    }
+    expect(delivery.preview(source).status).toBe('available')
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    await delivery.load(source)
+    expect(gw.sent('hermes-tern.media.image')).toEqual([{ session_id: 'session-1', path: committed }])
+    expect(blob).toHaveBeenCalledWith(png, 'image/png')
+
+    // A gateway-side negative receipt is a refusal, not a fallback path read.
+    const bad = attachmentImagePath('/profile/cache/images/typed.png', delivery)
+    if (!bad) {
+      throw new Error('missing negative-control attachment route')
+    }
+    gw.handlers.set('hermes-tern.media.image', () => { throw new Error('Image is not an owned completed canonical attachment') })
+    await delivery.load(bad)
+    expect(delivery.preview(bad)).toMatchObject({
+      status: 'failed', error: 'Image is not an owned completed canonical attachment'
+    })
+    expect(blob).toHaveBeenCalledOnce()
+  })
 
   it('projects real attachmentImagePath to a visible Load, registered byte RPC, then Session.blob', async () => {
     const { delivery, gw, blob } = setup({ backend: undefined, attached: true, native: true })
