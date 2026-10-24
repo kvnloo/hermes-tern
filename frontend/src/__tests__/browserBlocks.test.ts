@@ -136,13 +136,13 @@ describe('browser Focus in the actual SDK tool renderer', () => {
     const sdk = await nativeBrowserSurface()
 
     try {
-      const view = sdk.render('main', toolNode(c, 0, focus))
+      const view = sdk.render('main', toolNode(c, 0, undefined, focus))
       const click = sdk.capture(view, 'main', 'browser-focus')
       await click()
       await vi.waitFor(() => expect(gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }]))
       expect(gateway.methods('browser.blocks')).toEqual([])
       expect(gateway.methods('browser.adopt')).toEqual([])
-      expect(JSON.stringify(toolDetail(c, 0, focus))).toContain('Focus Tern block 7')
+      expect(JSON.stringify(toolDetail(c, 0, undefined, focus))).toContain('Focus Tern block 7')
     } finally {
       await sdk.close()
     }
@@ -156,7 +156,7 @@ describe('browser Focus in the actual SDK tool renderer', () => {
     const sdk = await nativeBrowserSurface()
 
     try {
-      const click = sdk.capture(sdk.render('main', toolNode(c, 0, focus)), 'main', 'browser-focus')
+      const click = sdk.capture(sdk.render('main', toolNode(c, 0, undefined, focus)), 'main', 'browser-focus')
       h.entries.splice(0)
       await click()
       expect(gateway.methods('browser.focus')).toHaveLength(0)
@@ -187,17 +187,17 @@ describe('browser Focus in the actual SDK tool renderer', () => {
     const gateway = new FakeGateway({ replies: { 'browser.focus': () => { throw new Error('Not owned by this session') } } })
     const h = focusHost(gateway, c)
     const focus = must(bindBrowserFocus(h.host, h.ref))
-    expect(JSON.stringify(toolNode(c, 0, focus))).not.toContain('browser-focus')
+    expect(JSON.stringify(toolNode(c, 0, undefined, focus))).not.toContain('browser-focus')
 
     c.result = { tern_target: target }
     c.outcome = { kind: 'running' }
-    expect(JSON.stringify(toolNode(c, 0, focus))).not.toContain('browser-focus')
+    expect(JSON.stringify(toolNode(c, 0, undefined, focus))).not.toContain('browser-focus')
 
     c.outcome = { kind: 'done', duration: 2 }
     const sdk = await nativeBrowserSurface()
 
     try {
-      const click = sdk.capture(sdk.render('main', toolNode(c, 0, focus)), 'main', 'browser-focus')
+      const click = sdk.capture(sdk.render('main', toolNode(c, 0, undefined, focus)), 'main', 'browser-focus')
       await click()
       await vi.waitFor(() => expect(h.notice).toHaveBeenCalledWith('Not owned by this session', 'warning'))
       expect(gateway.sent('browser.focus')).toEqual([{ session_id: 's1', target_id: '7' }])

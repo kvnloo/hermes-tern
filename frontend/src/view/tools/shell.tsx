@@ -99,7 +99,7 @@ function drawTool(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: n
 
 /** What `call`'s step opens to, as `view` draws it. */
 function drawDetail(call: ToolCall, view: CallView, whyFailed: ErrorReader, now: number, context?: LspLinkContext, focusBrowser?: BrowserFocus): JSX.Element[] {
-  const card = view.card(now, context, focusBrowser)
+  const card = view.card(now, context)
   const body = [...card.body]
   const focus = card.name === 'browser' ? browserFocusButton(call, focusBrowser) : undefined
 

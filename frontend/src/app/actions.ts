@@ -273,9 +273,7 @@ export class AppActions {
 
   /** Sends the composer's draft, with the pastes it holds. */
   submitDraft(alternate = false) {
-    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) {
-      return
-    }
+    if (this.#cx.liveVoice.blocked || isModal(this.#cx.chat.overlays)) return
     const raw = this.#cx.composer.text
 
     if (shouldSteer(this.#cx, raw, alternate)) {
