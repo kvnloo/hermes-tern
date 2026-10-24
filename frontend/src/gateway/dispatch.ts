@@ -55,7 +55,7 @@ function run<K extends EventName>(ev: EventOf<K> & { type: K }, cx: EventCx): Ou
  * The dispatcher over `cx`: what each event did to the pane. `unknown` hears once of each event
  * type the contract does not declare.
  */
-export function dispatcher(cx: EventCx, unknown: (type: string) => void = () => undefined): (ev: AnyGatewayEvent) => Outcome {
+export function dispatcher(cx: EventCx, unknown: (type: string) => void = () => undefined, onShown: (ev: AnyGatewayEvent) => void = () => undefined): (ev: AnyGatewayEvent) => Outcome {
   const told = new Set<string>()
 
   return ev => {
@@ -67,8 +67,13 @@ export function dispatcher(cx: EventCx, unknown: (type: string) => void = () => 
 
     // Own keys only: a type such as `constructor` names no handler.
     if (Object.hasOwn(TABLE, ev.type)) {
-      return run(ev, cx) ?? 'quiet'
+      const outcome = run(ev, cx) ?? 'quiet'
+      // A cancellation completion belongs to a queued admission, not the live activity orb.
+      if (outcome !== 'quiet' || ev.type !== 'message.complete') onShown(ev)
+      return outcome
     }
+
+    onShown(ev)
 
     if (!IGNORED_TYPES.has(ev.type) && !told.has(ev.type)) {
       told.add(ev.type)

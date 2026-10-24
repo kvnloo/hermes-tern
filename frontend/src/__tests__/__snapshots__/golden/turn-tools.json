@@ -729,6 +729,21 @@
         "k": "seg",
         "p": {
          "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
          "side": "right",
          "spans": [
           {
@@ -1127,6 +1142,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -1580,6 +1610,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -2166,6 +2211,21 @@
           }
          ],
          "key": "brand"
+        }
+       },
+       {
+        "k": "seg",
+        "p": {
+         "priority": 1,
+         "role": "omp.composer.hint",
+         "side": "right",
+         "spans": [
+          {
+           "s": "muted",
+           "t": "Enter queue · alt+enter steer"
+          }
+         ],
+         "key": "busyhint"
         }
        },
        {
@@ -3205,6 +3265,13 @@
    }
   },
   {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1"
+   }
+  },
+  {
    "method": "config.set",
    "params": {
     "key": "show_reasoning",
@@ -3222,6 +3289,14 @@
    "method": "session.control.read",
    "params": {
     "session_id": "s1"
+   }
+  },
+  {
+   "method": "config.get",
+   "params": {
+    "key": "full",
+    "session_id": "s1",
+    "profile": "work"
    }
   },
   {

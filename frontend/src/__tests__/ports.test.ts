@@ -11,6 +11,7 @@ import { openThemePicker, type ThemeHost } from '../overlays/theme.js'
 import type { ThemeMode } from '../settings.js'
 
 import { FakeGateway, key } from './fakes.js'
+import { assignedRoot } from './overlayRoots.js'
 
 afterEach(() => forgetCaps())
 
@@ -93,7 +94,7 @@ const NO_OFF: ModelOptionProvider[] = [
 ]
 
 /** The effort sheet lists `off` (the `none` level). */
-const offersOff = (sheet: Overlay) => JSON.stringify(sheet.node('layer.effort')).includes('"id":"none"')
+const offersOff = (sheet: Overlay) => JSON.stringify(sheet.node(assignedRoot(sheet))).includes('"id":"none"')
 
 describe('the effort picker on its ports', () => {
   it("starts on the session's level and sets it for the session on Enter", () => {

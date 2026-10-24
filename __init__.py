@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import connections, panes, pull_requests, tern_env
+from . import browser_backend, connections, panes, plan_gateway, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
 
@@ -72,8 +72,10 @@ def _chat(flags: list[str], tui_dir: str | None, env: dict[str, str] | None = No
 
 
 def _run(args: argparse.Namespace) -> None:
+    # An explicit opt-out is the ordinary Ink TUI, even inside a real Tern pane.
+    force_ink = os.environ.get("HERMES_TERN", "").strip().lower() in {"0", "false", "off", "no"}
     bundle = FRONTEND / "dist" / "entry.js"
-    if not bundle.is_file():
+    if not force_ink and not bundle.is_file():
         print(f"hermes tern: {bundle} is missing; reinstall the plugin", file=sys.stderr)
         sys.exit(1)
     flags = [a for a in args.tui_args if a != "--"]
@@ -86,11 +88,11 @@ def _run(args: argparse.Namespace) -> None:
     flags, restored = panes.plan(flags)
     if restored:
         env[panes.RESTORED_ENV] = restored
-    code = _chat(flags, str(FRONTEND), env)
-    if code == NO_TSP_EXIT:
+    code = _chat(flags, None if force_ink else str(FRONTEND), env)
+    if not force_ink and code == NO_TSP_EXIT:
         print("hermes tern: this terminal does not speak the Tern Surface Protocol; "
               "starting the regular TUI", file=sys.stderr)
-        code = _chat(flags, None)
+        code = _chat(flags, None, env)
     sys.exit(code)
 
 
@@ -104,6 +106,17 @@ def register(ctx) -> None:
     ctx.register_auxiliary_task(
         "tern_charts", display_name="Tern job charts",
         description="Writes the rules behind a background process's live chart in `hermes tern`, once per process.")
+    # Independent task for opt-in settled-table classification; no gateway RPC.
+    ctx.register_auxiliary_task(
+        "table_charts", display_name="Tern table charts",
+        description="Selects bar, line or no visualization for a settled Markdown table in `hermes tern`.")
     pull_requests.register(ctx)
     connections.register(ctx)
     tern_env.register(ctx)
+    browser_backend.register(ctx)
+    # Older Hermes has no public gateway registration; do not synthesize
+    # a JSON-RPC method or change its pinned runtime.
+    if callable(getattr(ctx, "register_gateway_method", None)):
+        from . import gateway_operations
+        gateway_operations.register(ctx)
+    plan_gateway.register(ctx)

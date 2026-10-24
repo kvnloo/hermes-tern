@@ -11,6 +11,7 @@ import { maskedOverlay } from '../prompts/masked.js'
 import type { PromptRequest } from '../prompts/parse.js'
 import { actionsRow } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay, OverlayHost } from './overlay.js'
 
 /** What the TUI says when an unanswered password, secret or vault card times out (and desktop, for a legacy approval). */
@@ -75,8 +76,8 @@ export function confirmOverlay(
     key,
     modal: true,
     cancel: () => answer(false),
-    node: () => (
-      <overlay anchor="bottom" key={key} modal role="omp.overlay.ask" size="md">
+    node: id => (
+      <overlay anchor="bottom" key={nativeOverlayKey(id)} modal role="omp.overlay.ask" size="md">
         <col gap="md" key="body">
           <md key="question" role="omp.ask.question" text={ask.title} />
           {ask.detail ? <text key="detail" text={ask.detail} wrap="word" /> : null}

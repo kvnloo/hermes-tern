@@ -285,7 +285,8 @@ describe('Transcript', () => {
       { content: 'Ship', id: '2', status: 'pending' }
     ])
 
-    expect(tools(turnOf(t.entries))[0]?.todos?.map(x => x.status)).toEqual(['completed', 'pending'])
+    // The live HUD receives the new plan; a completed card keeps its execution snapshot.
+    expect(tools(turnOf(t.entries))[0]?.todos).toEqual([{ content: 'Plan', id: '1', status: 'completed' }])
   })
 
   it('loads resumed messages with tool calls, edit results and bridged todos', () => {

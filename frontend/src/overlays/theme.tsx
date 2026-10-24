@@ -6,6 +6,7 @@ import type { Key, PickerItem } from '@stencil-hq/tern'
 import type { ChatPorts } from '../app/ports.js'
 import type { ThemeMode } from '../settings.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { moveSelection } from './search.js'
 
@@ -47,7 +48,7 @@ export function openThemePicker(host: ThemeHost) {
       host.setTheme(before)
       host.close(overlay)
     },
-    node: () => (
+    node: id => (
       <picker
         actions={[
           { end: true, id: 'cancel', keys: ['esc'], label: 'Cancel' },
@@ -56,7 +57,7 @@ export function openThemePicker(host: ThemeHost) {
         current={[before]}
         icon="palette"
         items={[...MODES]}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         noun="themes"
         onAction={{
           cancel: () => {

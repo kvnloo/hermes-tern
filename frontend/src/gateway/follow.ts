@@ -7,6 +7,7 @@ import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 import type { AnyGatewayEvent } from '@tui/gatewayTypes.js'
 
+import type { BtwThreads } from '../btw.js'
 import type { Reconnect } from '../chrome/reconnect.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { SessionLifecycle } from '../session/lifecycle.js'
@@ -18,6 +19,7 @@ import { eventLog } from './eventLog.js'
 
 /** What following the gateway reaches: the handlers' context, and what an exit ends. */
 export type FollowCx = EventCx & {
+  readonly btw?: Pick<BtwThreads, 'onEvent'>
   readonly activity: Pick<Activity, 'endBusy'>
   readonly reconnect: Pick<Reconnect, 'lost'>
   readonly life: Pick<SessionLifecycle, 'follow' | 'lost'>
@@ -25,14 +27,24 @@ export type FollowCx = EventCx & {
   readonly transcript: Pick<Transcript, 'interrupt'>
   /** The development tap's file (HERMES_TERN_EVENT_LOG); empty for none. */
   readonly eventLog: string
+  /** Shown-session events after dispatch, excluding cancelled queued admissions. */
+  onShown?(ev: AnyGatewayEvent): void
+  /** The backend died; the activity icon must not show phantom ongoing work. */
+  onLost?(): void
 }
 
 /** Follows `gw`'s events, requests and exits, then lets the events it held come. */
 export function followGateway(gw: Pick<GatewayClient, 'attached' | 'drain' | 'on'>, cx: FollowCx) {
   const log = eventLog(cx.eventLog)
-  const dispatch = dispatcher(cx, type => log.unknown(type))
+  const dispatch = dispatcher(cx, type => log.unknown(type), cx.onShown)
 
   const deliver = (ev: AnyGatewayEvent) => {
+    // Registered plugin events are outside the locked generated core catalog.
+    // Owned side snapshots never become main transcript entries.
+    if (cx.btw?.onEvent(ev)) {
+      return
+    }
+
     if (dispatch(ev) === 'render') {
       cx.changed()
     }
@@ -60,6 +72,7 @@ export function followGateway(gw: Pick<GatewayClient, 'attached' | 'drain' | 'on
     // reattaches, and nothing can answer the held requests now.
     cx.life.lost()
     cx.activity.endBusy()
+    cx.onLost?.()
     // Nothing can answer the sheets either; the reattach re-opens the questions still pending.
     cx.sheets.dropAll()
     cx.transcript.interrupt()
