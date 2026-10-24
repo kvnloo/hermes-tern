@@ -7,13 +7,19 @@ import type { JSX } from '@stencil-hq/tern'
 
 import { displayMarkdown, type FileContext } from '../artifacts/links.js'
 import { optional } from '../core/assert.js'
+import type { MediaDelivery } from '../media-delivery.js'
+import type { SessionIds } from '../core/ids.js'
 import type { Block, Compaction, Entry, NoticeEntry, TurnEntry, UserAttachment, UserEntry } from '../model.js'
 import { steerState } from '../transcript/messages.js'
+import type { TableCharts } from '../transcript/tableCharts.js'
 import { answerText, turnEndedAt } from '../transcript/turns.js'
 
 import { duration } from './format.js'
+import { attachmentImagePath, imagePreviewNode } from './media.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
+import type { BrowserFocus } from './tools/cards/browser.js'
+import type { LspLinkContext } from './tools/lsp-links.js'
 import { toolNode } from './tools/shell.js'
 import { foldSection, headedCard } from './ui/fold.js'
 import { shimmerText } from './ui/live.js'
@@ -23,21 +29,39 @@ import { parts, pieces } from './workLogModel.js'
 
 /** What entry views need from the app. */
 export interface TranscriptContext {
+  /** Presentation-only, session-scoped Markdown table charts. */
+  charts?: TableCharts
   now: number
   /** Supplied by live frames; omitted by historical consumers of the view helper. */
   links?: FileContext
+  /** SDK actions bound to the session instance that rendered this entry. */
+  focusBrowser?: BrowserFocus | undefined
+  /** The exact instance whose SDK handlers are cached with this entry. */
+  browserSource?: Pick<SessionIds, 'live'> | undefined
   welcome: WelcomeContext
+  /** File-host evidence from the current frame, never a replayed tool result. */
+  lspContext?: LspLinkContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
   /** The entry copied a moment ago, whose copy button shows a check. */
   copied?: string | undefined
+  /** Optional for isolated render fixtures; App supplies its current delivery service. */
+  media?: MediaDelivery
+  mediaRev?: string
 }
 
 const kNode = Symbol('tsp.node')
 
+/** Release a cold entry's JSX and handler closures without changing Hermes history. */
+export function forgetEntryNode(entry: Entry): void {
+  const holder: object = entry
+  const built: Built = holder
+  delete built[kNode]
+}
+
 /** An entry carrying its last built node and the revision it was built at. */
 interface Built {
-  [kNode]?: { rev: string; node: JSX.Element }
+  [kNode]?: { rev: string; browserSource?: Pick<SessionIds, 'live'> | undefined; node: JSX.Element }
 }
 
 /**
@@ -53,15 +77,17 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}|${cx.links?.cwd ?? ''}|${cx.links?.hostLocal ?? false}|${cx.links?.media ?? false}`
+  // Authority is presentation state: a cached local href must not survive a host/cwd switch.
+  const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
+    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? '', cx.links?.cwd ?? '', cx.links?.hostLocal ?? false, cx.links?.media ?? false])
   const cached = built[kNode]
 
-  if (cached?.rev === rev) {
+  if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
     return cached.node
   }
 
   const node = buildEntry(e, id, cx)
-  built[kNode] = { node, rev }
+  built[kNode] = { browserSource: cx.browserSource, node, rev }
 
   return node
 }
@@ -103,7 +129,7 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
         />
         {copyButton(e.text, e.id, 'omp.user.tool', 'Copy message', cx)}
       </row>
-      {e.attachments?.length ? attachmentsRow(e.attachments) : null}
+      {e.attachments?.length ? attachmentsRow(e.attachments, cx) : null}
       {e.text ? <md key="body">{e.text}</md> : null}
     </card>
   )
@@ -113,25 +139,34 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
  * A prompt's attachments over its words, as omp's bubble shows them: each image a thumbnail
  * (a click opens Tern's lightbox, which steps through the others), a file or a gone image a chip.
  */
-function attachmentsRow(list: readonly UserAttachment[]): JSX.Element {
+function attachmentsRow(list: readonly UserAttachment[], cx: TranscriptContext): JSX.Element {
   return (
     <row align="start" gap="sm" key="images" role="omp.user.images" wrap>
-      {list.map((a, i) =>
-        a.source ? (
-          <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
-        ) : (
+      {list.map((a, i) => {
+        const path = a.source && 'blob' in a.source ? undefined
+          : a.refPath ?? (a.source && 'path' in a.source ? a.source.path : undefined)
+        const remote = a.kind === 'image' && path && cx.media && !cx.media.context().local
+          ? attachmentImagePath(path, cx.media)
+          : undefined
+
+        return remote && cx.media ? imagePreviewNode(remote, cx.media, a.name, `a${i}`)
+          : a.source && ('blob' in a.source || !cx.media || cx.media.context().local) ? (
+            <image alt={a.name} key={`a${i}`} title={a.name} {...a.source} />
+          ) : (
           <row
             align="center"
             gap="xs"
             key={`a${i}`}
             role="hermes.user.attachment"
-            title={a.kind === 'image' ? `${a.name} (the file is gone)` : a.name}
+            title={a.kind === 'image'
+              ? `${a.name} (${cx.media && !cx.media.context().local ? 'remote preview unavailable' : 'the file is gone'})`
+              : a.name}
           >
             <icon key="i" name={a.kind === 'image' ? 'image' : 'file'} />
             <text key="t" text={a.name} truncate="middle" wrap="none" />
           </row>
         )
-      )}
+      })}
     </row>
   )
 }
@@ -233,7 +268,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.links)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext, cx.focusBrowser, cx.media, cx.links)
     }
 
     const b = p.block
@@ -242,12 +277,12 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
       case 'text':
         return (
           <md key={b.id} {...optional('stream', (live && b === lastText) || undefined)}>
-            {cx.links?.hostLocal && !live ? displayMarkdown(b.text, cx.links.cwd) : b.text}
+            {live ? b.text : displayMarkdown(cx.charts?.markdown(b.text, turn.end.status === 'done') ?? b.text, cx.links?.hostLocal ? cx.links.cwd : '')}
           </md>
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now, cx.links)
+        return toolNode(b.call, cx.now, cx.lspContext, cx.focusBrowser, cx.media, cx.links)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

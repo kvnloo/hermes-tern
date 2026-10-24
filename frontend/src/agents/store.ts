@@ -26,6 +26,7 @@ import { record } from '../wire/json.js'
 import { rpc } from '../wire/rpc.js'
 
 import { parseLiveLog } from './liveLog.js'
+import { eventOwner, foldOwnedEvent } from './ownership.js'
 import {
   applyListRow,
   applyLog,
@@ -37,7 +38,6 @@ import {
   dispatchRows,
   endUnseen,
   findRow,
-  foldEvent,
   isRunning,
   type ListRow,
   MAX_LOG_BYTES,
@@ -186,20 +186,16 @@ export class Agents {
   }
 
   /**
-   * A `subagent.*` event, where the gateway sends them, folded into the rows of the delegate_task
-   * call that dispatched it. A background delegation reports after its turn ended (maybe after
-   * newer turns started), so its call is found by its delegation id first; else it is the newest
-   * delegate_task call of the live (else the last) turn.
+   * A gateway-routed subagent event mutates only the delegation with a proven owner, including
+   * an older background call or a resumed call with an attached child. An explicit foreign id
+   * is never redirected to the most recent task; id-less legacy events require unique ownership.
    */
   apply(type: SubagentEventType, event: SubagentEventPayload, at = Date.now()) {
     const transcript = this.#host.transcript
-    const id = event.delegation_id
-    const call =
-      (id ? transcript.delegations().findLast(c => record(c.result)?.['delegation_id'] === id) : undefined) ??
-      transcript.lastCall(c => c.name === 'delegate_task')
+    const call = eventOwner(transcript.delegations(), event)
 
     if (call) {
-      transcript.mutateCall(call, c => foldEvent(c, { at, event, type }))
+      transcript.mutateCall(call, c => foldOwnedEvent(c, type, event, at))
     }
   }
 

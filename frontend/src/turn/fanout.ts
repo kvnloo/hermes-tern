@@ -30,6 +30,8 @@ export interface ToolFanout {
   readonly processes: Pick<Processes, 'poke'>
   /** Has the call's image (a URL's) fetched; its card shows it once it lands. */
   showImage(call: ToolCall | undefined): void
+  /** Opens completed 3D outputs in native blocks, never replayed history. */
+  showArtifacts(call: ToolCall | undefined): void
 }
 
 /**
@@ -38,6 +40,7 @@ export interface ToolFanout {
  */
 export function afterToolComplete(p: Pick<ToolCompletePayload, 'name' | 'tool_id'>, cx: ToolFanout) {
   cx.showImage(cx.transcript.call(toolCallId(p.tool_id)))
+  cx.showArtifacts(cx.transcript.call(toolCallId(p.tool_id)))
   // A dispatched delegation: its agents' rows start following the owner.
   cx.agents.scan()
 

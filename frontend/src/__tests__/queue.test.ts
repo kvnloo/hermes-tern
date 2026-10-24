@@ -5,6 +5,7 @@ import { admissionId, inputId, type LiveSessionId, liveSessionId, storedSessionI
 import type { Image } from '../draft/attachments.js'
 import { sessionTicket } from '../session/state.js'
 import type { Prompt } from '../turn/prompt.js'
+import { busyHint } from '../turn/busyInput.js'
 import { PromptQueue, type QueuedRow, type QueueHost } from '../turn/queue.js'
 import { dockNodes } from '../view/dock.js'
 import type { PendingRow, PendingStatus } from '../wire/schemas.js'
@@ -270,7 +271,7 @@ describe('PromptQueue', () => {
 
 /** The dock's queued rows as drawn: icon, title, text, badges and actions. */
 function drawn(queued: QueuedRow[], steer = true) {
-  const rows = dockNodes(dockContext({ queue: { canSteer: steer, rows: queued } }), dockActions()).flatMap(n => (n instanceof Node && n.props['role'] === 'omp.queue' ? n.toJSON().c ?? [] : []))
+  const rows = dockNodes(dockContext({ queue: { canSteer: steer, hint: busyHint('queue'), rows: queued } }), dockActions()).flatMap(n => (n instanceof Node && n.props['role'] === 'omp.queue' ? n.toJSON().c ?? [] : []))
   const prop = (n: NodeJson, name: string) => n.p?.[name]
 
   return rows.map(r => ({

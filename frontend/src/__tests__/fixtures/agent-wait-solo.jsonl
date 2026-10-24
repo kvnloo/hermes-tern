@@ -1,0 +1,8 @@
+{"payload":{},"type":"gateway.ready"}
+{"payload":{},"session_id":"s1","type":"message.start"}
+{"payload":{"args":{"goal":"Audit model"},"name":"delegate_task","tool_id":"solo"},"session_id":"s1","type":"tool.start"}
+{"payload":{"name":"delegate_task","result":{"delegation_id":"deleg_solo","mode":"background","status":"dispatched"},"tool_id":"solo"},"session_id":"s1","type":"tool.complete"}
+{"payload":{"delegation_id":"deleg_solo","goal":"Audit model","subagent_id":"solo-agent","task_count":1,"task_index":0},"session_id":"s1","type":"subagent.start"}
+{"payload":{"delegation_id":"deleg_solo","goal":"Audit model","subagent_id":"solo-agent","task_count":1,"task_index":0,"tool_name":"read_file","tool_preview":"Reading model fields"},"session_id":"s1","type":"subagent.tool"}
+{"payload":{"delegation_id":"deleg_solo","goal":"Audit model","status":"completed","subagent_id":"solo-agent","summary":"Model audited","task_count":1,"task_index":0},"session_id":"s1","type":"subagent.complete"}
+{"payload":{"text":"Solo audit finished."},"session_id":"s1","type":"message.complete"}

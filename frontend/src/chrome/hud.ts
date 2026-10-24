@@ -125,6 +125,7 @@ export class Hud {
   readonly #host: HudHost
   #focused: Pill | undefined
   #todosOpen = false
+  #session: string | null = null
 
   constructor(host: HudHost) {
     this.#host = host
@@ -151,6 +152,15 @@ export class Hud {
     }
 
     return out.consumed
+  }
+
+  /** A new session must not inherit another session's expanded list or keyboard focus. */
+  adopt(session: string) {
+    if (this.#session !== session) {
+      this.#session = session
+      this.#focused = undefined
+      this.#todosOpen = false
+    }
   }
 
   /** Folds the todo panel open or shut. */

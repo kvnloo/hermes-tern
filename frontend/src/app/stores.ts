@@ -7,11 +7,13 @@ import type { Session } from '@stencil-hq/tern'
 import type { GatewayClient } from '@tui/gatewayClient.js'
 
 import { Agents } from '../agents/store.js'
+import { BtwThreads } from '../btw.js'
 import { Hud } from '../chrome/hud.js'
 import { NoticeStrip } from '../chrome/notices.js'
 import { Reconnect } from '../chrome/reconnect.js'
 import { Sidebar } from '../chrome/sidebar.js'
 import { Theme } from '../chrome/theme.js'
+import { TodoHud } from '../todo-hud.js'
 import { dispatched } from '../commands/slash.js'
 import type { LaunchEnv } from '../config/env.js'
 import { markViewer } from '../connections/cards.js'
@@ -20,11 +22,14 @@ import { Disposables } from '../core/disposables.js'
 import { durable } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
 import { Composer } from '../draft/composer.js'
+import { VimPreference } from '../draft/vim-preference.js'
 import type { Presses } from '../draft/keys.js'
 import type { Warned } from '../gateway/handlers/chrome.js'
 import { PullRequests } from '../github/store.js'
 import { writeActiveSessionFile } from '../hermes/activeSessionFile.js'
+import { MediaDelivery } from '../media-delivery.js'
 import { Media } from '../media.js'
+import { OperationalSheets } from '../operations.js'
 import { Completion } from '../overlays/completion.js'
 import { OverlayStack } from '../overlays/overlay.js'
 import { openUrl } from '../overlays/pullRequests.js'
@@ -48,6 +53,7 @@ import { Activity } from '../turn/activity.js'
 import { PromptQueue } from '../turn/queue.js'
 import { canDrain, canSwitch, PromptRouter } from '../turn/router.js'
 import { randomTip, type WelcomeContext } from '../view/welcome.js'
+import { LiveVoice } from '../voice/live.js'
 
 import type { AppActions } from './actions.js'
 import type { ChatPorts } from './ports.js'
@@ -96,6 +102,14 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   }
   /** Images tool calls showed, a URL's bytes fetched once and sent as a blob. */
   const media = new Media({ blob: (bytes, mime) => act().blob(bytes, mime) })
+  const mediaDelivery = new MediaDelivery({
+    tern,
+    gw,
+    session: () => session.ref.live,
+    cwd: () => session.info?.cwd,
+    backend: () => session.info?.terminal_backend ?? undefined,
+    changed
+  })
   /** The session's subagents, followed while they run (Task cards, the pill, the hub). */
   const agents = new Agents(live)
   /**
@@ -111,6 +125,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const title = new SessionTitle(chat)
   /** The pills above the composer: the one holding the keys, and the todo panel's fold. */
   const hud = new Hud({ changed, open: pill => act().openPill(pill) })
+  const todoHud = new TodoHud()
   /** The conversation's PRs; links are stored under the stored session id the tools see. */
   const prs = new PullRequests({ changed, cwd: () => session.info?.cwd || null, sid: () => durable(session.ref) })
   /** The pull request docked at the pane's right edge (the PR aside). */
@@ -123,11 +138,18 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     scroll: (id, to) => chat.scroll(id, to)
   })
   const composer = new Composer()
+  const vimPreference = new VimPreference({ gw, composer, sid: () => session.ref.live, changed })
+  const btw = new BtwThreads(chat)
+  const operations = new OperationalSheets(chat)
   /** The open overlays; a modal one takes the keys from the completion list. */
   const stack = new OverlayStack({
     changed,
-    closed: overlay => sheets.closed(overlay),
+    closed: overlay => {
+      btw.invalidateActions()
+      sheets.closed(overlay)
+    },
     opened: overlay => {
+      btw.invalidateActions()
       if (overlay.modal) {
         // The sheet owns the keys now: a list or reply for the composer would only land under it.
         completion.dismiss()
@@ -191,12 +213,16 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   const shared = {
     activity,
     agents,
+    btw,
+    operations,
     automation,
     changed,
     composer,
+    vimPreference,
     connect,
     hud,
     media,
+    mediaDelivery,
     notices,
     overlays: stack.items,
     prAside,
@@ -211,6 +237,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
     state: session,
     timers,
     title,
+    todoHud,
     transcript
   }
   /** Which session the pane shows and how it switches: views, held requests, and the steps each adopt runs in order. */
@@ -239,21 +266,32 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       markPane: id => markPane(launch, id),
       markViewer,
       readBusyMode: () => void act().readBusyMode(),
+      readShortcuts: () => void act().bindings.refresh(),
+      readVimPreference: () => void vimPreference.refresh(),
       reportCwd: () => act().reportCwd(),
       showThoughts: sid => showThoughts({ gw, notice: (text, tone) => chat.notice(text, tone), settings }, sid),
       writeActiveSession: writeActiveSessionFile
     })
   )
+  /** Per-connection live voice; audio stays with the gateway. */
+  const liveVoice = new LiveVoice({
+    changed,
+    gw,
+    sid: () => session.ref.live,
+    switching: () => life.switching
+  })
   /** Whose colors the surface wears, and the gateway's skin. */
   const theme = new Theme({ palette: palette => surface().palette(palette), settings }, saved.theme ?? 'tern')
   const completion = new Completion(chat, gw, () => session.ref.live)
   const welcome: WelcomeContext = { tip: randomTip(launch.pythonSrcRoot), version: version && version !== 'unknown' ? `v${version}` : '' }
 
-  return { ...shared, attachments, completion, cron, life, router, stack, theme, warned, welcome }
+  return { ...shared, attachments, completion, cron, life, liveVoice, router, stack, theme, warned, welcome }
 }
 
 /** Stops what the stores run on their own: every timer, the polls and the sidebar's reads. */
 export function disposeStores(s: ChatStores) {
+  s.mediaDelivery.clear(true)
+  s.liveVoice.dispose()
   s.timers.dispose()
   s.connect.dispose()
   s.notices.dispose()

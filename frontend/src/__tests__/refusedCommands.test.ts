@@ -11,6 +11,7 @@ import type { Overlay } from '../overlays/overlay.js'
 import { openHermesSplit } from '../watch/spec.js'
 
 import { must, stub } from './fakes.js'
+import { assignedRoot } from './overlayRoots.js'
 
 vi.mock('../overlays/background.js', () => ({ openBackground: vi.fn() }))
 vi.mock('../watch/spec.js', () => ({ openHermesSplit: vi.fn(async () => true) }))
@@ -346,7 +347,7 @@ describe('hidden commands', () => {
   it('drops them from completion', () => {
     const items = slashItems([row('/pet'), row('/personality'), row('/pause'), row('/platform'), row('/plugins')], '/p')
 
-    expect(items.map(i => i.text)).toEqual(['/personality', '/plugins', '/ps', '/prs'])
+    expect(items.map(i => i.text)).toEqual(['/personality', '/plugins', '/ptt', '/palette', '/prefs', '/plan', '/ps', '/prs'])
   })
 
   it('never resolves a prefix to one', () => {
@@ -378,7 +379,8 @@ describe('hidden commands', () => {
     }
 
     await openHelp(stub(help))
-    const text = JSON.stringify(must(sheet).node('layer.help'))
+    const selected = must(sheet)
+    const text = JSON.stringify(selected.node(assignedRoot(selected)))
 
     expect(text).toContain('/cron')
     expect(text).not.toContain('/sethome')

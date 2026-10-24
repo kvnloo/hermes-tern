@@ -43,6 +43,7 @@ import { commandLine, describeCommand, oneLine } from '../view/describe.js'
 import { clockSeconds, duration, relative } from '../view/format.js'
 import { type Fact, facts } from '../view/ui/facts.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 import { countSummary, reportError, tickWhileOpen } from './sheet.js'
 
@@ -157,7 +158,7 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
       release()
       releaseCron()
     },
-    node: () => sheetNode(Date.now()),
+    node: id => sheetNode(Date.now(), id),
     onKey: (k: Key) => {
       act(sheetKey(state, k, sheetFacts()))
 
@@ -165,8 +166,8 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
     }
   }
 
-  function sheetNode(now: number): JSX.Element {
-    return state.tab === 'cron' ? cronNode(now) : processNode(now)
+  function sheetNode(now: number, id: string): JSX.Element {
+    return state.tab === 'cron' ? cronNode(now, id) : processNode(now, id)
   }
 
   const tabs = () => [
@@ -175,7 +176,7 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
     { ...optional('count', host.cron.loaded ? host.cron.jobs().length : undefined), id: 'cron', label: 'Cron' }
   ]
 
-  function cronNode(now: number): JSX.Element {
+  function cronNode(now: number, id: string): JSX.Element {
     const jobs = host.cron.jobs()
     const own = ownJobs(host.transcript.calls('cronjob_manage'))
 
@@ -203,7 +204,7 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
           { end: true, id: 'close', keys: ['esc'], label: 'Close' }
         ]}
         columns={columns}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         {...optional('confirm', state.confirm === 'job' && j ? { act: 'confirm', label: 'Remove', text: `Remove ${j.name || j.job_id}? It will not run again.` } : undefined)}
         empty={
           host.cron.error
@@ -232,7 +233,7 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
     )
   }
 
-  function processNode(now: number): JSX.Element {
+  function processNode(now: number, id: string): JSX.Element {
     const all = procs()
     const list = shownProcesses(state, all)
     const running = all.filter(isRunning).length
@@ -264,7 +265,7 @@ export function openBackground(host: BackgroundHost, at?: string | { tab: 'cron'
           { end: true, id: 'close', keys: ['esc'], label: expanded ? 'Back' : 'Close' }
         ]}
         columns={columns}
-        key={KEY}
+        key={nativeOverlayKey(id)}
         {...optional(
           'confirm',
           confirm === 'all'

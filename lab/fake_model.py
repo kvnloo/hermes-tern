@@ -17,6 +17,7 @@ the user's prompt, so one home covers every flow:
     "solo…"     -> (at the start) one delegated agent with a long brief (context)
     "delegate…" -> (at the start) a delegate_task batch of three subagents, each running two slow
                    terminal calls before a slowly streamed answer
+    "delegate tiles…" -> six subagents with progress notes and two 45 s terminal steps, for tile/overflow capture
     "background…" -> (at the start) a 90 s ticking background process that notifies on exit
     "watch…"    -> (at the start) a 2 min ticking background process watching for "tick 10"
     "jobchart…" -> (at the start) a 2 min background benchmark printing tok/s and loss against a
@@ -122,6 +123,22 @@ SUBAGENT_STEPS = [
     "sleep 4 && date && find . -maxdepth 2 -name '*.md' | wc -l",
 ]
 
+TILE_MARKER = "Lab delegate tiles"
+TILE_GOALS = [
+    "Survey repository folders",
+    "Read the lab workflow",
+    "Inspect agent progress events",
+    "Review tool intent headlines",
+    "Check settled task summaries",
+    "Inspect dock agent navigation",
+]
+TILE_STEPS = [
+    ("I have scoped the read-only survey.\nI am collecting the first progress sample.",
+     "printf 'Collecting the first progress sample\\n'; sleep 45; printf 'First sample collected\\n'"),
+    ("The first progress sample is collected.\nI am checking the second sample before reporting.",
+     "printf 'Checking the second progress sample\\n'; sleep 45; printf 'Second sample collected\\n'"),
+]
+
 SOLO_GOAL = "Read-only on the repo (only write the one output file). Verify which cleanup candidates in the audit are still dead code."
 SOLO_CONTEXT = """Repo checkout (read-only) at origin/main. Do not fetch; work on this snapshot and note the commit.
 
@@ -190,6 +207,11 @@ def _calls(prompt: str, target: Path) -> list[dict] | None:
     words = prompt.lower()
     # Only a prompt that starts with it: the parent's completion notice quotes the delegation and
     # would otherwise dispatch again, forever.
+    if words.lstrip().startswith("delegate tiles"):
+        return [_call("delegate_task", {"tasks": [
+            {"goal": g, "context": TILE_MARKER + ": use the loopback progress sequence."}
+            for g in TILE_GOALS
+        ]})]
     if words.lstrip().startswith("delegate"):
         return [_call("delegate_task", {"tasks": [{"goal": g} for g in SUBAGENT_GOALS]})]
     if words.lstrip().startswith("solo"):
@@ -321,8 +343,14 @@ class Model(BaseHTTPRequestHandler):
             content, delay = COMPACTION_SUMMARY, 2.5
             calls = None
         elif isinstance(system, str) and SUBAGENT_MARKER in system:
-            calls = _subagent_calls(messages)
-            content = None if calls else SUBAGENT_REPLY
+            tile_mode = TILE_MARKER in str(messages)
+            done = sum(1 for m in messages if m.get("role") == "tool")
+            if tile_mode and done < len(TILE_STEPS):
+                content, command = TILE_STEPS[done]
+                calls = [_call("terminal", {"command": command}, f"call-tile{done}")]
+            else:
+                calls = None if tile_mode else _subagent_calls(messages)
+                content = None if calls else SUBAGENT_REPLY
             delay = 0.15
         elif prompt.lower().lstrip().startswith("work"):
             # One round per request: the assistant messages since the prompt count the rounds done.

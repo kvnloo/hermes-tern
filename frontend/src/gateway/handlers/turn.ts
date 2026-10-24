@@ -3,12 +3,15 @@
 
 import type { Agents } from '../../agents/store.js'
 import { toolCallId } from '../../core/ids.js'
+import type { HostLifecycle } from '../../host-lifecycle.js'
 import type { PullRequests } from '../../github/store.js'
 import type { ToolCall } from '../../model.js'
 import type { SessionState } from '../../session/state.js'
 import { statusEffect } from '../../status.js'
 import type { Compactions } from '../../transcript/compactions.js'
 import type { Transcript } from '../../transcript/store.js'
+import { toTodos } from '../../transcript/todos.js'
+import type { TodoHud } from '../../todo-hud.js'
 import type { Activity } from '../../turn/activity.js'
 import { afterMessageComplete, afterToolComplete, type MessageFanout, type ToolFanout } from '../../turn/fanout.js'
 import type { PromptQueue } from '../../turn/queue.js'
@@ -35,11 +38,13 @@ export interface TurnCx extends ToolFanout, MessageFanout {
     | 'toolComplete'
     | 'toolStart'
   > & { readonly compactions: Pick<Compactions, 'compacted' | 'compacting' | 'uncompact'> }
+  readonly todoHud: Pick<TodoHud, 'update'>
   readonly activity: Pick<Activity, 'endBusy' | 'endCompaction' | 'relabel' | 'turnStarted'>
   readonly agents: Pick<Agents, 'scan' | 'settle'>
   readonly prs: Pick<PullRequests, 'onCall' | 'poke' | 'relink'>
   readonly session: Pick<SessionState, 'usage'>
-  readonly queue: { readonly server: Pick<PromptQueue['server'], 'settlesQueuedRow'> }
+  readonly hostLifecycle: Pick<HostLifecycle, 'finish'>
+  readonly queue: { readonly server: Pick<PromptQueue['server'], 'settlesQueuedRow'>; count(): number }
   /** The backend warnings shown already. */
   readonly warned: Warned
   /** The working line's words for a call (view/workLogModel.ts): one that just started, and one the model still writes. */
@@ -157,7 +162,9 @@ export const turnHandlers = {
   },
 
   'todo.updated': (ev, cx) => {
-    cx.transcript.todos(ev.payload?.todos ?? [])
+    const snapshot = toTodos(ev.payload?.todos ?? [])
+    cx.todoHud.update(snapshot)
+    cx.transcript.todos(snapshot)
 
     return 'render'
   },
@@ -168,7 +175,13 @@ export const turnHandlers = {
       return 'quiet'
     }
 
+    // Only the final turn in a queued batch merits an attention alert.
+    const followup = cx.queue.count() > 0
     afterMessageComplete(ev.payload ?? {}, cx)
+
+    if (!followup) {
+      cx.hostLifecycle.finish(ev.payload?.status)
+    }
 
     return 'render'
   },

@@ -14,7 +14,7 @@ import { rpc } from '../wire/rpc.js'
 
 import type { Activity } from './activity.js'
 import { redirectTurn, steerTurn } from './control.js'
-import { EXPANDING_LABEL, expand, type Expanded, hasCommands } from './expand.js'
+import { EXPANDING_LABEL, expand, type Expanded, type ExpandOptions, hasCommands } from './expand.js'
 import { IMAGE_ONLY_PROMPT, type Prompt, shownText, userImages } from './prompt.js'
 import type { HeldTarget, PromptQueue } from './queue.js'
 import type { BusyMode } from './serverQueue.js'
@@ -236,10 +236,10 @@ export class PromptRouter {
   }
 
   /** `prompt` with its `{!cmd}`s run (a typed prompt's); undefined when one failed (the prompt is back in the composer). */
-  async expanded(sid: LiveSessionId, prompt: Prompt): Promise<Expanded | undefined> {
+  async expanded(sid: LiveSessionId, prompt: Prompt, options: ExpandOptions = {}): Promise<Expanded | undefined> {
     // In the shared gateway's queue this is the last awaited step before its RPC serialization.
     if (!this.allowImages(sid, prompt)) return undefined
-    const ready = await expand(this.#host, sid, prompt)
+    const ready = await expand(this.#host, sid, prompt, options)
     if (ready && !this.allowImages(sid, prompt)) return undefined
     return ready
   }
