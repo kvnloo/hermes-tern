@@ -91,7 +91,7 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
 
   return {
-    charts: cx.charts,
+    ...(cx.charts ? { charts: cx.charts } : {}),
     copied: cx.copies.copied,
     copy: cx.copies.copy,
     now,
