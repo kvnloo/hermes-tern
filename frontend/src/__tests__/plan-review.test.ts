@@ -193,7 +193,7 @@ describe('native plan review', () => {
     expect(f.element('refine')).toBeDefined()
     expect(f.element('mode')).toBeUndefined()
     f.click('section-1')
-    expect(f.scroll).toHaveBeenCalledWith('layer.plan.body.markdown', 'start')
+    expect(f.scroll).toHaveBeenCalledWith('layer.overlay-1.body.markdown', 'start')
     expect(f.element('markdown')?.props['text']).toContain('## Phase one')
     f.click('close')
     expect(f.overlays).toHaveLength(0)

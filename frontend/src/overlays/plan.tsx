@@ -11,6 +11,7 @@ import { editPlanExternal } from '../plan-editor.js'
 import { planRpcForSession, planUnavailableReason, type PlanMethod, type PlanRpc } from '../wire/plan.js'
 import { actionsRow, button, type ButtonProps } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 
 /** The existing app's narrow ports; no duplicate gateway or session authority. */
@@ -55,6 +56,7 @@ export function openPlanReview(host: PlanReviewHost): void {
   let closed = false
   let version = 0
   let error = ''
+  let root = ''
   const note = new Composer()
 
   // An obscured sheet can receive read-only status snapshots but cannot act.
@@ -170,7 +172,7 @@ export function openPlanReview(host: PlanReviewHost): void {
     selected = index
     version++
     host.changed()
-    host.scroll('layer.plan.body.markdown', 'start')
+    host.scroll(root + '.body.markdown', 'start')
   }
 
   const startEdit = (kind: EditKind, stamp: number, expected: Target | undefined) => {
@@ -297,7 +299,8 @@ export function openPlanReview(host: PlanReviewHost): void {
     })
   }
 
-  const render = (): JSX.Element => {
+  const render = (id: string): JSX.Element => {
+    root = id
     const revision = target()
     const stamp = version
     const allowed = canDecide()
@@ -342,7 +345,7 @@ export function openPlanReview(host: PlanReviewHost): void {
         : 'Plan authority unavailable. Continue sends an ordinary prompt, not plan approval.'
 
     return (
-      <overlay anchor="center" head="Plan review" key="plan" modal role="omp.overlay.plan" size="lg">
+      <overlay anchor="center" head="Plan review" key={nativeOverlayKey(id)} modal role="omp.overlay.plan" size="lg">
         <col gap="md" key="body">
           <text key="authority" text={authority} wrap="word" />
           {error ? <text key="error" text={error} wrap="word" /> : null}

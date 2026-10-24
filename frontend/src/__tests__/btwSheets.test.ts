@@ -47,7 +47,7 @@ function walk(n: NodeJson): NodeJson[] {
   return [n, ...(n.c ?? []).flatMap(walk)]
 }
 
-function parts(model: BtwThreads, overlayId = 'layer.btw'): NodeJson[] {
+function parts(model: BtwThreads, overlayId = 'layer.overlay-1'): NodeJson[] {
   const overlay = must(model.host.overlays.at(-1))
 
   return walk(tree(overlay.node(overlayId)))
@@ -81,10 +81,10 @@ describe('native BTW thread history and reader', () => {
     sheet.onKey(key('tab'))
     sheet.onKey(key('tab'))
     sheet.onKey(key('page_down'))
-    expect(f.scroll).toHaveBeenCalledWith('layer.btw.body.panes.history', 'page-down')
+    expect(f.scroll).toHaveBeenCalledWith('layer.overlay-1.body.panes.history', 'page-down')
     sheet.onKey(key('tab'))
     sheet.onKey(key('page_up'))
-    expect(f.scroll).toHaveBeenCalledWith('layer.btw.body.panes.reader', 'page-up')
+    expect(f.scroll).toHaveBeenCalledWith('layer.overlay-1.body.panes.reader', 'page-up')
     sheet.onKey(key('n', { ctrl: true }))
     expect(model.selected).toBe('t0')
   })
@@ -280,7 +280,7 @@ describe('native BTW thread history and reader', () => {
       expect(f.app.btw.state).toBe('loading')
       expect(f.app.btw.selected).toBe(null)
       expect(f.app.btw.draft.text).toBe(question)
-      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.btw')))
+      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.overlay-1')))
         .some(n => n.p?.['text'] === question)).toBe(true)
       expect(appendHistory).toHaveBeenCalledWith('/btw ' + question)
       const history = vi.mocked(appendHistory).mock.calls.slice()
@@ -293,7 +293,7 @@ describe('native BTW thread history and reader', () => {
       await vi.waitFor(() => expect(f.app.btw.error).toContain('unavailable'))
       expect(f.app.btw.state).toBe('idle')
       expect(f.app.btw.draft.text).toBe(question)
-      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.btw')))
+      expect(walk(tree(must(f.app.overlays.at(-1)).node('layer.overlay-1')))
         .some(n => n.p?.['text'] === question)).toBe(true)
       expect(f.app.stores.composer.text).toBe('Main unsent 🦉')
       expect(f.app.stores.composer.cursor).toBe(3)
@@ -334,7 +334,7 @@ describe('native BTW thread history and reader', () => {
       expect(f.app.overlays.map(o => o.key)).toEqual(['btw'])
       await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       f.tern.press('tab') // reader -> conversation-owned side composer
-      await vi.waitFor(() => expect(f.tern.focused.at(-1)).toBe('layer.btw.body.' + f.app.btw.editorKey))
+      await vi.waitFor(() => expect(f.tern.focused.at(-1)).toBe('layer.overlay-1.body.' + f.app.btw.editorKey))
       await vi.waitFor(() => expect(f.tern.reading).toBe(true))
       // Fake keys need Tern's printable text as well as the key name.
       f.tern.press(key('x', { text: 'x' }))

@@ -122,7 +122,7 @@ function emittedIds(bytes: string): string[] {
 function nativeButtonId(h: Harness, kind: 'send' | 'cancel' | 'copy', bytes = h.wire()): string {
   const surface = h.surface()
   const found = emittedIds(bytes).filter(id =>
-    id.startsWith('layer.btw.body.actions.') &&
+    id.startsWith('layer.overlay-1.body.actions.') &&
     id.split('.').at(-1)?.startsWith(kind + '-') &&
     typeof surface.dispatch({ ev: 'action', sf: surface.id, id, act: 'click', raw: {} }) === 'function'
   )
@@ -134,7 +134,7 @@ function nativeButtonId(h: Harness, kind: 'send' | 'cancel' | 'copy', bytes = h.
 function nativeControls(h: Harness, bytes = h.wire()) {
   const surface = h.surface()
   const found = emittedIds(bytes).filter(id =>
-    id.startsWith('layer.btw.body.') &&
+    id.startsWith('layer.overlay-1.body.') &&
     typeof surface.dispatch({
       ev: 'edit', sf: surface.id, id, from: 0, to: 0, text: '', cursor: 0, len: 0, raw: {}
     }) === 'function' &&

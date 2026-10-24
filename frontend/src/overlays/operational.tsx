@@ -7,6 +7,7 @@ import type { OperationalSheets } from '../operations.js'
 import type { Report } from '../reports.js'
 import { actionsRow } from '../view/ui/button.js'
 
+import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 
 const SCROLL: Readonly<Record<string, ScrollTo>> = {
@@ -17,6 +18,7 @@ const SCROLL: Readonly<Record<string, ScrollTo>> = {
 export function openOperationalOverlay(owner: OperationalSheets, report: Report): Overlay {
   const host = owner.host
   let message = ''
+  let root = ''
   const valid = () => owner.owns(sheet)
   const close = () => {
     if (valid()) {
@@ -43,8 +45,10 @@ export function openOperationalOverlay(owner: OperationalSheets, report: Report)
     modal: true,
     cancel: close,
     onClose: () => owner.closed(sheet),
-    node: (): JSX.Element => (
-      <overlay anchor="bottom" head={report.title} key="operational" modal role="omp.overlay.report" size="lg">
+    node: (id): JSX.Element => {
+      root = id
+      return (
+      <overlay anchor="bottom" head={report.title} key={nativeOverlayKey(id)} modal role="omp.overlay.report" size="lg">
         <col gap="sm" key="body">
           <text key="state" role="omp.report.state" text={report.status} />
           {report.scope ? <text key="scope" role="omp.report.scope" text={'Hermes profile: ' + report.scope + ' · Read only'} wrap="word" /> : null}
@@ -56,7 +60,8 @@ export function openOperationalOverlay(owner: OperationalSheets, report: Report)
           ])}
         </col>
       </overlay>
-    ),
+      )
+    },
     onKey: (key: Key) => {
       if (!valid()) {
         return true
@@ -70,7 +75,7 @@ export function openOperationalOverlay(owner: OperationalSheets, report: Report)
         const to = SCROLL[key.name]
 
         if (to) {
-          host.scroll('layer.operational.body.markdown', to)
+          host.scroll(root + '.body.markdown', to)
         }
       }
 

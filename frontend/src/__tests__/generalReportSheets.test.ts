@@ -21,7 +21,7 @@ beforeEach(() => {
 
 function sheetView(app: ReturnType<typeof setup>['app']) {
   const overlay = app.overlays.find(o => o.key === 'operational')
-  const root = overlay ? tree(overlay.node('layer.operational')) : undefined
+  const root = overlay ? tree(overlay.node('layer.overlay-1')) : undefined
   const collect = (n: typeof root): NonNullable<typeof root>[] =>
     n ? [n, ...(n.c ?? []).flatMap(collect)] : []
 
@@ -129,7 +129,7 @@ describe('native general report sheets', () => {
     vi.mocked(copyToClipboard).mockImplementationOnce(() => { throw new Error('terminal clipboard unavailable') })
     must(f.app.overlays.at(-1)).onKey(key('c'))
     const report = f.app.overlays.at(-1)
-    const root = tree(must(report).node('layer.operational'))
+    const root = tree(must(report).node('layer.overlay-1'))
     expect(JSON.stringify(root)).toContain('Could not copy the report to the clipboard.')
     expect(f.app.transcript.entries).toEqual(before)
   })
