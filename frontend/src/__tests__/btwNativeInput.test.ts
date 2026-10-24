@@ -95,7 +95,7 @@ function emittedIds(bytes: string): string[] {
   const ids = new Set<string>()
   const inspect = (value: unknown): void => {
     if (typeof value === 'string') {
-      for (const match of value.matchAll(/layer\.btw(?:\.[A-Za-z0-9_-]+)+/g)) {
+      for (const match of value.matchAll(/layer\.overlay-[1-9][0-9]*(?:\.[A-Za-z0-9_-]+)+/g)) {
         ids.add(match[0])
       }
     } else if (Array.isArray(value)) {
