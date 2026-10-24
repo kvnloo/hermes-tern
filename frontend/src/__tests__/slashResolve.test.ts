@@ -86,7 +86,7 @@ describe('slashItems', () => {
   it("drops the hidden commands and adds this frontend's own by name", () => {
     const items = slashItems([row('/plan'), row('/mouse'), row('/pet'), row('/pdf', 'skill')], '/p')
 
-    expect(items.map(i => i.text)).toEqual(['/plan', '/ps', '/prs', '/pdf'])
+    expect(items.map(i => i.text)).toEqual(['/plan', '/palette', '/ps', '/prs', '/pdf'])
     expect(items.find(i => i.text === '/ps')).toMatchObject({ kind: 'command', meta: 'Background processes and cron jobs' })
   })
 

@@ -11,6 +11,7 @@ import { HOTKEYS } from '../overlays/help.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { ACTIONS, type ActionCx, onTernEvent } from '../surface/actions.js'
 import { INPUT_ID } from '../surface/host.js'
+import { APP_SHORTCUTS, effectiveShortcuts, shortcutGroups, shortcutMatches } from '../shortcuts/actions.js'
 import type { Busy } from '../turn/activity.js'
 
 import { FakeGateway, key } from './fakes.js'
@@ -128,6 +129,7 @@ describe('the key rules', () => {
       'hud',
       'completion',
       'externalEditor',
+      'appShortcuts',
       'vim',
       'doubleEsc',
       'effort',
@@ -139,6 +141,37 @@ describe('the key rules', () => {
       'clipboardImage',
       'composer'
     ])
+  })
+
+  it('routes rebindable keys only after modal, HUD, and completion ownership', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({ 'app.model.select': 'alt+i' })
+    p.cx.shortcut = (id, pressed) => {
+      const action = actions.find(item => item.id === id)
+
+      return action ? shortcutMatches(action, pressed) : false
+    }
+    p.cx.openModel = () => p.log.push('models')
+    p.cx.openPalette = () => p.log.push('palette')
+    p.cx.openHelp = () => p.log.push('help')
+    p.cx.cycleModel = dir => p.log.push(`cycle ${dir}`)
+
+    onKey(alt('m'), p.cx, undefined)
+    onKey(alt('i'), p.cx, undefined)
+    onKey(key('p', { ctrl: true }), p.cx, undefined)
+    onKey(key('p', { ctrl: true, alt: true }), p.cx, undefined)
+    onKey(alt('k'), p.cx, undefined)
+    expect(p.log).toEqual(['composer', 'models', 'cycle 1', 'cycle -1', 'palette'])
+
+    onKey(alt('i'), p.cx, sheet({ modal: true }))
+    expect(p.log).toHaveLength(5)
+    p.state.hud = true
+    onKey(alt('i'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
+    p.state.hud = false
+    p.state.completion = true
+    onKey(alt('i'), p.cx, undefined)
+    expect(p.log).toHaveLength(5)
   })
 
   it('1. Ctrl+C: the top sheet cancels, else closes; with none it clears the draft, interrupts or arms the exit', () => {
@@ -387,6 +420,16 @@ describe('the key rules', () => {
 })
 
 describe('KEYS', () => {
+  it('keeps fixed plan and fork chords active with profile shortcuts loaded', () => {
+    const p = pane()
+    const actions = effectiveShortcuts({})
+    p.cx.shortcut = (id, event) => actions.some(action => action.id === id && shortcutMatches(action, event))
+    onKey(key('p', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('f', { alt: true, shift: true }), p.cx, undefined)
+    onKey(key('p', { alt: true }), p.cx, undefined)
+    expect(p.log).toEqual(['plan', 'fork', 'prs'])
+  })
+
   it('matches the modifiers each shortcut needs and refuses those it must not have', () => {
     expect(matches(key('tab', { shift: true }), KEYS.effort)).toBe(true)
     expect(matches(key('tab'), KEYS.effort)).toBe(false)
@@ -397,7 +440,7 @@ describe('KEYS', () => {
   })
 
   it('are the shortcuts the help sheet lists', () => {
-    const listed = HOTKEYS.flatMap(g => g.rows.flatMap(([keys]) => keys))
+    const listed = [...HOTKEYS, ...shortcutGroups(APP_SHORTCUTS)].flatMap(g => g.rows.flatMap(([keys]) => keys))
 
     for (const match of Object.values(KEYS)) {
       expect(listed).toContain(match.label)
