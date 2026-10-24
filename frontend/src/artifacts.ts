@@ -2,12 +2,13 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { Agent, fetch } from 'undici'
 
 import type { ToolCall } from './model.js'
 import { parseJson, record } from './wire/json.js'
@@ -66,12 +67,30 @@ export function modelSources(value: unknown): string[] {
 function publicAddress(address: string): boolean {
   if (isIP(address) === 6) {
     // Reject mapped IPv4, loopback, link-local, unique-local and multicast ranges.
-    return /^2[0-9a-f]{3}:/i.test(address)
+    return /^[23][0-9a-f]{3}:/i.test(address)
   }
   const [a = 0, b = 0] = address.split('.').map(Number)
   return a > 0 && a !== 10 && a !== 127 && a < 224 && !(a === 169 && b === 254) &&
     !(a === 172 && b >= 16 && b <= 31) && !(a === 192 && b === 168) && !(a === 100 && b >= 64 && b <= 127)
 }
+
+// Validate the address used by the socket as well, so DNS rebinding cannot bypass remoteURL.
+const network = new Agent({
+  connect: {
+    lookup: (hostname, options, callback) => {
+      void lookup(hostname, { all: true }).then(addresses => {
+        const first = addresses[0]
+        if (!first || addresses.some(a => !publicAddress(a.address))) {
+          callback(new Error('Model downloads require a public network address'), '', 4)
+        } else if (options.all) {
+          callback(null, addresses)
+        } else {
+          callback(null, first.address, first.family)
+        }
+      }, () => callback(new Error('Model host lookup failed'), '', 4))
+    }
+  }
+})
 
 /** Do not turn model links in untrusted tool output into access to local services. */
 async function remoteURL(source: string): Promise<URL> {
@@ -90,7 +109,7 @@ async function download(source: string, target: string): Promise<void> {
   let url = await remoteURL(source)
   const signal = AbortSignal.timeout(60_000)
   for (let redirects = 0; redirects <= 5; redirects++) {
-    const response = await fetch(url, { redirect: 'manual', signal })
+    const response = await fetch(url, { dispatcher: network, redirect: 'manual', signal })
     const location = response.headers.get('location')
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel()
@@ -98,22 +117,26 @@ async function download(source: string, target: string): Promise<void> {
       continue
     }
     if (!response.ok || !response.body) {
+      await response.body?.cancel()
       throw new Error(`Model download failed (HTTP ${response.status})`)
     }
     if (Number(response.headers.get('content-length')) > MAX_BYTES) {
       await response.body.cancel()
       throw new Error('Model exceeds the 128 MiB download limit')
     }
-    const chunks: Uint8Array[] = []
-    let bytes = 0
-    for await (const chunk of response.body) {
-      bytes += chunk.length
-      if (bytes > MAX_BYTES) {
-        throw new Error('Model exceeds the 128 MiB download limit')
+    const file = await open(target, 'w', 0o600)
+    try {
+      let bytes = 0
+      for await (const chunk of response.body) {
+        bytes += chunk.length
+        if (bytes > MAX_BYTES) {
+          throw new Error('Model exceeds the 128 MiB download limit')
+        }
+        await file.writeFile(chunk)
       }
-      chunks.push(chunk)
+    } finally {
+      await file.close()
     }
-    await writeFile(target, Buffer.concat(chunks), { mode: 0o600 })
     return
   }
   throw new Error('Too many model download redirects')

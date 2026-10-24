@@ -38,9 +38,9 @@ tern open --wait notes.md                   # returns when the user closes it
 ### Models from Hermes and Meshy
 
 `hermes tern` opens a native file block to the right when a completed tool result contains
-a `.glb`, `.gltf`, `.obj`, `.fbx`, or `.usdz` file or HTTP(S) URL. Drag the model to rotate it
-with Tern's native viewer. This does not spend generation credits. No browser server or CDN
-is required. Stored chat history does not reopen models.
+a `.glb`, `.gltf`, `.obj`, `.fbx`, or `.usdz` file or HTTP(S) URL. Drag the model or focus
+the viewer and use the arrow keys to rotate it. Press `0` to reset the view. This does not
+spend generation credits. No browser server or CDN is required. Stored history does not reopen models.
 
 Open a model yourself:
 
