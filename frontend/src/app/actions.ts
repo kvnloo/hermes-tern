@@ -512,9 +512,7 @@ export class AppActions {
 
   /** Has `call`'s image (a URL's) fetched; its card shows it once it lands. */
   showImage(call: ToolCall | undefined) {
-    if (call) {
-      this.#cx.media.show(call, () => this.imageLanded(call))
-    }
+    if (call) this.#cx.media.show(call, () => this.imageLanded(call))
   }
 
   /** Opens model outputs beside the live chat. */
