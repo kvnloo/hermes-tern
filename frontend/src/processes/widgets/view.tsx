@@ -8,14 +8,13 @@ import { type JSX, Node, node, type NodeJson, type SpanData, type Tone } from '@
 
 import { optional } from '../../core/assert.js'
 import type { BackgroundProcess } from '../../model.js'
+import { JOB_TILE_LIMIT, jobTile, jobTiles } from '../../view/ui/jobTiles.js'
 import { PROCESS_LOOK } from '../look.js'
 
 import type { ChartBlock, ChartView, SparkBlock, StatBlock, Trend } from './types.js'
 
 /** Points the pill's mini chart keeps from the primary spark. */
 const MINI_SPARK_POINTS = 16
-/** Tiles the hover card shows before it counts the rest. */
-const HOVERCARD_JOBS = 4
 /** Keys a tile's bars block lists before it counts the rest. */
 const TILE_BARS = 3
 const DEFAULT_TONE: Tone = 'accent'
@@ -155,7 +154,7 @@ export function hovercard(entries: readonly ChartEntry[]): NodeJson | undefined 
     return undefined
   }
 
-  const shown = entries.slice(0, HOVERCARD_JOBS)
+  const shown = entries.slice(0, JOB_TILE_LIMIT)
   const rest = entries.length - shown.length
 
   const card = (
@@ -170,11 +169,7 @@ export function hovercard(entries: readonly ChartEntry[]): NodeJson | undefined 
 
 /** Processes as one frame of tiles (role `omp.job.tiles`), as omp's `wait` card draws its jobs. */
 export function tilesNode(entries: readonly ChartEntry[], key = 'tiles'): JSX.Element {
-  return (
-    <row gap="none" key={key} role="omp.job.tiles" wrap>
-      {entries.map(e => tile(e))}
-    </row>
-  )
+  return jobTiles(entries.map(e => tile(e)), key)
 }
 
 /** A figure's leading number and the unit after it: `1.10k req/s`, `7/9 trials`, `68%`. */
@@ -207,23 +202,18 @@ export function tile({ process: p, view }: ChartEntry): JSX.Element {
   const visual = tileVisual(live?.blocks[0])
   const look = PROCESS_LOOK[p.state.status]
 
-  return (
-    <col gap="xs" key={p.id} role="omp.job.tile" tone={look.tone}>
-      <row align="center" gap="xs" key="head" role="omp.job.tile.head">
-        <text
-          key="dot"
-          role="omp.job.tile.dot"
-          spans={[{ ...optional('s', toneStyle(look.tone)), t: look.glyph, ...(p.state.status === 'running' ? { fx: 'pulse' } : {}) }]}
-          wrap="none"
-        />
-        <text grow={1} key="title" role="omp.job.tile.title" spans={[sp(title)]} truncate="end" wrap="none" />
-        <text key="id" role="omp.job.tile.id" spans={[sp(p.id, 'dim')]} wrap="none" />
-      </row>
-      {g ? <text key="figure" role="omp.job.tile.figure" spans={figureSpans(g)} truncate="end" wrap="none" /> : null}
-      {visual}
-      {tileNotes(p, view, live, !g && !visual)}
-    </col>
-  )
+  return jobTile({
+    children: [
+      g ? <text key="figure" role="omp.job.tile.figure" spans={figureSpans(g)} truncate="end" wrap="none" /> : null,
+      visual,
+      ...tileNotes(p, view, live, !g && !visual)
+    ],
+    dot: { ...optional('s', toneStyle(look.tone)), t: look.glyph, ...(p.state.status === 'running' ? { fx: 'pulse' } : {}) },
+    key: p.id,
+    title,
+    tone: look.tone,
+    trailing: <text key="id" role="omp.job.tile.id" spans={[sp(p.id, 'dim')]} wrap="none" />
+  })
 }
 
 function tileMeter(value: number, tone: Tone = DEFAULT_TONE, key = 'meter'): JSX.Element {

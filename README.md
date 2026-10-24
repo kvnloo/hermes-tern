@@ -81,10 +81,12 @@ A turn shows what the agent does while it works: its reasoning, short notes, and
     <td><img alt="The session sidebar docked at the pane's edge" src="docs/images/sidebar.png"></td>
   </tr>
   <tr>
-    <td><b>Subagents.</b> A delegated batch is one card, with one row per agent: its model and its tool count.</td>
+    <td><b>Subagents.</b> Active Task cards use the same tile frame as background processes. Each frame shows up to four agents, with an overflow action that opens <code>/agents</code>.</td>
     <td><b>Sidebar.</b> The branch, the session's pull requests and the changed files.</td>
   </tr>
 </table>
+
+Each active agent tile shows its current tool and its latest two assistant or tool-intent lines, limited to 160 characters per line. Click a tile to open the existing agent view beside the chat, or its timeline sheet when native splitting is unavailable. Hover the dock's agents pill to see the same frame. Pending placeholders without agent events stay as rows. When all agents finish, the Task card returns to result rows.
 
 ### Keys and commands
 
@@ -227,6 +229,12 @@ bun run bundle                                    # rebuilds dist/entry.js for l
 `lab/fake_model.py --home DIR` writes a disposable `HERMES_HOME` that points at a loopback model, and then serves that model. The prompt picks the flow: "approve", "clarify", "tool", "work…", "delegate…", "errands…", "jobchart…", "pr URL…" and more. The file's docstring lists them all. Any other prompt streams Markdown.
 
 Pair the fake model with a headless Tern (`tern serve --control PORT`, then `tern ctl --control PORT run|type|key|shot …`) to check the UI. The screenshots in this README come from that setup.
+
+For agent tiles, send `delegate tiles`. This mode starts six real Hermes delegates against the loopback model. Each delegate sends assistant progress notes and runs two harmless 45-second terminal calls. The normal `delegate` mode remains a shorter three-agent batch.
+
+Use an owned private headless Sway display for native lab runs. Set `WLR_BACKENDS=headless`, disable Xwayland, and use private runtime, D-Bus, Tern configuration and daemon sockets. Do not use the host display or an existing Hermes profile. Start the model, then run `HERMES_HOME=DIR hermes tern --new` in the lab Tern pane. `tern serve` is an ungated offscreen native renderer. Its `shot` command captures the live Hermes UI, but `grim` cannot capture that offscreen surface.
+
+The tile comparison uses actual `hermes tern` sessions with the loopback model and native `tern serve` screenshots, not a mock renderer: [before](docs/images/agent-wait-before.png), [after](docs/images/agent-wait-after.png), and the [OMP reference](docs/images/omp-agent-wait-reference.png). The same run captured the [dock hover](docs/images/agent-wait-dock.png), [six-agent overflow hub](docs/images/agent-wait-hub.png), [tile action's timeline fallback](docs/images/agent-wait-timeline.png), and [settled result rows](docs/images/agent-wait-settled.png). Native split creation was not demonstrated in this offscreen session.
 
 `lab/chartbench.ts` replays real background jobs (their recorded output and log files) through the chart registry and the auxiliary model, and reports which jobs chart.
 
