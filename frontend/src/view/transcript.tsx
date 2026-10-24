@@ -13,6 +13,7 @@ import { answerText, turnEndedAt } from '../transcript/turns.js'
 import { duration } from './format.js'
 import { slashBody } from './slash.js'
 import { age, compact } from './time.js'
+import type { LspLinkContext } from './tools/lsp-links.js'
 import { toolNode } from './tools/shell.js'
 import { foldSection, headedCard } from './ui/fold.js'
 import { shimmerText } from './ui/live.js'
@@ -24,6 +25,8 @@ import { parts, pieces } from './workLogModel.js'
 export interface TranscriptContext {
   now: number
   welcome: WelcomeContext
+  /** File-host evidence from the current frame, never a replayed tool result. */
+  lspContext?: LspLinkContext
   /** Copies a prompt's or an answer's text; `id` is its entry id. */
   copy(text: string, id: string): void
   /** The entry copied a moment ago, whose copy button shows a check. */
@@ -50,7 +53,9 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   // Entries are plain objects; the symbol slot rides on them (weak type: widen first).
   const holder: object = e
   const built: Built = holder
-  const rev = `${e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0}${cx.copied === e.id ? '+copied' : ''}`
+  // Authority is presentation state: a cached local href must not survive a host/cwd switch.
+  const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
+    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? ''])
   const cached = built[kNode]
 
   if (cached?.rev === rev) {
@@ -230,7 +235,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
 
   return ps.map((p, i) => {
     if (p.kind === 'work') {
-      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now)
+      return workNode(p.items, parent, live && i === ps.length - 1 && !latestFailed(p.items), cx.now, cx.lspContext)
     }
 
     const b = p.block
@@ -244,7 +249,7 @@ function pieceNodes(turn: TurnEntry, blocks: readonly Block[], parent: string, c
         )
 
       case 'tool':
-        return toolNode(b.call, cx.now)
+        return toolNode(b.call, cx.now, cx.lspContext)
 
       case 'steer':
         return steerNode(b, steerState(turn, turn.blocks.indexOf(b)))

@@ -107,6 +107,37 @@ const TODAY: Record<string, [string, Outcome][]> = {
     ['message.complete', 'render'],
     ['session.info', 'render']
   ],
+  'agent-wait-tiles': [
+    ['gateway.ready', 'render'],
+    ['message.start', 'render'],
+    ['tool.start', 'render'],
+    ['tool.complete', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['subagent.complete', 'render'],
+    ['message.complete', 'render']
+  ],
+  'agent-wait-solo': [
+    ['gateway.ready', 'render'],
+    ['message.start', 'render'],
+    ['tool.start', 'render'],
+    ['tool.complete', 'render'],
+    ['subagent.start', 'render'],
+    ['subagent.tool', 'render'],
+    ['subagent.complete', 'render'],
+    ['message.complete', 'render']
+  ],
   'approval-clarify': [
     ['gateway.ready', 'render'],
     ['message.start', 'render'],
@@ -260,6 +291,7 @@ describe('afterToolComplete', () => {
       processes: { poke: note('processes.poke') },
       prs: { onCall: note('prs.onCall'), relink: note('prs.relink') },
       showImage: note('media'),
+      showArtifacts: note('artifacts'),
       sidebar: { poke: note('sidebar.poke') },
       transcript: { call: () => CALL, calls: () => [CALL] }
     }
@@ -270,12 +302,12 @@ describe('afterToolComplete', () => {
   }
 
   it('tells the image, the agents, the PRs, the sidebar, the connect cards and the processes, in that order', () => {
-    expect(told('read_file')).toEqual(['media', 'agents.scan'])
-    expect(told('delegate_task')).toEqual(['media', 'agents.scan', 'prs.relink'])
-    expect(told('link_pull_request')).toEqual(['media', 'agents.scan', 'prs.onCall'])
-    expect(told('patch')).toEqual(['media', 'agents.scan', 'sidebar.poke'])
-    expect(told('manage_connections')).toEqual(['media', 'agents.scan', 'connect.watch'])
-    expect(told('terminal')).toEqual(['media', 'agents.scan', 'sidebar.poke', 'processes.poke'])
+    expect(told('read_file')).toEqual(['media', 'artifacts', 'agents.scan'])
+    expect(told('delegate_task')).toEqual(['media', 'artifacts', 'agents.scan', 'prs.relink'])
+    expect(told('link_pull_request')).toEqual(['media', 'artifacts', 'agents.scan', 'prs.onCall'])
+    expect(told('patch')).toEqual(['media', 'artifacts', 'agents.scan', 'sidebar.poke'])
+    expect(told('manage_connections')).toEqual(['media', 'artifacts', 'agents.scan', 'connect.watch'])
+    expect(told('terminal')).toEqual(['media', 'artifacts', 'agents.scan', 'sidebar.poke', 'processes.poke'])
   })
 })
 

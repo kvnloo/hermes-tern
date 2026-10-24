@@ -4,9 +4,11 @@
 // gateway's `slash.exec`.
 
 import type { ChatPorts } from '../app/ports.js'
+import { openArtifact } from '../artifacts.js'
 import { copyToClipboard } from '../clipboard.js'
 import { storedSessionId } from '../core/ids.js'
 import type { Entry } from '../model.js'
+import { forkSession } from '../fork-session.js'
 import { type AgentsSheetHost, openAgents } from '../overlays/agents.js'
 import { type BackgroundHost, openBackground } from '../overlays/background.js'
 import { type ChangesHost, openChanges } from '../overlays/changes.js'
@@ -16,6 +18,7 @@ import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
+import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
@@ -40,6 +43,7 @@ export type CommandHost = Pick<
   | 'openHelp'
   | 'quit'
   | 'resume'
+  | 'session'
   | 'setEffort'
   | 'setTheme'
   | 'theme'
@@ -55,7 +59,8 @@ export type CommandHost = Pick<
   PullRequestsSheetHost &
   RefusedHost &
   SessionsHost &
-  ThemeHost
+  ThemeHost &
+  VisualPickerHost
 
 /** A client-side slash command. */
 export interface LocalCommand {
@@ -78,6 +83,22 @@ const COMMANDS: readonly LocalCommand[] = [
     help: 'Edit the current draft in Tern or $VISUAL/$EDITOR',
     name: 'editor',
     run: (host, arg) => arg.trim() ? host.transcript.notice('Usage: /editor', 'warning') : host.editExternal()
+  },
+  {
+    help: 'Open a rotatable model beside the chat: /view3d PATH|URL',
+    name: 'view3d',
+    run: async (host, arg) => {
+      const source = arg.trim().replace(/^(["'])(.*)\1$/, '$2')
+      if (!source) {
+        host.transcript.notice('Usage: /view3d PATH|URL (.glb, .gltf, .obj, .fbx, .usdz)', 'warning')
+        return
+      }
+      try {
+        await openArtifact(source, host.session.info?.cwd)
+      } catch {
+        host.transcript.notice('Could not open the 3D model. Check the path, format, or public download URL.', 'warning')
+      }
+    }
   },
   {
     // `/q` is Hermes' /queue.
@@ -216,6 +237,11 @@ const COMMANDS: readonly LocalCommand[] = [
     }
   },
   {
+    help: 'Inspect a prepared OpenUI preview [/absolute/path/to/file.hvisual.json]',
+    name: 'visual',
+    run: (host, arg) => openVisualPicker(host, arg.trim())
+  },
+  {
     // The Ink TUI's `/paste`: the clipboard's image on the next prompt.
     name: 'paste',
     run: (host, arg) => (arg ? host.transcript.notice('Usage: /paste', 'warning') : void host.attachClipboardImage(false))
@@ -224,6 +250,11 @@ const COMMANDS: readonly LocalCommand[] = [
     // Hermes' `/image <path>`: that file on the next prompt.
     name: 'image',
     run: (host, arg) => (arg.trim() ? host.attachImagePath(arg) : host.transcript.notice('Usage: /image <path>', 'warning'))
+  },
+  {
+    name: 'fork',
+    help: 'Fork the conversation into another Tern pane [/fork [durable-message-id]]',
+    run: (host, arg) => forkSession(host, arg)
   },
   {
     aliases: ['side'],
