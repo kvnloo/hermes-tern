@@ -18,6 +18,7 @@ import { isWatchCall } from '../../../transcript/calls.js'
 import { record } from '../../../wire/json.js'
 import { commandLine } from '../../describe.js'
 import { nonEmpty } from '../../format.js'
+import type { LspLinkContext } from '../lsp-links.js'
 import { namedStep } from '../steps.js'
 import type { CallView, Card, ToolView } from '../types.js'
 
@@ -38,7 +39,7 @@ const own = (call: ToolCall): Look => ({ name: call.name, title: humanize(call.n
  * name. Its card reads only the generic fields, so it serves every tool whose detail has them.
  */
 const plain = (look: (call: ToolCall) => Look, action: ToolView<'other'>['action'] = 'other') =>
-  ({ action, card: (call: ToolCall, d: GenericFields, _now: number, media?: MediaDelivery) => genericCard(call, d, look(call), media), step: namedStep }) satisfies ToolView<'other'>
+  ({ action, card: (call: ToolCall, d: GenericFields, _now: number, _context?: LspLinkContext, media?: MediaDelivery) => genericCard(call, d, look(call), media), step: namedStep }) satisfies ToolView<'other'>
 
 /** Any tool no view takes, by its own name. */
 export const otherView: ToolView<'other'> = plain(own)
@@ -52,7 +53,7 @@ export const visionView: ToolView<'vision_analyze'> = plain(() => ({ name: 'imag
 /** image_generate: the picture asked for, even before it lands. */
 export const imageGenerateView: ToolView<'image_generate'> = {
   action: 'other',
-  card: (call, d, _now, media) => imageCard(call, d, { name: 'image', title: 'Image' }, shownImage(call), media),
+  card: (call, d, _now, _context, media) => imageCard(call, d, { name: 'image', title: 'Image' }, shownImage(call), media),
   step: namedStep
 }
 
