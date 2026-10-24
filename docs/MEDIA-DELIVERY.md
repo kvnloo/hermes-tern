@@ -138,6 +138,11 @@ and do not prove this correction. The known baseline GitHub Python
 CI failure lacks the required `hermes_cli` setup; use
 the pinned actual core checkout for these commands:
 
+Frontend attachment regressions live in `mediaAttachments.test.ts`;
+cross-host delivery remains in `media-delivery.test.ts`. Both reuse
+`mediaDeliveryFixtures.ts`, keeping each suite below the unchanged
+600-line ceiling without removing assertions.
+
 ```sh
 # From kvnloo/hermes-tern, on the NEW exact PR #24 head
 export HERMES_PYTHON_SRC_ROOT=/absolute/path/to/hermes-agent-at-0ac4e9df
@@ -147,7 +152,7 @@ PYTHONPATH="$PWD:$HERMES_PYTHON_SRC_ROOT" python -m pytest -q tests
 cd frontend
 node scripts/hermes-src.mjs
 bun install --frozen-lockfile --prefer-offline
-bun run test -- src/__tests__/media-delivery.test.ts src/__tests__/images.test.ts src/__tests__/read-media.test.ts
+bun run test -- src/__tests__/media-delivery.test.ts src/__tests__/mediaAttachments.test.ts src/__tests__/images.test.ts src/__tests__/read-media.test.ts
 bun run check
 bun run bundle
 ```
