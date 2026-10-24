@@ -296,6 +296,7 @@ def _stage_proof(owner: _Owner, path: Path, data: bytes, source: os.stat_result)
         "path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
         "size": len(data), "mime": _mime(data)[0],
         "dev": source.st_dev, "ino": source.st_ino,
+        "mtime_ns": source.st_mtime_ns,
     }
     content = json.dumps(proof, sort_keys=True, separators=(",", ":")).encode("utf8")
     fd, chain = _open_staging_root(path.parent)
@@ -371,6 +372,7 @@ def _stage_attested(owner: _Owner, committed: Path, data: bytes, mime: str) -> b
             "version": 2, "profile": owner.profile, "stored_id": owner.stored_id,
             "path": str(original), "sha256": digest, "size": len(data),
             "mime": mime, "dev": proof["dev"], "ino": proof["ino"],
+            "mtime_ns": proof.get("mtime_ns"),
         }
         if proof != expected:
             continue
@@ -383,7 +385,8 @@ def _stage_attested(owner: _Owner, committed: Path, data: bytes, mime: str) -> b
         except (OSError, ValueError, GatewayMethodFailure):
             return False
         return (staged == data and source.st_dev == proof["dev"]
-                and source.st_ino == proof["ino"])
+                and source.st_ino == proof["ino"]
+                and source.st_mtime_ns == proof["mtime_ns"])
     return False
 
 def _persisted(owner: _Owner, path: str, data: bytes) -> bool:
