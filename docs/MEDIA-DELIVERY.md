@@ -1,7 +1,8 @@
 # Media delivery: exact canonical attachment resume
 
-This is a fork-only correction to Draft PR #24, stacked on
-`port/media-delivery`. The original alt-glitch Hermes × Tern
+PR #24's earlier fork-only media correction was merged into `main` on
+2026-10-24. This follow-up hardens its tool-preview refusal without changing
+the original `port/media-delivery` ancestry. The original alt-glitch Hermes × Tern
 integration and Can Bölük / Stencil's `@stencil-hq/tern` SDK
 remain the implementation base. No core patch, second admission, image queue,
 runtime pin, upstream write or global registration change is made here.
@@ -101,7 +102,11 @@ is refused rather than granted from a typed hint or inferred lineage.
 
 The plugin does not inspect private session tables, runtime actors,
 transports or tool-call host identities. It never uses a client-supplied
-`tool_call_id` as provenance. An unknown tool compute host,
+`tool_call_id` as provenance. The frontend also refuses gateway tool-image
+Load actions with an unverified ID before requesting capabilities or bytes:
+core has no public completed-tool proof, so even a mock success cannot
+create a falsely supported tool preview. Authenticated user attachments
+retain their explicit Load → registered RPC → `Session.blob` route. An unknown tool compute host,
 PDF, GLB or other binary read is still unsupported; the original
 binary refusals and PDF text extraction remain unchanged.
 

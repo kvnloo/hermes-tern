@@ -142,6 +142,13 @@ export class MediaDelivery {
     const host = this.context()
     const cached = this.#cache.get(this.#key(source))
 
+    // Hermes has no public completed-tool/compute-host proof for this RPC.
+    // Client-supplied tool IDs cannot mint authority, including when a
+    // completed tool card or a mock gateway appears to return valid bytes.
+    if (source.host === 'gateway' && source.toolCallId !== undefined) {
+      return { label: 'Tool image preview unavailable: no authenticated completed-tool evidence.', status: 'unsupported' }
+    }
+
     // The legacy WS also reports "attached", but has no public durable-key or
     // successful canonical media receipt. Never paint Load/Retry for it.
     if (source.host === 'gateway' && source.scope === 'attachment' &&
