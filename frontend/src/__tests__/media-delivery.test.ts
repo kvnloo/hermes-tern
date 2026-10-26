@@ -25,9 +25,12 @@ import { call } from './toolFixtures.js'
 
 const home = mkdtempSync(join(tmpdir(), 'hermes-tern-media-'))
 const image = (id = '1', host: MediaPath['host'] = 'gateway'): MediaPath => ({
+  host, id, kind: 'path', mime: 'image/png', path: '/gateway/' + id + '.png',
+  ...(host === 'gateway' ? { scope: 'attachment' as const } : {})
+})
+const toolImage = (id = '1', host: MediaPath['host'] = 'gateway'): MediaPath => ({
   host, id, kind: 'path', mime: 'image/png', path: '/gateway/' + id + '.png', toolCallId: id
 })
-
 
 const nodes = (value: ReturnType<typeof tree>): ReturnType<typeof tree>[] =>
   [value, ...(value.c ?? []).flatMap(nodes)]
@@ -98,8 +101,8 @@ describe('cross-host previews', () => {
         expect(nodes(prompt).some(n => n.p?.['role'] === 'hermes.user.attachment')).toBe(true)
         expect(attachmentImagePath('/gateway/same.png', delivery)).toBeUndefined()
       }
-      expect(delivery.preview(image('same', attached ? 'gateway' : 'frontend')).status).toBe('unsupported')
-      await delivery.load(image('same', attached ? 'gateway' : 'frontend'))
+      expect(delivery.preview(toolImage('same', attached ? 'gateway' : 'frontend')).status).toBe('unsupported')
+      await delivery.load(toolImage('same', attached ? 'gateway' : 'frontend'))
       expect(gw.sent('hermes-tern.media.image')).toEqual([])
       expect(blob).not.toHaveBeenCalled()
     }
@@ -124,7 +127,7 @@ describe('cross-host previews', () => {
     }
   })
 
-  it('rebuilds actual read cards across unknown -> local -> gateway -> compute without blob resurrection', async () => {
+  it('rebuilds read cards across unknown -> local -> gateway -> compute without fabricating tool authority', async () => {
     const { delivery, backend, blob, gw } = setup({ attached: false, backend: undefined, native: true })
     const tool = call('read_file', { path: 'same.png' })
     const render = () => tree(toolNode(tool, 0, undefined, undefined, delivery))
@@ -136,39 +139,34 @@ describe('cross-host previews', () => {
     expect(hasPath()).toBe(true)
     const localToken = delivery.token()
     expect(localToken).not.toBe(unknownToken)
-
     backend(null)
     expect(hasPath()).toBe(false)
     backend('local')
     expect(hasPath()).toBe(true)
-    expect(delivery.token()).not.toBe(localToken) // A -> B -> A cannot reuse its previous revision.
+    expect(delivery.token()).not.toBe(localToken)
 
     gw.attached = true
     expect(hasPath()).toBe(false)
-    const gatewayTree = render()
-    expect(JSON.stringify(gatewayTree)).toContain('Load image preview')
+    expect(JSON.stringify(render())).toContain('no authenticated completed-tool evidence')
     const plan = projectToolMedia(tool, delivery.context())
     if (plan?.kind !== 'remote-image') {
-      throw new Error('expected a gateway-owned completed read')
+      throw new Error('expected a claimed gateway read path')
     }
     await delivery.load(plan.source)
-    expect(delivery.preview(plan.source).status).toBe('ready')
-    expect(nodes(render()).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+    expect(delivery.preview(plan.source).status).toBe('unsupported')
+    expect(nodes(render()).some(n => n.k === 'image' && n.p?.['blob'])).toBe(false)
 
     backend(undefined)
     expect(JSON.stringify(render())).toContain('terminal backend identity is unknown')
-    expect(delivery.preview(plan.source).status).toBe('unsupported')
     backend('local')
-    expect(JSON.stringify(render())).toContain('Load image preview')
-    expect(delivery.preview(plan.source).status).toBe('available')
-    expect(nodes(render()).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(false)
-
+    expect(JSON.stringify(render())).toContain('no authenticated completed-tool evidence')
     backend('docker')
     expect(delivery.context()).toMatchObject({ local: false, remoteHost: 'compute' })
     expect(nodes(render()).some(n => n.k === 'media' || (n.k === 'image' && n.p?.['blob']))).toBe(false)
     expect(delivery.preview(plan.source).status).toBe('unsupported')
-    expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
-    expect(blob).toHaveBeenCalledOnce()
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([])
+    expect(blob).not.toHaveBeenCalled()
   })
 
   it('drops a pending gateway upload when backend authority disappears and later returns', async () => {
@@ -190,29 +188,24 @@ describe('cross-host previews', () => {
     expect(delivery.preview(source).status).toBe('available')
   })
 
-  it('uses explicit gateway hermes-tern.media.image only for a completed owning read and sends SDK blob bytes', async () => {
+  it('refuses a completed read_file path despite a mock RPC that would return bytes', async () => {
     const { blob, delivery, gw } = setup()
     const tool = call('read_file', { path: '/gateway/photo.png' }, { result: { mime: 'image/png' } })
-
-    expect(delivery.context()).toMatchObject({ local: false, remoteHost: 'gateway' })
-    expect(JSON.stringify(tree(toolNode(tool, 0, undefined, undefined, delivery)))).toContain('Load image preview')
-    expect(gw.sent('hermes-tern.media.image')).toHaveLength(0)
-
     const plan = projectToolMedia(tool, delivery.context())
     expect(plan?.kind).toBe('remote-image')
-
-    if (plan?.kind === 'remote-image') {
-      await delivery.load(plan.source)
-      expect(gw.sent('hermes-tern.media.image')).toEqual([{
-        session_id: 'session-1', path: '/gateway/photo.png', mime: 'image/png', tool_call_id: String(tool.id)
-      }])
-      expect(delivery.preview(plan.source)).toEqual({ status: 'ready', blob: 'tern-blob' })
-      expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
-      await delivery.load(plan.source)
-      expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
-      expect(blob).toHaveBeenCalledOnce()
-      expect(blob).toHaveBeenCalledWith(png, 'image/png')
+    expect(JSON.stringify(tree(toolNode(tool, 0, undefined, undefined, delivery)))).toContain(
+      'no authenticated completed-tool evidence'
+    )
+    if (plan?.kind !== 'remote-image') {
+      throw new Error('expected a claimed tool image path')
     }
+    expect(delivery.preview(plan.source).status).toBe('unsupported')
+    await delivery.load(plan.source)
+    // Spoofing an attachment scope must not turn a tool ID into a user upload.
+    await delivery.load({ ...plan.source, scope: 'attachment' })
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([])
+    expect(blob).not.toHaveBeenCalled()
   })
 
   it('keeps resumed attachment identity and requests the session-owned reference, not a guessed tool id', async () => {
@@ -240,22 +233,18 @@ describe('cross-host previews', () => {
     expect(nodes(tree(entryNode(entry, 'main.u1', view()))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
   })
 
-  it('routes browser screenshots through a completed tool call, never a local image path', async () => {
-    const { delivery, gw } = setup()
+  it('refuses browser screenshot tool_call_id without an authenticated tool receipt', async () => {
+    const { delivery, gw, blob } = setup()
     const tool = call('browser_vision', {}, { result: { success: true, screenshot_path: '/gateway/screenshot.png' } })
-    const before = tree(toolNode(tool, 0, undefined, undefined, delivery))
+    const shown = tree(toolNode(tool, 0, undefined, undefined, delivery))
+    expect(JSON.stringify(shown)).toContain('no authenticated completed-tool evidence')
+    expect(nodes(shown).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
 
-    expect(JSON.stringify(before)).toContain('Load image preview')
-    expect(nodes(before).some(n => n.k === 'image' && n.p?.['path'])).toBe(false)
-
-    await delivery.load({
-      host: 'gateway', id: String(tool.id), kind: 'path', path: '/gateway/screenshot.png', toolCallId: String(tool.id)
-    })
-
-    expect(gw.sent('hermes-tern.media.image')).toEqual([{
-      session_id: 'session-1', path: '/gateway/screenshot.png', tool_call_id: String(tool.id)
-    }])
-    expect(nodes(tree(toolNode(tool, 0, undefined, undefined, delivery))).some(n => n.k === 'image' && n.p?.['blob'] === 'tern-blob')).toBe(true)
+    const claimed = toolImage(String(tool.id))
+    await delivery.load({ ...claimed, path: '/gateway/screenshot.png' })
+    expect(gw.sent('gateway.capabilities')).toEqual([])
+    expect(gw.sent('hermes-tern.media.image')).toEqual([])
+    expect(blob).not.toHaveBeenCalled()
   })
 
   it('keeps remote image_generation paths inert without backend tool authorization', () => {
@@ -417,7 +406,7 @@ describe('cross-host previews', () => {
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
   })
 
-  it('invalidates host-locality metadata when backend changes without reusing a remote blob', async () => {
+  it('invalidates a gateway attachment blob when the compute backend changes', async () => {
     const { delivery, backend } = setup()
     await delivery.load(image())
     expect(delivery.preview(image()).status).toBe('ready')
@@ -425,7 +414,9 @@ describe('cross-host previews', () => {
     backend('docker')
     expect(delivery.context().remoteHost).toBe('compute')
     expect(delivery.token()).not.toBe(token)
-    expect(delivery.preview(image()).status).toBe('unsupported')
+    // The staged gateway attachment is still eligible on compute-host changes,
+    // but requires a fresh proof RPC instead of reusing the old SDK blob.
+    expect(delivery.preview(image()).status).toBe('available')
   })
 })
 
