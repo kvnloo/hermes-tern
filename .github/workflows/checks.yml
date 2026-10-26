@@ -1,6 +1,5 @@
-# The checks main's ruleset requires (`python`, `frontend`), and the frontend's other gates in jobs
-# of their own so a failure names what broke. The frontend jobs build against the hermes-agent
-# commit in frontend/hermes-src.lock: the bundle inlines ui-tui and apps/shared from it.
+# Main's required checks are python and frontend. CI runs on the exact PR head,
+# with read-only repository permissions and fail-closed pin/install/test attestations.
 name: checks
 
 on:
@@ -20,71 +19,165 @@ jobs:
     name: python
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      EXPECTED_PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CI_RECEIPT: ${{ runner.temp }}/ci-python-pin.json
+      # Existing qualified test-only plugin seam. NOT the frontend runtime pin.
+      HERMES_TEST_CORE_SHA: 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.EXPECTED_PLUGIN_SHA }}
           persist-credentials: false
+      - name: Validate declared runtime pin
+        run: python tests/test_ci_pin_contract.py pin --lock frontend/hermes-src.lock
+      - name: Initialize Python checkout and command receipt
+        run: |
+          python tests/test_ci_pin_contract.py init \
+            --receipt "$CI_RECEIPT" --plugin "$EXPECTED_PLUGIN_SHA" \
+            --hermes "$HERMES_TEST_CORE_SHA" --kind test-only-core \
+            --command 'uv sync --project .hermes-agent --frozen --python 3.14' \
+            --command 'uv run --project .hermes-agent --frozen --no-sync --with pytest --with pytest-asyncio python -m pytest -q --junitxml=$RUNNER_TEMP/ci-python.xml'
       # Python RPC dispatch tests require the separately reviewed public plugin seam.
-      # This test-only core pin does not change frontend/hermes-src.lock or runtime installs.
+      # The plugin's runtime pin remains frontend/hermes-src.lock, untouched.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kvnloo/hermes-agent
-          ref: 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5
+          ref: ${{ env.HERMES_TEST_CORE_SHA }}
           path: .hermes-agent
           persist-credentials: false
+      - name: Verify exact test-core checkout
+        run: python tests/test_ci_pin_contract.py checkout --receipt "$CI_RECEIPT" --repo .hermes-agent
+      - name: Offline fail-closed contract controls
+        run: python -m unittest discover -s tests -p test_ci_pin_contract.py -v
+      - name: Record executed contract controls
+        run: python tests/test_ci_pin_contract.py stage --receipt "$CI_RECEIPT" --what controls
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      # The plugin runs inside Hermes' own environment, so its tests import Hermes core
-      # (hermes_cli, pydantic, httpx, ruamel). Test against the qualified core lock rather
-      # than adding dependencies to the plugin; Hermes' lock covers Python 3.14 only.
-      - run: uv sync --project .hermes-agent --frozen --python 3.14
-      - run: uv run --project .hermes-agent --frozen --no-sync --with pytest --with pytest-asyncio python -m pytest -q
+      # Hermes' lock covers Python 3.14. Do not install a second plugin environment.
+      - name: Install locked Hermes test-core dependencies
+        run: uv sync --project .hermes-agent --frozen --python 3.14
+      - name: Verify dependency installation before pytest
+        run: |
+          python tests/test_ci_pin_contract.py installed --receipt "$CI_RECEIPT" \
+            --repo .hermes-agent \
+            --marker .hermes-agent/uv.lock \
+            --marker .hermes-agent/.venv/pyvenv.cfg
+      - name: Plugin Python suite (JUnit must contain passing tests)
+        run: uv run --project .hermes-agent --frozen --no-sync --with pytest --with pytest-asyncio python -m pytest -q --junitxml="$RUNNER_TEMP/ci-python.xml"
+      - name: Validate actual Python results
+        run: |
+          python tests/test_ci_pin_contract.py result --receipt "$CI_RECEIPT" \
+            --repo .hermes-agent --junit "$RUNNER_TEMP/ci-python.xml"
+      - name: Publish Python pin/test receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-python-pin-receipt
+          path: |
+            ${{ runner.temp }}/ci-python-pin.json
+            ${{ runner.temp }}/ci-python.xml
+          if-no-files-found: warn
+          retention-days: 7
 
   frontend:
     name: frontend
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      EXPECTED_PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CI_RECEIPT: ${{ runner.temp }}/ci-frontend-pin.json
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.EXPECTED_PLUGIN_SHA }}
           persist-credentials: false
       - id: lock
-        # The lock comes from the PR: accept only a full commit SHA as checkout's ref.
+        # Exact runtime commit read from the current PR, never a moving branch.
         run: |
-          sha=$(tr -d '[:space:]' < hermes-src.lock)
-          [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error file=frontend/hermes-src.lock::not a commit SHA"; exit 1; }
+          sha=$(python ../tests/test_ci_pin_contract.py pin --lock hermes-src.lock)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Initialize frontend checkout and command receipt
+        working-directory: ${{ github.workspace }}
+        run: |
+          python tests/test_ci_pin_contract.py init \
+            --receipt "$CI_RECEIPT" --plugin "$EXPECTED_PLUGIN_SHA" \
+            --hermes "${{ steps.lock.outputs.sha }}" --kind runtime-pin \
+            --command 'npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund' \
+            --command 'node scripts/hermes-src.mjs && bun install --frozen-lockfile' \
+            --command 'uv sync --project .hermes-agent --frozen --python 3.14' \
+            --command 'bun run typecheck' \
+            --command 'bun run test --reporter=junit --outputFile=$RUNNER_TEMP/ci-frontend.xml' \
+            --command 'bun run bundle'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: NousResearch/hermes-agent
           ref: ${{ steps.lock.outputs.sha }}
           path: .hermes-agent
           persist-credentials: false
-      # ui-tui's own packages, from Hermes' lockfile: the bundle inlines some of them (undici).
+      - name: Verify actual pinned runtime checkout
+        working-directory: ${{ github.workspace }}
+        run: |
+          python tests/test_ci_pin_contract.py checkout --receipt "$CI_RECEIPT" \
+            --repo .hermes-agent --pin-file frontend/hermes-src.lock
+      # ui-tui packages are installed from the checked-out Hermes npm lock.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22' # donor OpenUI parser requires >=22 <23
+          node-version: '22'
       - run: npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund
         working-directory: .hermes-agent
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # Includes the self-contained OpenUI parser workspace; no nested npm ci.
+      # Includes the self-contained OpenUI workspace, with Bun frozen lock.
       - run: node scripts/hermes-src.mjs && bun install --frozen-lockfile
         env:
           HERMES_SRC: ${{ github.workspace }}/.hermes-agent
           OPENUI_TELEMETRY_DISABLED: '1'
           DO_NOT_TRACK: '1'
-      # Test fixtures run Hermes core in a python3 subprocess (config.get/set profile contracts).
+      # Existing Python fixtures import Hermes core from its frozen 3.14 environment.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: |
           uv sync --project .hermes-agent --frozen --python 3.14
           echo "$GITHUB_WORKSPACE/.hermes-agent/.venv/bin" >> "$GITHUB_PATH"
         working-directory: ${{ github.workspace }}
+      - name: Verify linked source and all installed lock inputs
+        working-directory: ${{ github.workspace }}
+        run: |
+          python tests/test_ci_pin_contract.py installed --receipt "$CI_RECEIPT" \
+            --repo frontend/.hermes-src \
+            --marker .hermes-agent/uv.lock \
+            --marker .hermes-agent/.venv/pyvenv.cfg \
+            --marker .hermes-agent/package-lock.json \
+            --marker .hermes-agent/node_modules \
+            --marker frontend/bun.lock \
+            --marker frontend/node_modules
       - name: typecheck
         run: bun run typecheck
       - name: tests (unit, app, packaged OpenUI and golden replays)
-        run: bun run test
+        run: bun run test --reporter=junit --outputFile="$RUNNER_TEMP/ci-frontend.xml"
+      - name: Validate actual frontend results
+        working-directory: ${{ github.workspace }}
+        run: |
+          python tests/test_ci_pin_contract.py result --receipt "$CI_RECEIPT" \
+            --repo frontend/.hermes-src --junit "$RUNNER_TEMP/ci-frontend.xml"
+      - name: Bundle gate (build without committing generated dist)
+        run: bun run bundle
+        env:
+          HERMES_SRC: ${{ github.workspace }}/.hermes-agent
+      - name: Record bundle gate
+        working-directory: ${{ github.workspace }}
+        run: python tests/test_ci_pin_contract.py stage --receipt "$CI_RECEIPT" --what bundle
+      - name: Publish runtime pin/test/bundle receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-frontend-pin-receipt
+          path: |
+            ${{ runner.temp }}/ci-frontend-pin.json
+            ${{ runner.temp }}/ci-frontend.xml
+          if-no-files-found: warn
+          retention-days: 7
 
   lint:
     name: lint and ratchets
@@ -96,12 +189,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - id: lock
-        # The lock comes from the PR: accept only a full commit SHA as checkout's ref.
         run: |
-          sha=$(tr -d '[:space:]' < hermes-src.lock)
-          [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error file=frontend/hermes-src.lock::not a commit SHA"; exit 1; }
+          sha=$(python ../tests/test_ci_pin_contract.py pin --lock hermes-src.lock)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,14 +201,15 @@ jobs:
           ref: ${{ steps.lock.outputs.sha }}
           path: .hermes-agent
           persist-credentials: false
-      # ui-tui's own packages, from Hermes' lockfile: the bundle inlines some of them (undici).
+      - name: Verify actual lint dependency checkout
+        working-directory: ${{ github.workspace }}
+        run: python tests/test_ci_pin_contract.py require --repo .hermes-agent --sha "${{ steps.lock.outputs.sha }}"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22' # donor OpenUI parser requires >=22 <23
+          node-version: '22'
       - run: npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund
         working-directory: .hermes-agent
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # Includes the self-contained OpenUI parser workspace; no nested npm ci.
       - run: node scripts/hermes-src.mjs && bun install --frozen-lockfile
         env:
           HERMES_SRC: ${{ github.workspace }}/.hermes-agent
@@ -133,13 +226,14 @@ jobs:
 
   bundle:
     name: bundle is built on main
-    # Pull requests carry source only; the `bundle` workflow builds dist/entry.js on main.
+    # PRs carry source only; the separate bundle workflow commits dist on main.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: the pull request leaves dist/entry.js alone
