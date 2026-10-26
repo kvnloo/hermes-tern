@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 10
     env:
       EXPECTED_PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      CI_RECEIPT: ${{ runner.temp }}/ci-python-pin.json
+      CI_RECEIPT: ${{ github.workspace }}/ci-python-pin.json
       # Existing qualified test-only plugin seam. NOT the frontend runtime pin.
       HERMES_TEST_CORE_SHA: 0ac4e9df39eecf3ce69a3ea3c80a6dc70dd7dcd5
     steps:
@@ -74,7 +74,7 @@ jobs:
         with:
           name: ci-python-pin-receipt
           path: |
-            ${{ runner.temp }}/ci-python-pin.json
+            ${{ github.workspace }}/ci-python-pin.json
             ${{ runner.temp }}/ci-python.xml
           if-no-files-found: warn
           retention-days: 7
@@ -85,7 +85,7 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      CI_RECEIPT: ${{ runner.temp }}/ci-frontend-pin.json
+      CI_RECEIPT: ${{ github.workspace }}/ci-frontend-pin.json
     defaults:
       run:
         working-directory: frontend
@@ -174,7 +174,7 @@ jobs:
         with:
           name: ci-frontend-pin-receipt
           path: |
-            ${{ runner.temp }}/ci-frontend-pin.json
+            ${{ github.workspace }}/ci-frontend-pin.json
             ${{ runner.temp }}/ci-frontend.xml
           if-no-files-found: warn
           retention-days: 7
