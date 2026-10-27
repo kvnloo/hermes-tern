@@ -106,6 +106,7 @@ describe('post-merge App smoke', () => {
       'hermes-tern.media.image': response
     } })
     const tern = fakeTern({ draws: true, features: ['blobs'] })
+    Object.assign(tern.session.caps, { reduceMotion: true })
     const app = new App(tern.session, gw.client, '', { launch: readLaunchEnv({ HOME: home }, home) })
     const done = app.run()
     gw.event({ type: 'gateway.ready', payload: {} })
@@ -151,8 +152,7 @@ describe('post-merge App smoke', () => {
       mime: 'image/png', toolCallId: 'image-1'
     })
     expect(gw.sent('hermes-tern.media.image')).toHaveLength(1)
-    expect(blob).toHaveBeenCalledOnce()
-    expect(blob).toHaveBeenCalledWith(png, 'image/png')
+    expect(blob.mock.calls.filter(([, mime]) => mime === 'image/png')).toEqual([[png, 'image/png']])
 
     // A query-bearing file URL reaches the live artifact fanout; .glb.html never qualifies.
     const modelUrl = pathToFileURL(modelPath)
