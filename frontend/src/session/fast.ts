@@ -39,7 +39,7 @@ const FAST_WORDS: Record<string, string> = { '': 'toggle', fast: 'fast', normal:
 export function fastValue(arg: string): string | null {
   const word = arg.trim().toLowerCase()
 
-  return FAST_WORDS[word] ?? null
+  return Object.hasOwn(FAST_WORDS, word) ? FAST_WORDS[word] ?? null : null
 }
 
 const describe = (word: FastWord) =>
