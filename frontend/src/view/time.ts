@@ -29,7 +29,7 @@ export function compact(n: number): string {
     return String(n)
   }
 
-  if (n < 1_000_000) {
+  if (n < 1_000_000 && Math.round(n / 1000) < 1000) {
     const k = n / 1000
 
     return `${k < 10 ? k.toFixed(1).replace(/\.0$/, '') : Math.round(k)}K`
