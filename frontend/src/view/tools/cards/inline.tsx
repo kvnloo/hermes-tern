@@ -3,6 +3,7 @@
 import { clip, plural } from '../../../core/text.js'
 import type { Todo, ToolCall } from '../../../model.js'
 import type { MemoryDetail, SkillDetail, SkillsDetail } from '../../../tools/misc.js'
+import { unchangedSkillFile } from '../../../tools/skill-stub.js'
 import { checklistNode } from '../../todos.js'
 import { namedStep } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -24,7 +25,9 @@ export const skillsView: ToolView<'skills_list'> = { action: 'other', card: skil
 export const skillView: ToolView<'skill_view'> = {
   action: 'other',
   card: skillCard,
-  step: (_call, d) => (d.name ? `Read skill ${d.name}` : 'Read a skill')
+  step: (call, d) => unchangedSkillFile(call)
+    ? (d.name ? `Skill view unchanged: ${d.name}` : 'Skill view unchanged')
+    : (d.name ? `Read skill ${d.name}` : 'Read a skill')
 }
 
 /** The todo tool: the list as a checklist, its done count in the head. */
@@ -69,6 +72,34 @@ function skillsCard(_call: ToolCall, d: SkillsDetail): Card {
 
 /** skill_view: the skill's text, folded. */
 function skillCard(call: ToolCall, d: SkillDetail): Card {
+  const file = unchangedSkillFile(call)
+  if (file) {
+    let end = Math.min(file.length, 256)
+    if (end < file.length && end > 0 && /[\uD800-\uDBFF]/.test(file[end - 1] ?? '') && /[\uDC00-\uDFFF]/.test(file[end] ?? '')) end--
+    const prefix = file.slice(0, end)
+    const safe = Array.from(prefix, c => {
+      const n = c.codePointAt(0) ?? 0
+      return (n < 32 || (n >= 0x7f && n <= 0x9f) || n === 0x061c || n === 0x200e || n === 0x200f ||
+        (n >= 0x2028 && n <= 0x202e) || (n >= 0x2066 && n <= 0x206f) || (n >= 0xd800 && n <= 0xdfff))
+        ? `\\u${n.toString(16).padStart(4, '0')}` : c
+    }).join('')
+    const notice = 'Hermes reports this skill view is unchanged; content was not returned.'
+    return {
+      body: [
+        <text key="unchanged" role="omp.tool.notice" text={notice} wrap="word" />,
+        <text key="file" role="omp.tool.notice" text={`File: ${safe}`} wrap="word" />,
+        ...(end < file.length ? [<text key="file-clipped" role="omp.tool.notice" text="File name clipped in view" />] : []),
+        ...(safe !== prefix ? [<text key="file-escaped" role="omp.tool.notice" text="File name control characters escaped in view" />] : [])
+      ],
+      folded: false,
+      frame: 'inline',
+      meta: [notice],
+      name: 'skill',
+      target: d.name ?? call.context,
+      targetKind: 'text',
+      title: 'Skill'
+    }
+  }
   return {
     body: d.content ? [<md key="body">{clip(d.content, { mark: 'line', max: 6000 })}</md>] : [],
     folded: true,
