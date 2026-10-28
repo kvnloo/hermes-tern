@@ -18,6 +18,7 @@ function evalCard(call: ToolCall, d: EvalDetail): Card {
   const code = d.code ?? ''
   const output = d.output ?? call.resultText
   const error = d.error
+  const truncated = d.stdoutTruncated && call.outcome.kind !== 'running'
 
   return {
     badges: [{ text: 'python' }],
@@ -41,9 +42,11 @@ function evalCard(call: ToolCall, d: EvalDetail): Card {
             </col>
           </row>
         ) : null}
+        {truncated ? <text key="truncated" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Hermes reports stdout was truncated' }]} wrap="word" /> : null}
       </col>
     ],
     folded: false,
+    ...(truncated ? { meta: ['Hermes reports stdout was truncated'] } : {}),
     name: 'eval',
     role: 'omp.tool.eval',
     title: firstLine(code)?.startsWith('#') ? (firstLine(code)?.replace(/^#+\s*/, '') ?? 'Eval') : 'Eval'
