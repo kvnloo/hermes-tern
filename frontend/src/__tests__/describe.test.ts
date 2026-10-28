@@ -57,6 +57,18 @@ scp -q /home/u/.hermes/cache/scratch/vq7.ps1 sidbin@vespyr:vq7.ps1 && ssh sidbin
     expect(describeCommand('')).toBe('Run a command')
     expect(describeCommand(`ssh host '${'x'.repeat(300)}'`).length).toBeLessThanOrEqual(72)
   })
+
+  it('keeps malformed URLs and inherited command names in the normal fallback', () => {
+    for (const command of ['curl http://', 'curl https://[', 'curl http://127.0.0.1:99999', 'curl https://user:secret@']) {
+      expect(describeCommand(command)).toBe('Fetch a URL')
+    }
+    expect(describeCommand('curl https://user:secret@example.com/path?token=secret')).toBe('Fetch example.com')
+    for (const name of ['constructor', '__proto__', 'toString', 'valueOf']) {
+      expect(describeCommand(name)).toBe(`Run ${name}`)
+      expect(describeCommand(`git ${name}`)).toBe(`Git ${name}`)
+    }
+    expect(describeCommand('git status')).toBe('Check git status')
+  })
 })
 
 describe('commandLine', () => {
