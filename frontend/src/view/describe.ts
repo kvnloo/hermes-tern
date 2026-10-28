@@ -79,7 +79,15 @@ const COMMANDS: Record<string, Describer> = {
   curl: a => {
     const url = a.find(x => /^https?:\/\//.test(x))
 
-    return url ? `Fetch ${new URL(url).host}` : 'Fetch a URL'
+    if (url) {
+      try {
+        return `Fetch ${new URL(url).host}`
+      } catch {
+        // Commands may contain incomplete URLs. Do not put raw URL credentials in the title.
+      }
+    }
+
+    return 'Fetch a URL'
   },
   docker: a => `Docker ${operand(a) ?? ''}`.trim(),
   echo: () => 'Print text',
@@ -99,7 +107,7 @@ const COMMANDS: Record<string, Describer> = {
   git: a => {
     const sub = operand(a, new Set(['-C', '-c']))
 
-    return sub ? (GIT[sub] ?? `Git ${sub}`) : 'Git'
+    return sub ? (Object.hasOwn(GIT, sub) ? GIT[sub] : `Git ${sub}`) : 'Git'
   },
   grep: a => searchTitle(a),
   head: a => {
@@ -331,9 +339,10 @@ export function describeCommand(command: string): string {
   } else {
     // A pipeline is named by its producer; `grep` & co. only shape what it printed.
     const main = real.find(s => !FILTERS.has(s.cmd)) ?? real[0]
-    const ps = main && !COMMANDS[main.cmd] && /^\$|^[A-Z][a-z]+-[A-Z]/.test(main.raw) ? powershellScript(line) : undefined
+    const describe = main && Object.hasOwn(COMMANDS, main.cmd) ? COMMANDS[main.cmd] : undefined
+    const ps = main && !describe && /^\$|^[A-Z][a-z]+-[A-Z]/.test(main.raw) ? powershellScript(line) : undefined
 
-    title = ps ? ps : main ? (COMMANDS[main.cmd]?.(main.args) ?? `Run ${main.cmd}`) : steps[0] ? `Run ${steps[0].cmd}` : undefined
+    title = ps ? ps : main ? (describe?.(main.args) ?? `Run ${main.cmd}`) : steps[0] ? `Run ${steps[0].cmd}` : undefined
   }
 
   title ??= 'Run a command'
