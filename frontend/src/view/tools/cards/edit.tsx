@@ -21,7 +21,6 @@ import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
 
-import { errorOf } from './generic.js'
 import { visible } from './lsp.js'
 
 /** The patch tool's view. */
@@ -76,7 +75,11 @@ function v4aLintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
   if (!v4aLintNeedsAttention(call) || !d.v4aLint) return []
   const rows: JSX.Element[] = []
   if (d.v4aLint.failure) {
-    const failure = lintText(d.v4aLint.failure)
+    // A warned result may contain backend-only paths in its error. Keep the
+    // producer's partial-apply qualification without exposing its raw detail.
+    const failure = lintText(patchContextWarning(call)
+      ? 'Apply phase failed (state may be inconsistent — run `git diff` to assess).'
+      : d.v4aLint.failure)
     rows.push(<text key="v4a-failure" role="omp.tool.error" spans={[{ s: 'error', t: failure.value }]} wrap="word" />)
     if (failure.clipped) rows.push(<text key="v4a-failure-clipped" role="omp.tool.notice" text="Patch error clipped in view" />)
     if (failure.escaped) rows.push(<text key="v4a-failure-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />)
@@ -222,7 +225,7 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
 
   const validation = v4aValidationFailure(call)
   if (validation) {
-    const reason = lintText(validation)
+    const reason = lintText(patchWarning ? 'Patch validation failed (no files were modified).' : validation)
     return {
       ...head,
       body: [
@@ -264,9 +267,8 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   if (!diff) {
     // The shell would otherwise show this failure as a note when the card was empty.
     // A warning row makes the card nonempty, so retain that existing error here.
-    const previousError = patchWarning && call.outcome.kind === 'error' && !refusalNodes.length && !lint.length && !diagnostics.length
-      ? errorOf(call) : undefined
-    const reason = previousError ? lintText(previousError) : undefined
+    const reason = patchWarning && call.outcome.kind === 'error' && !refusalNodes.length && !lint.length && !diagnostics.length
+      ? lintText('Patch failed. Inspect the target and context.') : undefined
     const failure = reason ? [
       <text key="patch-error" role="omp.tool.error" spans={[{ s: 'error', t: reason.value }]} wrap="word" />,
       ...(reason.clipped ? [<text key="patch-error-clipped" role="omp.tool.notice" text="Patch error clipped in view" />] : []),
