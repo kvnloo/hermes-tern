@@ -59,7 +59,7 @@ export function dockSources(over: Partial<DockSources> = {}): DockSources {
     composer: new Composer(),
     hud: { focused: undefined, todosOpen: false },
     liveVoice: { blocked: false },
-    notices: { current: () => undefined },
+    notices: { active: () => [], current: () => undefined, otherError: () => undefined },
     overlays: [],
     processes: { recent: () => [] },
     prs: { entries: () => [] },
