@@ -73,6 +73,11 @@ export class Composer {
 
   /** The draft's pastes that hold `{!…}` or start with `!`; `take()` and `set()` forget them. */
   get pasted(): readonly string[] {
+    return this.#pasted
+  }
+
+  /** Shell exclusion markers, including the whole draft when its origin is unverified. */
+  get shellPasted(): readonly string[] {
     return this.literal && !this.#pasted.includes(this.text) ? [...this.#pasted, this.text] : this.#pasted
   }
 

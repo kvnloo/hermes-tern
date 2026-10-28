@@ -284,7 +284,7 @@ export class AppActions {
       return
     }
 
-    const pasted = [...this.#cx.composer.pasted]
+    const pasted = [...this.#cx.composer.shellPasted]
     this.submit(this.#cx.composer.take(), true, 'queue', pasted)
   }
 

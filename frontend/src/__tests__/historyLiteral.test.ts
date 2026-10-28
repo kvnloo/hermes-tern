@@ -106,7 +106,7 @@ describe('history and paste shell safety', () => {
     expect(c.text).toBe('Result {!echo old}\nnew draft')
     expect(c.literal).toBe(true)
     c.splice(14, 17, 'new')
-    expect(c.pasted).toContain(c.text)
+    expect(c.shellPasted).toContain(c.text)
     expect(gw.sent('shell.exec')).toEqual([])
     tern.end()
   })
@@ -239,7 +239,7 @@ describe('history and paste shell safety', () => {
     const composer = new Composer()
     await dispatched({ type: 'prefill', message: 'Review {!echo external}' }, stub<SlashCx>({ composer }), { arg: '', title: '/example' })
     expect(composer.literal).toBe(true)
-    expect(composer.pasted).toContain(composer.text)
+    expect(composer.shellPasted).toContain(composer.text)
   })
 
   it('keeps literal state across an A→B→A view change', async () => {

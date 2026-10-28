@@ -35,7 +35,7 @@ describe('plain-text history after a fresh process', () => {
         for (let i = 0; i < 3; i++) {
           if (i === 2) c.key(up); // Move to the first line before leaving the multiline entry.
           c.key(up);
-          seen.push({ text: c.text, literal: c.literal, protected: c.pasted.includes(c.text), commands: typedCommands(c.text, c.pasted).length });
+          seen.push({ text: c.text, literal: c.literal, protected: c.shellPasted.includes(c.text), commands: typedCommands(c.text, c.shellPasted).length });
         }
         console.log(JSON.stringify(seen));
       `], { cwd: process.cwd(), env, encoding: 'utf8' })
