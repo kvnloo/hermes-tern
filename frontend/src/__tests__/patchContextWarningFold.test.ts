@@ -63,7 +63,9 @@ describe('patch context warning visibility in work', () => {
       expect(pieces([clean])).toEqual([{ kind: 'work', items: [clean] }])
     }
     const unrelated = tool('write', call('write_file', { path: 'x.py', content: 'text' }, { result: { _warning: 'private' } }))
-    expect(foldOf(turn([unrelated, text('answer')]))?.hidden.has(unrelated.id)).toBe(true)
+    // A retained write warning now has its own independent visibility predicate.
+    expect(foldOf(turn([unrelated, text('answer')]))?.hidden.has(unrelated.id)).not.toBe(true)
+    expect(pieces([unrelated])).toEqual([{ kind: 'block', block: unrelated }])
   })
 
   it('fails closed when retained warning or unrelated lint properties throw', () => {

@@ -11,7 +11,7 @@ import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
 import { patchLintNeedsAttention } from '../../../tools/patch-lint-attention.js'
 import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-noop.js'
-import { PATCH_CONTEXT_WARNING, patchContextWarning } from '../../../tools/patch-warning.js'
+import { PATCH_CONTEXT_WARNING, patchContextWarning, WRITE_CONTEXT_WARNING, writeContextWarning } from '../../../tools/patch-warning.js'
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { v4aLintNeedsAttention } from '../../../tools/v4a-lint.js'
 import { writeRefusalNeedsAttention } from '../../../tools/write-refusal.js'
@@ -192,7 +192,9 @@ function diagnosticNodes(d: EditDetail, context?: LspLinkContext): JSX.Element[]
 /** An edit's diff with its +/− counts; a new file as the file itself, numbered. */
 function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLinkContext): Card {
   const patchWarning = patchContextWarning(call)
-  const path = d.path ?? (patchWarning ? undefined : call.context)
+  const writeWarning = writeContextWarning(call)
+  const contextWarning = patchWarning || writeWarning
+  const path = d.path ?? (contextWarning ? undefined : call.context)
   const lang = langOf(path)
   const content = d.content
   const write = d.tool === 'write_file'
@@ -205,9 +207,12 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     ...(singleLint.length || (multiLint.length && d.v4aLint?.errors.length) ? ['Lint reported an error'] : []),
     ...(multiLint.length && d.v4aLint?.uninspected ? ['Additional lint entries were not inspected'] : [])
   ]
-  const warning = patchWarning ? [<text key="patch-context-warning" role="omp.tool.notice" spans={[{ s: 'warning', t: PATCH_CONTEXT_WARNING }]} wrap="word" />] : []
+  const warningText = patchWarning ? PATCH_CONTEXT_WARNING : writeWarning ? WRITE_CONTEXT_WARNING : undefined
+  const warning = warningText ? [<text key="context-warning" role="omp.tool.notice" spans={[{ s: 'warning', t: warningText }]} wrap="word" />] : []
+  const warningMeta = patchWarning ? 'Patch context warning' : 'Write context warning'
   const stale = staleWriteRefusal(call)
-  const refusalText = stale ? 'Hermes refused this overwrite. This write did not modify the file. Read the current contents before merging the change or use a targeted patch.' : d.writeRefusal
+  const refusalText = stale ? 'Hermes refused this overwrite. This write did not modify the file. Read the current contents before merging the change or use a targeted patch.'
+    : writeWarning && d.writeRefusal ? 'Hermes refused this candidate because its structured syntax was invalid. The file was NOT created or modified.' : d.writeRefusal
   const refusal = writeRefusalNeedsAttention(call) && refusalText ? lintText(refusalText) : undefined
   const diff = refusal ? undefined : (hunks(d.diff) ?? (call.diff ? plainDiff(call.diff) : undefined))
   const refusalNodes = refusal ? [
@@ -253,13 +258,14 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   if (write && content && (!diff || diff.startsWith('@@ -0,0 '))) {
     const text = content.replace(/\n$/, '')
     const lines = text.split('\n').length
+    const failedCandidate = writeWarning && call.outcome.kind === 'error' && !refusal
 
     return {
       ...head,
-      badges: diff ? [{ text: 'new file', tone: 'success' }] : undefined,
-      body: [...refusalNodes, ...lint, ...(refusal ? [<text key="candidate" role="omp.tool.notice" text="Candidate content; write refused" />] : []), <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
-      folded: lint.length || refusal ? false : true,
-      meta: [plural(lines, 'line'), ...(refusal ? ['Write refused'] : []), ...lintMeta],
+      badges: diff && !failedCandidate ? [{ text: 'new file', tone: 'success' }] : undefined,
+      body: [...refusalNodes, ...warning, ...lint, ...(refusal ? [<text key="candidate" role="omp.tool.notice" text="Candidate content; write refused" />] : []), ...(failedCandidate ? [<text key="candidate" role="omp.tool.notice" text="Candidate content; Hermes reported a write error. Inspect the result." />] : []), <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
+      folded: lint.length || refusal || warning.length ? false : true,
+      meta: [plural(lines, 'line'), ...(refusal ? ['Write refused'] : []), ...(warning.length ? [warningMeta] : []), ...lintMeta],
       preview: { lines: 8 }
     }
   }
@@ -267,22 +273,22 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   if (!diff) {
     // The shell would otherwise show this failure as a note when the card was empty.
     // A warning row makes the card nonempty, so retain that existing error here.
-    const reason = patchWarning && call.outcome.kind === 'error' && !refusalNodes.length && !lint.length && !diagnostics.length
-      ? lintText('Patch failed. Inspect the target and context.') : undefined
+    const reason = contextWarning && call.outcome.kind === 'error' && !refusalNodes.length && !lint.length && !diagnostics.length
+      ? lintText(writeWarning ? 'Hermes reported a write error. Inspect the result.' : 'Patch failed. Inspect the target and context.') : undefined
     const failure = reason ? [
       <text key="patch-error" role="omp.tool.error" spans={[{ s: 'error', t: reason.value }]} wrap="word" />,
       ...(reason.clipped ? [<text key="patch-error-clipped" role="omp.tool.notice" text="Patch error clipped in view" />] : []),
       ...(reason.escaped ? [<text key="patch-error-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />] : [])
     ] : []
-    return { ...head, body: [...refusalNodes, ...failure, ...warning, ...lint, ...diagnostics], ...(refusal || lint.length || warning.length ? { folded: false, meta: [...(refusal ? ['Write refused'] : []), ...(warning.length ? ['Patch context warning'] : []), ...lintMeta] } : {}) }
+    return { ...head, body: [...refusalNodes, ...failure, ...warning, ...lint, ...diagnostics], ...(refusal || lint.length || warning.length ? { folded: false, meta: [...(refusal ? ['Write refused'] : []), ...(warning.length ? [warningMeta] : []), ...lintMeta] } : {}) }
   }
 
   const { added, removed } = diffStats(diff)
 
   return {
     ...head,
-    body: [...refusalNodes, ...warning, ...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
+    body: [...refusalNodes, ...warning, ...lint, ...(writeWarning && call.outcome.kind === 'error' ? [<text key="candidate-diff" role="omp.tool.notice" text="Retained diff; Hermes reported a write error. Inspect the result." />] : []), <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
     ...(lint.length || refusal || warning.length ? { folded: false } : {}),
-    meta: [`+${added} −${removed}`, ...(refusal ? ['Write refused'] : []), ...(warning.length ? ['Patch context warning'] : []), ...lintMeta]
+    meta: [`+${added} −${removed}`, ...(refusal ? ['Write refused'] : []), ...(warning.length ? [warningMeta] : []), ...lintMeta]
   }
 }
