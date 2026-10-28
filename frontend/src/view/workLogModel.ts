@@ -12,6 +12,7 @@ import { shownImage } from '../media.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
+import { readConflictCount } from '../tools/read-conflicts.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -41,6 +42,7 @@ export function ownsCard(call: ToolCall): boolean {
     isBackgroundCall(call) ||
     waiting(call) ||
     isConnectCall(call) ||
+    readConflictCount(call) !== undefined ||
     call.name === 'image_generate' ||
     showsImage(call)
   )
@@ -124,6 +126,7 @@ export function foldOf(turn: TurnEntry): Fold | undefined {
     if (
       b.kind === 'tool' &&
       (isBackgroundCall(b.call) ||
+        readConflictCount(b.call) !== undefined ||
         waiting(b.call) ||
         isConnectCall(b.call) ||
         showsImage(b.call) ||
@@ -180,6 +183,7 @@ export function parts(turn: TurnEntry): Part[] {
 
   let stretch: Block[] = []
   let from = turn.startedAt
+  const ordered = turn.blocks.some(b => b.kind === 'tool' && readConflictCount(b.call) !== undefined)
 
   const flush = (to: number) => {
     const hidden = stretch.filter(b => fold.hidden.has(b.id))
@@ -193,10 +197,13 @@ export function parts(turn: TurnEntry): Part[] {
   }
 
   for (const b of turn.blocks) {
-    if (b.kind === 'steer' || b.kind === 'compaction') {
-      flush(b.at)
+    if (b.kind === 'steer' || b.kind === 'compaction' || (ordered && !fold.hidden.has(b.id))) {
+      const at = b.kind === 'tool' ? Math.max(from, b.call.startedAt)
+        : b.kind === 'steer' || b.kind === 'compaction' ? b.at : (turnEndedAt(turn) ?? from)
+      flush(at)
       show(b)
-      from = b.kind === 'compaction' ? (compactionEndedAt(b.compaction) ?? b.at) : b.at
+      from = b.kind === 'compaction' ? (compactionEndedAt(b.compaction) ?? b.at)
+        : b.kind === 'tool' && b.call.outcome.kind !== 'running' ? at + b.call.outcome.duration : at
     } else {
       stretch.push(b)
     }
