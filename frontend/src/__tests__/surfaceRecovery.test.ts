@@ -28,6 +28,13 @@ async function painted() {
   }
 }
 
+/** Direct animation updates, separate from whole-view frames and focus operations. */
+function orbSets(peer: Peer, sf: string) {
+  return peer.frames.flatMap(frame => frame.sf === sf
+    ? frame.ops.filter(op => Array.isArray(op) && op[0] === 'set' && op[1] === 'dock.composer.line.orb')
+    : [])
+}
+
 interface Harness {
   readonly app: App
   readonly gw: FakeGateway
@@ -131,6 +138,131 @@ afterEach(() => {
 })
 
 describe('whole Tern document recovery with real SDK frames', () => {
+  it('keeps an idle recovered orb still until activity starts', async () => {
+    await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      const old = h.surface()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, old.id)).toHaveLength(0)
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const current = h.surface()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(0)
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+    }, { blobs: true })
+  })
+
+  it('rebinds an active orb on repeated recoveries and stops old animation timers', async () => {
+    await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      const close = vi.spyOn(ThinkingOrb.prototype, 'close')
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
+      let current = h.surface()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+
+      for (let i = 1; i <= MAX_SURFACE_RECOVERIES; i++) {
+        const old = current
+        h.peer.remove(old.id, old.id)
+        await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+        current = h.surface()
+        expect(current.id).toBe(`hermes.recovery-${i}`)
+        const previous = orbSets(h.peer, old.id).length
+        vi.advanceTimersByTime(200)
+        expect(orbSets(h.peer, old.id)).toHaveLength(previous)
+        expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+      }
+      expect(close.mock.calls.length).toBeGreaterThanOrEqual(MAX_SURFACE_RECOVERIES)
+      const closes = close.mock.calls.length
+      h.app.quit()
+      await painted()
+      const final = orbSets(h.peer, current.id).length
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(final)
+      expect(close.mock.calls.length).toBeGreaterThan(closes)
+    }, { blobs: true })
+  })
+
+  it('restores activity, theme and reduced motion after hidden loss and show', async () => {
+    await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      const blob = vi.spyOn(h.tern, 'blob')
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
+      const old = h.surface()
+      await h.event({ ev: 'theme', dark: false })
+      await h.event({ ev: 'motion', reduce: true })
+      await h.event({ ev: 'visible', sf: old.id, visible: false })
+      const previous = orbSets(h.peer, old.id).length
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      vi.advanceTimersByTime(200)
+      expect(h.tern.surfaces).toHaveLength(0)
+      expect(orbSets(h.peer, old.id)).toHaveLength(previous)
+      await h.event({ ev: 'visible', visible: true })
+      const current = h.surface()
+      expect(current.id).toBe('hermes.recovery-1')
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(0)
+      expect(blob.mock.calls.some(([bytes, mime]) => mime === 'image/svg+xml' && Buffer.from(bytes).toString().includes('#24212b'))).toBe(true)
+      await h.event({ ev: 'motion', reduce: false })
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+      h.gw.event({ type: 'message.complete', session_id: 's1', payload: { status: 'done' } })
+      await painted()
+      const done = orbSets(h.peer, current.id).length
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(done)
+    }, { blobs: true })
+  })
+
+  it('keeps the orb alive across hidden child eviction without a whole-surface recovery', async () => {
+    await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
+      const current = h.surface()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+      await h.event({ ev: 'visible', sf: current.id, visible: false })
+      const before = orbSets(h.peer, current.id).length
+      h.peer.remove(current.id, INPUT_ID)
+      await h.event({ ev: 'gone', sf: current.id, ids: [INPUT_ID] })
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(before)
+      await h.event({ ev: 'visible', sf: current.id, visible: true })
+      expect(h.surface()).toBe(current)
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(before)
+    }, { blobs: true })
+  })
+
+  it('does not animate a recovered orb while the SDK waits for frame credit', async () => {
+    await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
+      const old = h.surface()
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const current = h.surface()
+      expect(current.blocked).toBe(true)
+      vi.advanceTimersByTime(500)
+      expect(orbSets(h.peer, current.id)).toHaveLength(0)
+      await h.ack(old.id, old.seq)
+      expect(current.blocked).toBe(true)
+      for (let i = 0; i < 5 && current.blocked; i++) await h.ack(current.id, current.seq)
+      expect(current.blocked).toBe(false)
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(0)
+    }, { blobs: true, credits: 1 })
+  })
+
   it.each([true, false])('reopens a fresh document without losing chrome, palette, transcript or draft (settle=%s)', async retention => {
     await withApp(async h => {
       fillHistory(h.app)
@@ -193,13 +325,17 @@ describe('whole Tern document recovery with real SDK frames', () => {
 
   it.each([true, false])('routes recovered visibility to notices without accepting stale surface events (settle=%s)', async retention => {
     await withApp(async h => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      await painted()
       const old = h.surface()
       h.peer.remove(old.id, old.id)
       await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
       const current = h.surface()
       expect(current.id).toBe('hermes.recovery-1')
       h.app.stores.composer.set('untouched', { cursor: 3 })
-      h.app.open(stubOverlay('held-modal', { modal: true }))
+      const modal = stubOverlay('held-modal', { modal: true })
+      h.app.open(modal)
       await painted()
       expect(JSON.stringify(h.peer.frames.filter(frame => frame.sf === current.id))).toContain('"sendable":false')
       await h.event({ ev: 'visible', sf: current.id, visible: false })
@@ -223,10 +359,17 @@ describe('whole Tern document recovery with real SDK frames', () => {
       expect(h.gw.sent('prompt.submit')).toEqual([])
       expect(h.app.stores.composer.text).toBe('untouched')
       expect(h.app.overlays.at(-1)?.key).toBe('held-modal')
+      const paused = orbSets(h.peer, current.id).length
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id)).toHaveLength(paused)
+      h.app.close(modal)
+      await painted()
+      vi.advanceTimersByTime(200)
+      expect(orbSets(h.peer, current.id).length).toBeGreaterThan(paused)
       await h.event({ ev: 'visible', sf: old.id, visible: false })
       h.app.stores.notices.show({ key: 'fresh', text: 'Still visible', kind: 'sticky' })
       expect(h.app.stores.notices.current()?.text).toBe('Still visible')
-    }, { retention })
+    }, { retention, blobs: true })
   })
 
   it('holds a real hidden-turn completion notice through a stale show after recovery', async () => {

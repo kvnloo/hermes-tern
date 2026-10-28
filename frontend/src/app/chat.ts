@@ -155,11 +155,16 @@ export class App implements ChatPorts {
       changed: () => this.changed(),
       recovered: surface => {
         // The new document uses the same stores, transcript, held requests and draft.
+        if (this.#orb) {
+          this.#orb.close()
+          this.#orb = new ThinkingOrb(this.#tern, surface)
+          this.#orb.environment({ visible: this.#visible })
+        }
         this.#retention = this.#tern.caps.features.includes('settle')
           ? new Retention(surface, () => this.changed(), () => ({ entries: this.transcript.entries, lifetime: this.transcript.lifetime }))
           : undefined
         if (this.#view) {
-          this.#view = { ...this.#view, retention: this.#retention }
+          this.#view = { ...this.#view, retention: this.#retention, ...(this.#orb ? { orb: this.#orb } : {}) }
         }
         this.#surface.guardHandlers(Boolean(this.#retention))
         this.#guardOverlayHandlers()
@@ -389,7 +394,7 @@ export class App implements ChatPorts {
     if (ev.ev === 'motion') {
       this.#orb?.environment({ reduce: ev.reduce })
     }
-    if (ev.ev === 'gone' && this.#surface.closed) {
+    if (ev.ev === 'gone' && ev.ids.includes(this.#surface.raw.id)) {
       this.#orb?.close()
     }
   }
