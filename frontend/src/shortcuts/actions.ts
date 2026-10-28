@@ -4,6 +4,9 @@
 
 import type { Key } from '@stencil-hq/tern'
 
+import { KEYS, matches } from '../draft/keys.js'
+import { isHoldInfoKey, isVoiceToggleKey } from '../voice/hold.js'
+
 type Modifier = 'ctrl' | 'alt' | 'shift' | 'meta'
 
 export interface Shortcut {
@@ -48,6 +51,27 @@ const EDITOR_KEYS = new Set([
   'ctrl+v', 'ctrl+c', 'ctrl+d', 'ctrl+g', 'alt+b', 'alt+f', 'alt+d',
   'alt+enter', 'alt+left', 'alt+right', 'alt+backspace'
 ])
+
+/** Fixed actions and the host's retention key run outside configurable action ownership. */
+function fixedChord(chord: string): boolean {
+  const parts = chord.split('+')
+  const name = parts.pop() ?? ''
+  const key: Key = { name, ctrl: parts.includes('ctrl'), alt: parts.includes('alt'), shift: parts.includes('shift'), meta: parts.includes('meta') }
+  return [KEYS.browser, KEYS.plan, KEYS.fork, KEYS.copyDraft].some(match => matches(key, match)) ||
+    isVoiceToggleKey(key) || isHoldInfoKey(key) || (key.ctrl && name === 'home')
+}
+
+/** Composer actions that may otherwise run when a contextual shortcut declines the key. */
+function editorChord(chord: string): boolean {
+  const parts = chord.split('+')
+  const name = parts.pop() ?? ''
+  const ctrl = parts.includes('ctrl')
+  const alt = parts.includes('alt')
+  return EDITOR_KEYS.has(chord) || ['enter', 'escape', 'tab', 'backspace', 'delete', 'left', 'right', 'up', 'down', 'home', 'end'].includes(name) ||
+    (ctrl && name === 'z') ||
+    (ctrl && !alt && ['a', 'b', 'd', 'e', 'f', 'k', 'u', 'w', 'y', 'backspace', 'delete', 'home', 'end', 'left', 'right'].includes(name)) ||
+    (alt && !ctrl && ['b', 'd', 'f'].includes(name))
+}
 
 /** Canonical form rejects aliases that would evade collision checks. */
 export function normalizeChord(raw: string): string {
@@ -152,13 +176,18 @@ export function effectiveShortcuts(raw: unknown): readonly Shortcut[] {
       const chord = normalizeChord(key)
       const name = chord.split('+').at(-1) ?? ''
       const mods = chord.split('+').slice(0, -1)
-      const typing = (name.length === 1 || name === 'space') && !mods.includes('ctrl') && !mods.includes('alt')
+      const printable = name.length === 1 || name === 'space'
+      const typing = printable && !mods.includes('ctrl') && (!mods.includes('alt') ||
+        id === 'app.message.dequeue' || id === 'app.message.alternate')
 
-      if (['alt+shift+p', 'alt+shift+f'].includes(chord)) {
+      if (fixedChord(chord)) {
         throw new Error(`Fixed app key chord: ${chord}`)
       }
 
-      if (EDITOR_KEYS.has(chord) || typing) {
+      // Preserve explicit spellings of these two pre-existing defaults.
+      const ownDefault = (id === 'app.thinking.cycle' && chord === 'shift+tab') ||
+        (id === 'app.message.dequeue' && chord === 'alt+up')
+      if ((editorChord(chord) && !ownDefault) || typing) {
         throw new Error(`Composer-owned key chord: ${chord}`)
       }
 

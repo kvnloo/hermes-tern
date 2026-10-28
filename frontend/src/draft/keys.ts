@@ -10,7 +10,7 @@ import type { Overlay } from '../overlays/overlay.js'
 import type { Transcript } from '../transcript/store.js'
 import type { PromptQueue } from '../turn/queue.js'
 import type { LiveVoice } from '../voice/live.js'
-import { HOLD_UNAVAILABLE, isHoldInfoKey } from '../voice/hold.js'
+import { HOLD_UNAVAILABLE, isHoldInfoKey, isVoiceToggleKey } from '../voice/hold.js'
 
 import type { Attachments } from './attachments.js'
 import type { Composer } from './composer.js'
@@ -59,7 +59,7 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   agents: { label: 'alt+a', name: 'a', with: ['alt'], without: ['ctrl', 'meta'] },
   background: { label: 'alt+j', name: 'j', with: ['alt'], without: ['ctrl', 'meta'] },
   browser: { label: 'alt+shift+b', name: 'b', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
-  cancel: { label: 'ctrl+c', name: 'c', with: ['ctrl'] },
+  cancel: { label: 'ctrl+c', name: 'c', with: ['ctrl'], without: ['alt', 'meta', 'shift'] },
   // Pressed twice: a single Esc never cancels work.
   clearOrStop: { label: 'escape escape', name: 'escape', with: [] },
   clipboardImage: { label: 'ctrl+v', name: 'v', with: ['ctrl'], without: ['alt', 'meta'] },
@@ -69,7 +69,7 @@ export const KEYS: Record<KeyAction, KeyMatch> = {
   fork: { label: 'alt+shift+f', name: 'f', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
   plan: { label: 'alt+shift+p', name: 'p', with: ['alt', 'shift'], without: ['ctrl', 'meta'] },
   prs: { label: 'alt+p', name: 'p', with: ['alt'], without: ['ctrl', 'meta', 'shift'] },
-  quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'] },
+  quit: { label: 'ctrl+d', name: 'd', with: ['ctrl'], without: ['alt', 'meta', 'shift'] },
   sidebar: { label: 'alt+s', name: 's', with: ['alt'], without: ['ctrl', 'meta'] },
   steer: { label: 'alt+enter', name: 'enter', with: ['alt'] }
 }
@@ -217,7 +217,7 @@ const modal: KeyRule = (_key, _cx, top) => top?.modal === true
 
 /** Shortcuts request consent or report missing hold support; neither records a key gesture. */
 const liveKeys: KeyRule = (key, cx) => {
-  if (key.name === 'v' && key.alt && key.shift && !key.ctrl && !key.meta) {
+  if (isVoiceToggleKey(key)) {
     cx.liveVoice.toggle()
     return true
   }

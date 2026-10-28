@@ -7,6 +7,10 @@ export const HOLD_UNAVAILABLE =
   'Use Mic / Alt+V from dictation PR #71 to start/finish review-only capture; Esc discards. ' +
   'Alt+Shift+Space only displays this message and never opens a microphone.'
 
+/** The voice toggle belongs to the app even when profile shortcuts are configured. */
+export const isVoiceToggleKey = (key: Key): boolean =>
+  key.name === 'v' && key.alt && key.shift && !key.ctrl && !key.meta
+
 /** This chord is information only; normal Space and repeats belong to the editor. */
 export const isHoldInfoKey = (key: Key): boolean =>
   key.name === 'space' && key.alt && key.shift && !key.ctrl && !key.meta
