@@ -5,7 +5,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { type Key, plain } from '@stencil-hq/tern'
+import { type Key, Node, plain } from '@stencil-hq/tern'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeGateway, fakeTern, given, key, must, type Reply } from './fakes.js'
@@ -209,6 +209,35 @@ describe('App: fast mode', () => {
     await press(key('enter'))
     await vi.waitFor(() => expect(sent('config.set')).toEqual([{ key: 'fast', session_id: 's1', value: 'fast' }]))
     expect(sent('session.mutate')[0]).toMatchObject({ operation: 'model', payload: { model: 'b', provider: 'p' } })
+  })
+
+  it.each(['keyboard', 'native'] as const)('keeps an expensive model pending on modified keys, then confirms via %s', async mode => {
+    const { app, press, sent } = setup({
+      'model.options': () => ({ model: 'a', provider: 'p', providers: [{ is_current: true, models: ['a', 'b'], name: 'P', slug: 'p' }] }),
+      'config.set': params => params['confirm_expensive_model'] === true
+        ? { key: 'model', value: 'b' }
+        : { key: 'model', confirm_required: true, confirm_message: 'Expensive' }
+    }, false)
+    given.info(app, { model: 'a', provider: 'p' })
+    openModelPicker(app)
+    await settle()
+    await press(key('down'))
+    await press(key('enter'))
+    await vi.waitFor(() => expect(sent('config.set').filter(p => p['key'] === 'model')).toHaveLength(1))
+    const overlay = must(app.overlays.find(item => item.key === 'models'))
+    for (const name of ['y', 'enter', 'n', 'escape']) {
+      await press(key(name, { ctrl: true, alt: true }))
+    }
+    expect(sent('config.set').filter(p => p['key'] === 'model')).toHaveLength(1)
+    if (mode === 'keyboard') {
+      await press(key('y'))
+    } else {
+      const picker = overlay.node('layer.overlay-1')
+      if (!(picker instanceof Node)) { throw new Error('missing picker') }
+      must(picker.handlers?.onAction?.['confirm'])({ act: 'confirm', ev: 'action', id: 'layer.overlay-1', raw: {}, sf: 'hermes' })
+    }
+    await vi.waitFor(() => expect(sent('config.set').filter(p => p['key'] === 'model')).toHaveLength(2))
+    expect(sent('config.set').filter(p => p['key'] === 'model')[1]).toMatchObject({ confirm_expensive_model: true })
   })
 })
 

@@ -1,4 +1,4 @@
-import type { NodeJson } from '@stencil-hq/tern'
+import { Node, type NodeJson } from '@stencil-hq/tern'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredSession } from '../hermes/sessionIndex.js'
@@ -27,7 +27,7 @@ const { openSessionPicker } = await import('../overlays/sessions.js')
 
 const user = (text: string): PreviewRow => ({ key: text, kind: 'user', steer: false, text })
 
-function setup() {
+function setup(canonical = true) {
   const reads: string[] = []
   const reader: TranscriptReader = {
     ends: id => {
@@ -42,10 +42,11 @@ function setup() {
     }
   }
   let overlay: Overlay | undefined
+  const gateway = new FakeGateway({ canonical, replies: { 'session.list': () => ({ sessions: [] }) } })
   const host = {
     changed: vi.fn(),
     close: vi.fn(),
-    gw: new FakeGateway({ replies: { 'session.list': () => ({ sessions: [] }) } }).client,
+    gw: gateway.client,
     open: (o: Overlay) => {
       overlay = o
     },
@@ -67,7 +68,7 @@ function setup() {
     return draw()
   }
 
-  return { draw, host, press, reads, sheet }
+  return { draw, gateway, host, press, reads, sheet, root }
 }
 
 describe('the session picker', () => {
@@ -167,5 +168,57 @@ describe('the session picker', () => {
     press('escape')
 
     expect(host.close).toHaveBeenCalled()
+  })
+
+  it.each(['y', 'enter'])('does not delete on modified %s, but honors bare confirmation once', async name => {
+    const { draw, host, press } = setup()
+    const request = vi.spyOn(host.gw, 'request').mockImplementation(async method => {
+      if (method === 'session.list') { return { sessions: [] } }
+      if (method === 'session.resume') { return { revision: 3, execution_generation: 7 } }
+      return { status: 'ok' }
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    draw()
+    press('backspace')
+    for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+      press(name, mods)
+      expect(draw().p?.['confirm']).toBeDefined()
+    }
+    expect(request.mock.calls.filter(([method]) => method === 'session.mutate')).toEqual([])
+    press(name)
+    press(name)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(request.mock.calls.filter(([method]) => method === 'session.mutate')).toHaveLength(1)
+    expect(request.mock.calls.find(([method]) => method === 'session.mutate')?.[1]).toMatchObject({
+      session_id: 'a', operation: 'delete', expected_revision: 3, expected_generation: 7
+    })
+  })
+
+  it('keeps confirmation on modified cancel and cancels with bare n', async () => {
+    const { draw, host, press } = setup()
+    const request = vi.spyOn(host.gw, 'request')
+    await vi.advanceTimersByTimeAsync(0)
+    draw()
+    press('backspace')
+    press('n', { ctrl: true, alt: true })
+    expect(draw().p?.['confirm']).toBeDefined()
+    press('n')
+    expect(draw().p?.['confirm']).toBeUndefined()
+    expect(request.mock.calls.filter(([method]) => method === 'session.mutate')).toEqual([])
+  })
+
+  it('preserves explicit native confirmation and the private gateway delete path', async () => {
+    const { draw, gateway, press, sheet, root } = setup(false)
+    await vi.advanceTimersByTimeAsync(0)
+    draw()
+    press('backspace')
+    const picker = sheet.node(root)
+    if (!(picker instanceof Node)) { throw new Error('missing picker') }
+    const click = must(picker.handlers?.onAction?.['confirm'])
+    const event = { act: 'confirm', ev: 'action', id: root, raw: {}, sf: 'hermes' } as const
+    click(event)
+    click(event)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(gateway.sent('session.delete')).toEqual([{ session_id: 'a' }])
   })
 })

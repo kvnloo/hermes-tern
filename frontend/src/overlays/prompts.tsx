@@ -5,6 +5,7 @@
 // choice the frontend itself confirms lives here too.
 
 import { approvalOverlay } from '../prompts/approval.js'
+import { affirmative, negative } from '../core/keys.js'
 import { settleQuietly } from '../prompts/ask.js'
 import { clarifyOverlay } from '../prompts/clarify.js'
 import { maskedOverlay } from '../prompts/masked.js'
@@ -63,8 +64,11 @@ export function confirmOverlay(
   ask: { title: string; detail: string; confirm: string; onConfirm(): void }
 ): Overlay {
   const key = `confirm:${ask.title}`
+  let alive = true
 
   const answer = (yes: boolean) => {
+    if (!alive) { return }
+    alive = false
     host.close(overlay)
 
     if (yes) {
@@ -75,6 +79,7 @@ export function confirmOverlay(
   const overlay: Overlay = {
     key,
     modal: true,
+    onClose: () => { alive = false },
     cancel: () => answer(false),
     node: id => (
       <overlay anchor="bottom" key={nativeOverlayKey(id)} modal role="omp.overlay.ask" size="md">
@@ -96,9 +101,9 @@ export function confirmOverlay(
       </overlay>
     ),
     onKey: k => {
-      if (k.name === 'enter' || k.name === 'y') {
+      if (affirmative(k)) {
         answer(true)
-      } else if (k.name === 'escape' || k.name === 'n') {
+      } else if (negative(k)) {
         answer(false)
       }
 

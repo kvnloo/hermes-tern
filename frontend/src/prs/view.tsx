@@ -13,6 +13,7 @@ import { optional } from '../core/assert.js'
 import { errorText } from '../core/errors.js'
 import { Flash } from '../core/flash.js'
 import { type PrKey, prKey } from '../core/ids.js'
+import { affirmative, negative } from '../core/keys.js'
 import { clip, plural } from '../core/text.js'
 import { checksSummary, failedRuns, type MergeMethod, type PullRequest } from '../github/pullRequest.js'
 import { shown } from '../github/remote.js'
@@ -56,7 +57,7 @@ export class PrView {
   readonly #host: PrViewHost
   #selected: PrKey | undefined
   #tab: PrTab = 'conversation'
-  #confirm: 'close' | 'merge' | undefined
+  #confirm: { action: 'close' | 'merge'; key: PrKey } | undefined
   /** The PR whose URL was just copied, while its button says so. */
   readonly #copied = new Flash<PrKey | undefined>(() => this.#host.changed())
   /** The node id the body's nodes sit under, from the last render (for scroll and reveal). */
@@ -85,6 +86,7 @@ export class PrView {
     }
 
     const key = this.#selected
+    if (this.#confirm && this.#confirm.key !== key) { this.#confirm = undefined }
     const entry = key ? this.#host.prs.get(key) : undefined
 
     return key && entry ? { entry, key, pr: entry.pr } : undefined
@@ -161,8 +163,9 @@ export class PrView {
 
   /** Merge and close ask first. */
   ask(what: 'close' | 'merge') {
-    if (this.can(what)) {
-      this.#confirm = what
+    const selected = this.selection()
+    if (selected && this.can(what)) {
+      this.#confirm = { action: what, key: selected.key }
       this.#host.changed()
     }
   }
@@ -189,9 +192,13 @@ export class PrView {
   /** The keys the view takes; false for a key it leaves to its host (Escape, say). */
   onKey(k: Key): boolean {
     if (this.#confirm) {
-      if (k.name === 'enter' || k.name === 'y') {
-        void this.act(this.#confirm)
-      } else if (k.name === 'escape' || k.name === 'n') {
+      const confirm = this.#confirm
+      if (this.selection()?.key !== confirm.key) {
+        this.#confirm = undefined
+        this.#host.changed()
+      } else if (affirmative(k)) {
+        void this.act(confirm.action)
+      } else if (negative(k)) {
         this.#confirm = undefined
         this.#host.changed()
       }
@@ -421,7 +428,7 @@ export class PrView {
     const confirm = this.#confirm
 
     if (confirm && pr) {
-      const merge = confirm === 'merge'
+      const merge = confirm.action === 'merge'
 
       return (
         <row align="center" gap="sm" key="actions" role="omp.actions">
@@ -435,8 +442,10 @@ export class PrView {
             key: 'no',
             label: 'Cancel',
             onClick: () => {
-              this.#confirm = undefined
-              this.#host.changed()
+              if (this.#confirm === confirm) {
+                this.#confirm = undefined
+                this.#host.changed()
+              }
             }
           })}
           {prButton({
@@ -444,7 +453,7 @@ export class PrView {
             key: 'yes',
             kind: merge ? 'primary' : 'danger',
             label: merge ? METHOD_LABEL[method] : 'Close PR',
-            onClick: () => void this.act(confirm)
+            onClick: () => { if (this.#confirm === confirm && this.selection()?.key === confirm.key) { void this.act(confirm.action) } }
           })}
         </row>
       )

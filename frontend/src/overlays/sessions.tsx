@@ -19,6 +19,7 @@ import { optional } from '../core/assert.js'
 import { errorText } from '../core/errors.js'
 import { Flash } from '../core/flash.js'
 import { durable, storedSessionId } from '../core/ids.js'
+import { affirmative, negative } from '../core/keys.js'
 import { mutateSession } from '../hermes/mutate.js'
 import { inWorkspace, sessionLabel, type StoredSession, storedSessions, workspaceOf } from '../hermes/sessionIndex.js'
 import { storedTranscripts, type TranscriptReader } from '../hermes/sessionTranscript.js'
@@ -368,9 +369,9 @@ export function openSessionPicker(host: SessionsHost, reader: TranscriptReader =
     },
     onKey: (k: Key) => {
       if (deleting) {
-        if (k.name === 'enter' || k.name === 'y') {
+        if (affirmative(k)) {
           void remove(deleting)
-        } else if (k.name === 'escape' || k.name === 'n') {
+        } else if (negative(k)) {
           deleting = null
         }
 

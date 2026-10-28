@@ -4,6 +4,7 @@
 
 import type { ClarifyResult } from '@hermes/shared/gateway-events'
 
+import { unmodified } from '../core/keys.js'
 import { Composer } from '../draft/composer.js'
 import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
@@ -252,20 +253,23 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
       const typing = d.typing || !q.choices.length
       const count = q.choices.length + 1
 
-      if (isCtrlC(k) || (k.name === 'escape' && sending.error)) {
+      if (isCtrlC(k) || (k.name === 'escape' && unmodified(k) && sending.error)) {
         // The whole card, not just this question: an empty answer is cancel-all ('' on the shared wire).
         cancel()
       } else if (k.name === 'tab' && questions.length > 1) {
         go(step + (k.shift ? -1 : 1))
-      } else if (k.name === 'escape' && typing && q.choices.length) {
+      } else if (k.name === 'escape' && unmodified(k) && typing && q.choices.length) {
         // Leave the Other field first; Esc on the list skips the question.
         d.typing = false
-      } else if (k.name === 'escape') {
+      } else if (k.name === 'escape' && unmodified(k)) {
         commit(null)
-      } else if (k.name === 'enter' && (typing || (q.multi && d.selected < q.choices.length))) {
-        submit()
       } else if (k.name === 'enter') {
-        activate(d.selected)
+        if (unmodified(k)) {
+          if (typing || (q.multi && d.selected < q.choices.length)) { submit() }
+          else { activate(d.selected) }
+        } else if (typing && !k.ctrl && !k.meta && (k.shift || k.alt)) {
+          d.other.key(k)
+        }
       } else if (typing) {
         const to = q.choices.length ? moved(k, d.selected, count) : undefined
 
@@ -281,9 +285,9 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
 
         if (to !== undefined) {
           d.selected = to
-        } else if (k.name === 'space' && q.multi) {
+        } else if (k.name === 'space' && q.multi && unmodified(k)) {
           activate(d.selected)
-        } else if (n >= 1 && n <= count) {
+        } else if (unmodified(k) && n >= 1 && n <= count) {
           activate(n - 1)
         } else if (k.text && !k.ctrl && !k.meta && k.name !== 'space') {
           // Typing on the list starts the Other answer.

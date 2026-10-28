@@ -6,6 +6,7 @@
 
 import type { Key } from '@stencil-hq/tern'
 
+import { affirmative, negative } from '../core/keys.js'
 import type { BackgroundProcess } from '../model.js'
 import { moveSelection } from '../overlays/search.js'
 
@@ -130,16 +131,23 @@ export function reduceSheet(state: SheetState, action: SheetAction, facts: Sheet
       return { state: { ...settled, job: action.id } }
 
     case 'listed':
-      return action.ids.some(id => id === state.selected) ? { state } : { state: { ...state, selected: action.ids[0] } }
+      return action.ids.some(id => id === state.selected) ? { state } : {
+        state: { ...state, selected: action.ids[0], confirm: state.confirm === 'one' ? undefined : state.confirm }
+      }
 
     case 'jobsListed':
-      return action.ids.some(id => id === state.job) ? { state } : { state: { ...state, job: action.ids[0] } }
+      return action.ids.some(id => id === state.job) ? { state } : {
+        state: { ...state, job: action.ids[0], confirm: state.confirm === 'job' ? undefined : state.confirm }
+      }
 
     case 'expand':
       return { state: { ...state, expanded: Boolean(currentProcess(state, facts)) && !state.expanded } }
 
     case 'activate':
-      return { state: { ...state, expanded: true, selected: action.id } }
+      return { state: {
+        ...state, expanded: true, selected: action.id,
+        confirm: state.confirm === 'one' && state.selected !== action.id ? undefined : state.confirm
+      } }
 
     case 'ask': {
       const p = currentProcess(state, facts)
@@ -177,7 +185,7 @@ export function reduceSheet(state: SheetState, action: SheetAction, facts: Sheet
   }
 }
 
-/** The effect the open question's yes runs (a stop of the picked process when none is open). */
+/** The effect the open question's yes runs. */
 function confirmed(state: SheetState, facts: SheetFacts): { effect?: SheetEffect } {
   if (state.confirm === 'all') {
     return { effect: { kind: 'stopAll' } }
@@ -189,6 +197,7 @@ function confirmed(state: SheetState, facts: SheetFacts): { effect?: SheetEffect
     return j && !facts.busy(j.job_id) ? { effect: { action: 'remove', job: j, kind: 'job' } } : {}
   }
 
+  if (state.confirm !== 'one') { return {} }
   const p = currentProcess(state, facts)
 
   return p && isRunning(p) ? { effect: { kind: 'stopOne', process: p } } : {}
@@ -197,7 +206,7 @@ function confirmed(state: SheetState, facts: SheetFacts): { effect?: SheetEffect
 /** The action key `k` asks for, or undefined when the sheet ignores it (it takes every key regardless). */
 export function sheetKey(state: SheetState, k: Key, facts: SheetFacts): SheetAction | undefined {
   if (state.confirm) {
-    return k.name === 'enter' || k.name === 'y' ? { type: 'confirm' } : k.name === 'escape' || k.name === 'n' ? { type: 'cancel' } : undefined
+    return affirmative(k) ? { type: 'confirm' } : negative(k) ? { type: 'cancel' } : undefined
   }
 
   const bare = !k.ctrl && !k.alt && !k.meta
