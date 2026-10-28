@@ -309,6 +309,11 @@ export class WatchApp {
     if (this.#surface.state !== 'visible') {
       return
     }
+    // These Ctrl keys clear or close the watcher; modified variants are not that intent.
+    // Consume them here: Composer also treats Ctrl+Shift+D as delete-forward.
+    if (key.ctrl && (key.name === 'c' || key.name === 'd') && (key.alt || key.meta || key.shift)) {
+      return
+    }
     if (key.ctrl && key.name === 'c') {
       if (this.composer.text) {
         this.composer.set('')
