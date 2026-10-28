@@ -13,6 +13,7 @@ import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
 import { patchNoChangeSignal } from '../tools/patch-noop.js'
+import { taskNeedsAttention } from '../tools/task-attention.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
@@ -59,7 +60,7 @@ export function showsImage(call: ToolCall): boolean {
 }
 
 /** Consequential tool states stay visible independently of the surrounding work group. */
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
