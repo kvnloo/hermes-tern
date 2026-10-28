@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { Session, type Surface } from '@stencil-hq/tern'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { liveSessionId } from '../core/ids.js'
+import { entryId, liveSessionId } from '../core/ids.js'
 import type { SettingsSource } from '../settings.js'
 import { INPUT_ID } from '../surface/host.js'
 import { WatchApp } from '../watch/watchApp.js'
@@ -36,7 +36,7 @@ interface Harness {
   ack(sf: string, sequence: number): Promise<void>
 }
 
-async function withWatch(check: (h: Harness) => Promise<void>, credits = 64) {
+async function withWatch(check: (h: Harness) => Promise<void>, credits = 64, hour12 = false) {
   const home = mkdtempSync(join(tmpdir(), 'hermes-watch-recovery-'))
   const previous = process.env['HERMES_HOME']
   process.env['HERMES_HOME'] = home
@@ -46,7 +46,7 @@ async function withWatch(check: (h: Harness) => Promise<void>, credits = 64) {
   const handshake = tern.handshake()
   input.emit('data', '\x1b_tsp;r;' + JSON.stringify({
     ...tern.caps, r: 'hello', v: 1, term: 'strict-watch-peer', ver: '0',
-    features: [], credits, apc: 1048576
+    features: [], credits, apc: 1048576, hour12
   }) + '\x1b\\')
 
   let running: Promise<number> | undefined
@@ -110,6 +110,24 @@ afterEach(() => {
 })
 
 describe('WatchApp public SDK document and gesture recovery', () => {
+  it('uses the negotiated 12-hour clock for a watched child user entry', async () => {
+    const original = Date.prototype.toLocaleTimeString
+    vi.spyOn(Date.prototype, 'toLocaleTimeString').mockImplementation(function (this: Date, _locales, options) {
+      return original.call(this, 'en-GB', { ...options, timeZone: 'UTC' })
+    })
+    await withWatch(async h => {
+      h.watch.transcript.push({ at: Date.parse('2026-10-28T13:05:00Z'), id: entryId('clock'), kind: 'user', text: 'hello' })
+      h.watch.changed()
+      await painted()
+      expect(JSON.stringify(h.peer.frames)).toMatch(/01:05\s*pm/i)
+      const old = h.surface()
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const next = h.surface()
+      expect(next.id).toBe('hermes.recovery-1')
+      expect(JSON.stringify(h.peer.frames.filter(frame => frame.sf === next.id))).toMatch(/01:05\s*pm/i)
+    }, 64, true)
+  })
   it('routes native edit/send/action, rejects held old buttons and preserves unsent draft on whole replacement', async () => {
     await withWatch(async h => {
       const old = h.surface()

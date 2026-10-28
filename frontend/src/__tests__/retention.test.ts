@@ -186,6 +186,38 @@ describe('retained long-session transcript', () => {
     expect(h.ops().some(op => op[0] === 'del' && op[1] === 'main.retention-load')).toBe(true)
   })
 
+  it('refreshes present user clocks after credit recovery without reviving evicted history', () => {
+    const entries = history(25)
+    const first = entries[0]
+    if (first?.kind !== 'user') throw new Error('expected user entry')
+    first.at = Date.parse('2026-10-28T13:05:00Z')
+    const h = harness()
+    const oldClock = { ...context(), hour12: false }
+    const newClock = { ...context(), hour12: true }
+    h.paint(entries, oldClock)
+    h.gone(['main.u0'])
+    h.paint(entries, oldClock)
+    const before = h.ops().length
+    h.setBlocked(true)
+    h.paint(entries, newClock)
+    expect(h.since(before)).toEqual([])
+    h.setBlocked(false)
+    h.surface.acknowledge(1)
+    expect(h.changed).toHaveBeenCalled()
+    h.paint(entries, newClock)
+    const refreshed = h.since(before)
+    expect(refreshed).toContainEqual(['del', 'main.u1'])
+    expect(refreshed.some(op => op[0] === 'add' && op[1] === 'main.u1')).toBe(true)
+    expect(refreshed.some(op => op[0] === 'add' && op[1] === 'main.u0')).toBe(false)
+    expect(refreshed.some(op => op[0] === 'del' && op[1] === 'main.t1')).toBe(false)
+    h.retention.request()
+    const reload = h.ops().length
+    h.paint(entries, newClock)
+    const added = h.since(reload).find(op => op[0] === 'add' && op[1] === 'main.u0')
+    expect(added).toBeDefined()
+    expect(JSON.stringify(added)).toContain(new Date(first.at).toLocaleTimeString([], { hour: '2-digit', hour12: true, minute: '2-digit' }))
+  })
+
   it('reloads at most 40 evicted entries, reveals the oldest reloaded id, then releases the page', () => {
     const entries = history(60)
     const h = harness()

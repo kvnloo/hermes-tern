@@ -177,7 +177,8 @@ export async function replay({ fixture: name, replies, steps }: Replay): Promise
   const { App } = await import('../app/chat.js')
   const lines = fixture(name)
   const gw = new FakeGateway({ replies })
-  const tern = fakeTern({ cols: 100, draws: true })
+  // Golden frames use en-US, 12-hour host time; other tests exercise the SDK's 24-hour default.
+  const tern = fakeTern({ cols: 100, draws: true, hour12: true })
   const answers: unknown[] = []
   const app = new App(tern.session, gw.client, '1.0.0')
   void app.run()
