@@ -5,6 +5,7 @@ import type { ChangeEvent, JSX, Key, PrefsControl, PrefsProps, PrefsRow } from '
 
 import type { ChatPorts } from '../app/ports.js'
 import { errorText } from '../core/errors.js'
+import type { Ticket } from '../core/epoch.js'
 import { Composer } from '../draft/composer.js'
 import { type Preference, preference, preferenceValue, PROFILE_PREFERENCES, type ProfileRow } from '../preferences/contracts.js'
 import { readProfile, writeProfile } from '../preferences/transactions.js'
@@ -37,6 +38,7 @@ class SettingsSheet implements Overlay {
   readonly #host: SettingsHost
   readonly #sid: string
   readonly #profileName: string
+  readonly #owner: Ticket
   readonly #root = `settings-${++nextSettingsRoot}`
   readonly #search = new Composer()
   readonly #editor = new Composer()
@@ -52,15 +54,17 @@ class SettingsSheet implements Overlay {
   #message = ''
   #busy: string | undefined
   #confirmation: Pending | undefined
+  #confirmSelected = false
 
-  constructor(host: SettingsHost, sid: string, profile: string) {
+  constructor(host: SettingsHost, sid: string, profile: string, owner: Ticket) {
     this.#host = host
     this.#sid = sid
     this.#profileName = profile
+    this.#owner = owner
   }
 
   #live(): boolean {
-    return this.#alive && this.#host.session.ref.live === this.#sid &&
+    return this.#alive && !this.#owner.signal.aborted && this.#owner.isCurrent() && this.#host.session.ref.live === this.#sid &&
       this.#host.session.info?.profile_name === this.#profileName &&
       this.#host.overlays.filter(item => item.key === this.key).at(-1) === this
   }
@@ -128,6 +132,7 @@ class SettingsSheet implements Overlay {
         this.#message = ''
       } else if (field.consequential) {
         this.#confirmation = { expected: current.value, field, value }
+        this.#confirmSelected = false
         this.#message = 'Explicit confirmation required for this profile-wide security policy.'
       } else {
         void this.#save({ expected: current.value, field, value })
@@ -151,7 +156,7 @@ class SettingsSheet implements Overlay {
 
     try {
       const receipt = await writeProfile({
-        active: () => this.#live(),
+        active: () => this.#interactive(),
         gw: this.#host.gw,
         sid: this.#sid,
         profile: this.#profileName
@@ -341,10 +346,10 @@ class SettingsSheet implements Overlay {
             <text key="heading" text="Confirm Hermes profile change" />
             <text key="scope" text={`Profile setting: ${ask.field.label}. This is persistent, not a live session pin.`} wrap="word" />
             <text key="value" text={`Change from ${ask.expected} to ${ask.value}?`} wrap="word" />
-            <text key="warning" text="This changes the tool-approval policy for the profile. Enter and Escape cancel by default." wrap="word" />
+            <text key="warning" text="This changes the tool-approval policy for the profile. Use Left/Right to select, then Enter. Escape cancels." wrap="word" />
             <row gap="sm" key="actions" role="omp.actions">
-              {button({ key: 'cancel', label: 'Cancel (default)', onClick: () => { if (this.#interactive() && this.#confirmation === ask) { this.#confirmation = undefined; this.#host.changed() } } })}
-              {button({ key: 'confirm', label: 'Confirm profile policy change', onClick: () => {
+              {button({ key: 'cancel', label: this.#confirmSelected ? 'Cancel' : 'Cancel (selected, default)', onClick: () => { if (this.#interactive() && this.#confirmation === ask) { this.#confirmation = undefined; this.#host.changed() } } })}
+              {button({ key: 'confirm', label: this.#confirmSelected ? 'Confirm profile policy change (selected)' : 'Confirm profile policy change', onClick: () => {
                 if (this.#interactive() && this.#confirmation === ask) {
                   void this.#save(ask)
                 }
@@ -415,20 +420,22 @@ class SettingsSheet implements Overlay {
   }
 
   onKey(key: Key): boolean {
-    if (this.#confirmation) {
-      if (key.name === 'enter' || key.name === 'escape' || (key.ctrl && key.name === 'c')) {
-        this.#confirmation = undefined
-        this.#host.changed()
-      }
-
+    if (!this.#interactive()) {
+      if (key.name === 'escape' && this.#host.overlays.at(-1) === this) this.#host.close(this)
       return true
     }
 
-    if (!this.#interactive()) {
-      if (key.name === 'escape') {
-        this.#host.close(this)
+    if (this.#confirmation) {
+      const bare = !key.ctrl && !key.alt && !key.shift && !key.meta
+      if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+        this.#confirmation = undefined
+      } else if (bare && (key.name === 'left' || key.name === 'right')) {
+        this.#confirmSelected = key.name === 'right'
+      } else if (bare && key.name === 'enter') {
+        if (this.#confirmSelected) void this.#save(this.#confirmation)
+        else this.#confirmation = undefined
       }
-
+      this.#host.changed()
       return true
     }
 
@@ -515,7 +522,14 @@ export function openSettings(host: SettingsHost): void {
     return
   }
 
-  const overlay = new SettingsSheet(host, sid, profile)
+  const owner = host.session.ownerTicket?.()
+
+  if (!owner || owner.signal.aborted || !owner.isCurrent()) {
+    host.transcript.notice('Cannot open Settings without a stable session owner. Retry after reconnecting.', 'warning')
+    return
+  }
+
+  const overlay = new SettingsSheet(host, sid, profile, owner)
   host.open(overlay)
   void overlay.load()
 }

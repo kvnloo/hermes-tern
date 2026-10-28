@@ -35,6 +35,7 @@ export class SessionState implements SessionView {
   #busyMode: BusyMode = 'queue'
   /** One generation per shown runtime id: a ticket's signal aborts once the view leaves its session. */
   readonly #shown = new Epoch()
+  readonly #owner = new Epoch()
 
   constructor(changed: () => void) {
     this.#changed = changed
@@ -46,6 +47,7 @@ export class SessionState implements SessionView {
   }
 
   set ref(ref: SessionIds) {
+    this.#owner.next()
     if (ref.live !== this.#ref.live) {
       this.#shown.next()
     }
@@ -60,6 +62,7 @@ export class SessionState implements SessionView {
   }
 
   set info(info: SessionInfo | null) {
+    if (info?.profile_name !== this.#info?.profile_name) this.#owner.next()
     this.#info = info
     this.#changed()
   }
@@ -82,6 +85,11 @@ export class SessionState implements SessionView {
   set busyMode(mode: BusyMode) {
     this.#busyMode = mode
     this.#changed()
+  }
+
+  /** Invalidated permanently when the displayed session or profile changes. */
+  ownerTicket(): Ticket {
+    return this.#owner.current()
   }
 
   /** A ticket for the session shown now: current while the view shows it. */
