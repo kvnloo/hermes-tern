@@ -199,7 +199,8 @@ export function projectToolMedia(call: ToolCall, cx: MediaContext): ToolMedia | 
 
   const result = record(call.result)
 
-  if (result?.['success'] === false || result?.['error'] || result?.['partial'] === true || result?.['truncated'] === true) {
+  if (result?.['content_returned'] === false || result?.['success'] === false || result?.['error'] ||
+      result?.['partial'] === true || result?.['truncated'] === true) {
     return undefined
   }
 
