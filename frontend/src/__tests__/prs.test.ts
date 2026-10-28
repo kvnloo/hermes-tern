@@ -1,4 +1,4 @@
-import { plain } from '@stencil-hq/tern'
+import { Node, plain } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
 import { prKey, storedSessionId } from '../core/ids.js'
@@ -8,7 +8,7 @@ import { type Entry, type Listed, PullRequests } from '../github/store.js'
 import { parseBody } from '../prs/body.js'
 import { PrView } from '../prs/view.js'
 
-import { ofKind, stub } from './fakes.js'
+import { key, must, ofKind, stub } from './fakes.js'
 
 const text = (nodes: unknown[]) => plain(stub({ main: nodes }), 200)
 
@@ -111,11 +111,57 @@ describe('PrView', () => {
   }
 
   const viewOf = (entry: Entry) => {
-    const prs = { activity: vi.fn(async () => {}), busy: () => false, entries: () => [entry], files: vi.fn(async () => {}), get: () => entry, poke: vi.fn() }
+    const prs = { act: vi.fn(async () => {}), activity: vi.fn(async () => {}), busy: () => false, entries: () => [entry], files: vi.fn(async () => {}), get: () => entry, poke: vi.fn() }
     const view = new PrView({ changed: vi.fn(), notice: vi.fn(), open: vi.fn(), prs: stub<PullRequests>(prs) }, prKey(ref))
 
     return { prs, view }
   }
+
+  it.each(['merge', 'close'] as const)('requires bare confirmation for PR %s and fences canceled native callbacks', action => {
+    const entry: Listed = { activity: { kind: 'idle' }, files: { kind: 'idle' }, pr, ref, source: 'linked' }
+    const { prs, view } = viewOf(entry)
+    view.ask(action)
+    const find = (node: unknown): Node | undefined => node instanceof Node
+      ? node.props['key'] === 'yes' ? node : node.children.map(find).find(Boolean) : undefined
+    const oldClick = must(find(view.actions())?.handlers?.onClick)
+    const event = { act: 'click', ev: 'action', id: 'yes', raw: {}, sf: 'hermes' } as const
+    for (const name of ['y', 'enter', 'n', 'escape']) {
+      for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+        expect(view.onKey(key(name, mods))).toBe(true)
+      }
+    }
+    expect(prs.act).not.toHaveBeenCalled()
+    view.onKey(key('n'))
+    oldClick(event)
+    expect(prs.act).not.toHaveBeenCalled()
+    view.ask(action)
+    oldClick(event)
+    expect(prs.act).not.toHaveBeenCalled()
+    const currentClick = must(find(view.actions())?.handlers?.onClick)
+    currentClick(event)
+    currentClick(event)
+    expect(prs.act).toHaveBeenCalledTimes(1)
+    expect(prs.act).toHaveBeenCalledWith(action, prKey(ref))
+    view.ask(action)
+    view.onKey(key('enter'))
+    expect(prs.act).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not apply an old PR confirmation to the fallback selection after a list change', () => {
+    const entry: Listed = { activity: { kind: 'idle' }, files: { kind: 'idle' }, pr, ref, source: 'linked' }
+    const otherRef = { ...ref, number: 6, url: 'https://github.com/acme/app/pull/6' }
+    const other: Listed = { ...entry, ref: otherRef, pr: { ...pr, number: 6, url: otherRef.url } }
+    const { prs, view } = viewOf(entry)
+    view.ask('merge')
+    const find = (node: unknown): Node | undefined => node instanceof Node
+      ? node.props['key'] === 'yes' ? node : node.children.map(find).find(Boolean) : undefined
+    const oldClick = must(find(view.actions())?.handlers?.onClick)
+    prs.entries = () => [other]
+    prs.get = () => other
+    view.onKey(key('y'))
+    oldClick({ act: 'click', ev: 'action', id: 'yes', raw: {}, sf: 'hermes' })
+    expect(prs.act).not.toHaveBeenCalled()
+  })
 
   it('shows the description, then says the conversation is loading, or why it failed', () => {
     const entry: Listed = { activity: { kind: 'idle' }, files: { kind: 'idle' }, pr, ref, source: 'linked' }

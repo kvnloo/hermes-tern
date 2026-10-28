@@ -4,11 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { sharedPromptRequest } from '../hermes/sharedPrompts.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
-import { promptOverlay, promptTimeoutNotice } from '../overlays/prompts.js'
+import { confirmOverlay, promptOverlay, promptTimeoutNotice } from '../overlays/prompts.js'
 import { parsePrompt, type PromptRequest } from '../prompts/parse.js'
 import { promptKey, PromptSheets } from '../prompts/sheets.js'
 
 import { key, must, spanTexts, stub, tree } from './fakes.js'
+import { nativeBrowserSurface } from './browserSdk.js'
 import { assignedRoot } from './overlayRoots.js'
 
 const ctrlC = key('c', { ctrl: true })
@@ -144,6 +145,29 @@ describe('the approval sheet', () => {
     expect(answers).toEqual([])
   })
 
+  it.each(['enter', 'y', 'a', 's'])('ignores modified affirmative %s before accepting a bare choice', name => {
+    const { answers, overlay } = open('approval', { command: 'make' })
+    for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+      expect(overlay.onKey(key(name, mods))).toBe(true)
+    }
+    overlay.onKey(key('escape', { alt: true }))
+    expect(answers).toEqual([])
+    overlay.onKey(key(name))
+    expect(answers).toHaveLength(1)
+  })
+
+  it('still accepts a native click for an explicitly offered approval', async () => {
+    const { answers, overlay } = open('approval', { command: 'make' })
+    const sdk = await nativeBrowserSurface()
+    try {
+      const click = sdk.capture(sdk.render('layer', overlay.node(assignedRoot(overlay))), 'layer', 'once')
+      await click()
+      expect(answers).toEqual([{ choice: 'once' }])
+    } finally {
+      await sdk.close()
+    }
+  })
+
   it('shows the whole command, wrapped', () => {
     const command = `cd /home/x/worktree && ${'for f in a b c; do echo $f; done && '.repeat(6)}true`
     const { overlay } = open('approval', { command })
@@ -155,6 +179,29 @@ describe('the approval sheet', () => {
 })
 
 describe('masked prompts', () => {
+  it('keeps a value on modified Enter and Escape until a bare submission', () => {
+    const { answers, overlay } = open('vault.code', { hint: 'sent by SMS', site: 'example.com' })
+    overlay.onKey(key('1', { text: '1' }))
+    for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+      overlay.onKey(key('enter', mods))
+      overlay.onKey(key('escape', mods))
+    }
+    expect(answers).toEqual([])
+    expect(inputText(overlay)).toBe('1')
+    overlay.onKey(key('enter'))
+    expect(answers).toEqual([{ value: '1' }])
+  })
+
+  it('does not advance a multi-field login on modified Enter', () => {
+    const { answers, overlay } = open('vault.save_login', { site: 'example.com' })
+    overlay.onKey(key('a', { text: 'a' }))
+    overlay.onKey(key('enter', { ctrl: true }))
+    overlay.onKey(key('b', { text: 'b' }))
+    overlay.onKey(key('enter'))
+    overlay.onKey(key('p', { text: 'p' }))
+    overlay.onKey(key('enter'))
+    expect(answers).toEqual([{ value: JSON.stringify({ identifier: 'ab', password: 'p' }) }])
+  })
   it('shows a one-time code as typed', () => {
     const { answers, overlay } = open('vault.code', { hint: 'sent by SMS', site: 'example.com' })
 
@@ -173,6 +220,50 @@ describe('masked prompts', () => {
     overlay.onKey(key('p', { text: 'p' }))
 
     expect(inputText(overlay)).toMatch(/^[^p]+$/)
+  })
+})
+
+describe('clarify input and ordinary confirmation', () => {
+  it('keeps modified Enter and option numbers from answering, while bare Enter answers', () => {
+    const { answers, overlay } = open('clarify', { questions: [{ qid: 'q1', question: 'Which?', choices: ['first', 'second'] }] })
+    for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+      overlay.onKey(key('enter', mods))
+      overlay.onKey(key('1', mods))
+    }
+    expect(answers).toEqual([])
+    overlay.onKey(key('enter'))
+    expect(answers).toEqual([{ answers: { q1: 'first' } }])
+  })
+
+  it('keeps free-text editing on Shift+Enter without submitting', () => {
+    const { answers, overlay } = open('clarify', { questions: [{ qid: 'q1', question: 'Why?' }] })
+    overlay.onKey(key('x', { text: 'x' }))
+    overlay.onKey(key('enter', { shift: true }))
+    overlay.onKey(key('z', { text: 'z' }))
+    expect(answers).toEqual([])
+    expect(inputText(overlay)).toBe('x\nz')
+    overlay.onKey(key('enter'))
+    expect(answers).toEqual([{ answers: { q1: 'x\nz' } }])
+  })
+
+  it('consumes modified keys and lets an explicit native click confirm once', async () => {
+    const confirm = vi.fn()
+    const host: OverlayHost = { changed: vi.fn(), close: vi.fn(), open: vi.fn() }
+    const overlay = confirmOverlay(host, { title: 'Stop?', detail: '', confirm: 'Stop', onConfirm: confirm })
+    for (const name of ['y', 'enter', 'n', 'escape']) {
+      overlay.onKey(key(name, { ctrl: true, alt: true }))
+    }
+    expect(confirm).not.toHaveBeenCalled()
+    expect(host.close).not.toHaveBeenCalled()
+    const sdk = await nativeBrowserSurface()
+    try {
+      const click = sdk.capture(sdk.render('layer', overlay.node(assignedRoot(overlay))), 'layer', 'ok')
+      await click()
+      await click()
+      expect(confirm).toHaveBeenCalledTimes(1)
+    } finally {
+      await sdk.close()
+    }
   })
 })
 
@@ -231,6 +322,35 @@ function sheetText(overlay: Overlay): string {
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('a shared prompt sheet', () => {
+  it('freezes modified input during a pending reply and restores multiline editing after refusal', async () => {
+    const { closed, overlay, replies, request } = shared('clarify.request', { question: 'Why?' })
+
+    overlay.onKey(key('a', { text: 'a' }))
+    overlay.onKey(key('enter'))
+    overlay.onKey(key('enter', { shift: true }))
+    overlay.onKey(key('enter', { alt: true }))
+    overlay.onKey(key('enter', { ctrl: true }))
+    overlay.onKey(key('c', { ctrl: true, alt: true }))
+    overlay.cancel?.() // The App's global bare Ctrl+C path calls cancel directly.
+    overlay.onKey(key('b', { text: 'b' }))
+    expect(inputText(overlay)).toBe('a')
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(closed).toEqual([])
+
+    must(replies[0]).reject(new Error('gateway unavailable'))
+    await settle()
+    overlay.onKey(key('c', { ctrl: true, alt: true }))
+    overlay.onKey(key('enter', { shift: true }))
+    overlay.onKey(key('b', { text: 'b' }))
+    overlay.onKey(key('enter', { ctrl: true }))
+    expect(inputText(overlay)).toBe('a\nb')
+    expect(request).toHaveBeenCalledTimes(1)
+    overlay.onKey(key('enter'))
+    expect(request).toHaveBeenLastCalledWith('clarify.respond', expect.objectContaining({ answer: 'a\nb' }))
+    must(replies[1]).resolve({ status: 'resolved' })
+    await settle()
+  })
+
   it('keeps the submitted text unchanged while the gateway is deciding, then permits editing after refusal', async () => {
     const { overlay, replies, request } = shared('clarify.request', { question: 'Why?' })
 

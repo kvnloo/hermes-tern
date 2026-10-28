@@ -11,6 +11,7 @@ import { modelSearchText } from '@hermes/shared/model-search-text'
 import type { JSX, Key, KvItem, PickerColumn, PickerGroup, PickerItem, PickerScope } from '@stencil-hq/tern'
 
 import type { ChatPorts } from '../app/ports.js'
+import { affirmative, negative } from '../core/keys.js'
 import { optional } from '../core/assert.js'
 import { errorText } from '../core/errors.js'
 import { modelPayload, mutateSession } from '../hermes/mutate.js'
@@ -365,9 +366,9 @@ export function openModelPicker(host: ModelsHost) {
     },
     onKey: (k: Key) => {
       if (confirm) {
-        if (k.name === 'enter' || k.name === 'y') {
+        if (affirmative(k)) {
           void choose(confirm.row.id, true)
-        } else if (k.name === 'escape' || k.name === 'n') {
+        } else if (negative(k)) {
           confirm = null
         }
 

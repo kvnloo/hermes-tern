@@ -3,6 +3,7 @@
 
 import type { ApprovalChoice, ApprovalResult } from '@hermes/shared/gateway-events'
 
+import { unmodified } from '../core/keys.js'
 import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
 import { withoutTernEnv } from '../tools/terminal.js'
@@ -70,11 +71,11 @@ export function approvalOverlay(host: OverlayHost, prompt: ApprovalPrompt): Over
       </overlay>
     ),
     onKey: k => {
-      if (isCtrlC(k) || k.name === 'escape') {
+      if (isCtrlC(k) || (k.name === 'escape' && unmodified(k))) {
         decline()
-      } else if (k.name === 'enter') {
+      } else if (k.name === 'enter' && unmodified(k)) {
         answer(choices.some(c => c.id === 'once') ? 'once' : 'deny')
-      } else if (!k.ctrl && !k.meta && !k.alt) {
+      } else if (unmodified(k)) {
         const typed = choices.find(c => c.typed === k.name)
 
         if (typed) {
