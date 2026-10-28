@@ -90,6 +90,19 @@ describe('profile policy keyboard confirmation through App', () => {
     expect(f.sent('config.set')).toEqual([])
   })
 
+  it('keeps a selected confirmation through modified Ctrl+C and cancels only on bare Ctrl+C', async () => {
+    const f = fixture()
+    const sheet = await ask(f)
+    await f.press(key('right'))
+    await f.press(key('c', { ctrl: true, alt: true }))
+    expect(render(sheet)).toContain('Confirm profile policy change (selected)')
+    expect(f.sent('config.set')).toEqual([])
+    await f.press(key('c', { ctrl: true }))
+    expect(f.app.overlays).not.toContain(sheet)
+    expect(f.sent('config.set')).toEqual([])
+    expect(f.values.get('approvals.mode')).toBe('manual')
+  })
+
   it('never acts on covered, closed, or replaced sheet key callbacks', async () => {
     const f = fixture()
     const sheet = await ask(f)

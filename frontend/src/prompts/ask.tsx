@@ -22,7 +22,7 @@ export interface Option {
 }
 
 /** Ctrl+C on a question sheet declines it, as Esc does (the TUI's `cancelOverlayFromCtrlC`). */
-export const isCtrlC = (k: Key) => k.ctrl && k.name === 'c'
+export const isCtrlC = (k: Key) => k.ctrl && !k.alt && !k.meta && !k.shift && k.name === 'c'
 
 /** The option list `listKey`, its items keyed under node `id`; a click selects, a double click or Enter picks. */
 export function optionList(

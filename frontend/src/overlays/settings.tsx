@@ -7,6 +7,7 @@ import type { ChatPorts } from '../app/ports.js'
 import { errorText } from '../core/errors.js'
 import type { Ticket } from '../core/epoch.js'
 import { Composer } from '../draft/composer.js'
+import { KEYS, matches } from '../draft/keys.js'
 import { type Preference, preference, preferenceValue, PROFILE_PREFERENCES, type ProfileRow } from '../preferences/contracts.js'
 import { readProfile, writeProfile } from '../preferences/transactions.js'
 import { button } from '../view/ui/button.js'
@@ -427,7 +428,7 @@ class SettingsSheet implements Overlay {
 
     if (this.#confirmation) {
       const bare = !key.ctrl && !key.alt && !key.shift && !key.meta
-      if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+      if (key.name === 'escape' || matches(key, KEYS.cancel)) {
         this.#confirmation = undefined
       } else if (bare && (key.name === 'left' || key.name === 'right')) {
         this.#confirmSelected = key.name === 'right'
