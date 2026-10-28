@@ -50,6 +50,8 @@ export interface EvalDetail {
   output: string | undefined
   /** What failed: the result's `error`, or its `stderr`. */
   error: string | undefined
+  /** Hermes explicitly reported stdout truncation; false does not establish completeness. */
+  stdoutTruncated: boolean
 }
 
 /** A `memory` call, read once. */
@@ -120,11 +122,34 @@ export function processDetail(raw: Raw): ProcessDetail {
   return { ...genericFields(raw), action: String(raw.args['action']), tool: 'process_manage' }
 }
 
+/** A typed producer signal only; reject explicit malformed or contradictory counters. */
+function stdoutTruncated(result: Raw['result']): boolean {
+  if (!result || !Object.hasOwn(result, 'stdout_truncated') || result['stdout_truncated'] !== true) return false
+  const counts = ['stdout_bytes_captured', 'stdout_bytes_total', 'stdout_bytes_omitted'] as const
+  for (const key of counts) {
+    const value = result[key]
+    if (Object.hasOwn(result, key) && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) return false
+  }
+  const readCount = (key: string): number | undefined => {
+    const value = result[key]
+    return Object.hasOwn(result, key) && typeof value === 'number' ? value : undefined
+  }
+  const captured = readCount('stdout_bytes_captured')
+  const total = readCount('stdout_bytes_total')
+  const omitted = readCount('stdout_bytes_omitted')
+  if (total !== undefined && total === 0) return false
+  if (omitted !== undefined && (omitted === 0 || (total !== undefined && omitted > total))) return false
+  if (captured !== undefined && total !== undefined && captured >= total) return false
+  if (captured !== undefined && total !== undefined && omitted !== undefined && captured + omitted !== total) return false
+  return true
+}
+
 export function evalDetail({ args, result }: Raw): EvalDetail {
   return {
     code: text(args['code']),
     error: text(result?.['error']) ?? text(result?.['stderr']),
     output: text(result?.['output']) ?? text(result?.['stdout']),
+    stdoutTruncated: stdoutTruncated(result),
     tool: 'execute_code'
   }
 }
