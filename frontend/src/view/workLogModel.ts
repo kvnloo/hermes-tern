@@ -19,6 +19,7 @@ import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { terminalMaskedNeedsAttention, terminalRecreationNeedsAttention } from '../tools/terminal.js'
 import { v4aLintNeedsAttention } from '../tools/v4a-lint.js'
+import { v4aValidationFailure, v4aValidationMarker } from '../tools/v4a-validation.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { writeRefusalNeedsAttention } from '../tools/write-refusal.js'
@@ -97,7 +98,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || v4aLintNeedsAttention(b.call) || terminalNeedsAttention(b.call) || writeRefusalNeedsAttention(b.call) || memoryStagingReported(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || v4aLintNeedsAttention(b.call) || terminalNeedsAttention(b.call) || writeRefusalNeedsAttention(b.call) || memoryStagingReported(b.call) || v4aValidationFailure(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 
@@ -248,7 +249,7 @@ export function parts(turn: TurnEntry): Part[] {
 
 /** What a call counts as in a summary: its view's action (an app's while it acted in apps only); `other` when its view throws. */
 export function actionOf(call: ToolCall): Action {
-  if (patchNoChangeSignal(call)) return 'other'
+  if (patchNoChangeSignal(call) || v4aValidationMarker(call)) return 'other'
   return withView(call, view => view.action())
 }
 

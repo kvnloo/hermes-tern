@@ -14,6 +14,7 @@ import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { v4aLintNeedsAttention } from '../../../tools/v4a-lint.js'
 import { writeRefusalNeedsAttention } from '../../../tools/write-refusal.js'
+import { v4aValidationFailure, v4aValidationMarker } from '../../../tools/v4a-validation.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -25,7 +26,9 @@ export const patchView: ToolView<'patch'> = {
   action: 'edit',
   card: editCard,
   hubIcon: 'edit',
-  step: (call, d) => patchNoWriteReported(call)
+  step: (call, d) => v4aValidationFailure(call) ? 'Patch validation failed'
+    : v4aValidationMarker(call) ? 'Patch failed'
+    : patchNoWriteReported(call)
     ? (d.path ? `Patch target appears present in ${shortPath(d.path)}` : 'Patch target appears present')
     : patchNoChangeSignal(call) ? (d.path ? `Patch ${shortPath(d.path)}` : 'Patch')
     : (d.path ? `Edited ${shortPath(d.path)}` : 'Edited a file')
@@ -208,6 +211,21 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     targetKind: 'path',
     title: write ? 'Write' : 'Edit'
   } satisfies Partial<Card>
+
+  const validation = v4aValidationFailure(call)
+  if (validation) {
+    const reason = lintText(validation)
+    return {
+      ...head,
+      body: [
+        <text key="validation" role="omp.tool.error" spans={[{ s: 'error', t: reason.value }]} wrap="word" />,
+        ...(reason.clipped ? [<text key="validation-clipped" role="omp.tool.notice" text="Patch error clipped in view" />] : []),
+        ...(reason.escaped ? [<text key="validation-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />] : [])
+      ],
+      folded: false,
+      meta: ['Patch validation failed']
+    }
+  }
 
   if (patchNoWriteReported(call)) {
     const notice = 'Target text appears present; no write performed'
