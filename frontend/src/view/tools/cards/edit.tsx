@@ -9,6 +9,7 @@ import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
+import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -55,7 +56,7 @@ function lintText(text: string): { value: string; clipped: boolean; escaped: boo
 }
 
 function lintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
-  if (!d.lintError || call.outcome.kind === 'running') return []
+  if (!writeLintNeedsAttention(call) || !d.lintError) return []
   const { output, message } = d.lintError
   const report = output ? lintText(output) : undefined
   const summary = message ? lintText(message) : undefined
