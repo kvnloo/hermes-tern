@@ -2,7 +2,7 @@ import { Node } from '@stencil-hq/tern'
 import { describe, expect, it, vi } from 'vitest'
 
 import { INPUT_ID } from '../surface/host.js'
-import { App } from './appSetup.js'
+import { App, png } from './appSetup.js'
 import { FakeGateway, fakeTern, given, key, settle, stubOverlay, topNodes } from './fakes.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
@@ -103,6 +103,8 @@ describe('the visible live UX in App', () => {
       const modal = stubOverlay('prompt:consent', { modal: true })
       app.open(modal)
       await settle(gw)
+      const editor = flattened(topNodes(tern.region('dock'))).find(n => typeof n.handlers?.onSend === 'function')
+      expect(editor?.props['sendable']).toBe(false)
       nativeSend(tern, 'hidden text')
       await settle(gw)
 
@@ -123,6 +125,45 @@ describe('the visible live UX in App', () => {
       expect(app.stores.composer.text).toBe('hidden text')
       expect(app.stores.composer.cursor).toBe(3)
     } finally {
+      app.dispose()
+      tern.end()
+    }
+  })
+
+  it('withholds native readiness during image upload, while keyboard slash commands remain usable', async () => {
+    const upload = Promise.withResolvers<unknown>()
+    const gw = new FakeGateway({ replies: { 'image.attach_bytes': () => upload.promise } })
+    const tern = fakeTern({ draws: true })
+    const app = new App(tern.session, gw.client, '1.0')
+    void app.run()
+    given.session(app.stores, 's1')
+    const editor = () => flattened(topNodes(tern.region('dock'))).find(n => typeof n.handlers?.onSend === 'function')
+
+    try {
+      const attaching = app.stores.attachments.fromPath(png)
+      await vi.waitFor(() => expect(app.stores.attachments.uploading).toBe(true))
+      await settle(gw)
+      expect(editor()?.props['sendable']).toBe(false)
+      nativeSend(tern, 'wait for image')
+      expect(gw.sent('prompt.submit')).toEqual([])
+      expect(app.stores.composer.text).toBe('wait for image')
+      expect(app.transcript.entries.at(-1)).toMatchObject({ kind: 'notice', text: expect.stringContaining('still attaching') })
+
+      app.stores.composer.set('/palette')
+      app.changed()
+      await settle(gw)
+      await vi.waitFor(() => expect(tern.reading).toBe(true))
+      tern.press(key('enter'))
+      await vi.waitFor(() => expect(app.overlays.at(-1)?.key).toBe('command-palette'))
+      expect(app.stores.attachments.uploading).toBe(true)
+      upload.resolve({ path: '/uploads/slow.png' })
+      await attaching
+      const palette = app.overlays.at(-1)
+      if (palette) { app.close(palette) }
+      await settle(gw)
+      expect(editor()?.props['sendable']).toBe(true)
+    } finally {
+      upload.resolve({ path: '/uploads/slow.png' })
       app.dispose()
       tern.end()
     }

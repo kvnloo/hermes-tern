@@ -156,9 +156,11 @@ describe('Vim composer plugged into the actual app and native Tern dock', () => 
       await press('escape')
       expect(app.stores.composer.vim.mode).toBe('normal')
       expect(editor().props['mode']).toBe('normal')
+      expect(editor().props['sendable']).toBe(false)
       await press('v', 'v')
       await press('l', 'l')
       expect(editor().props['mode']).toBe('visual')
+      expect(editor().props['sendable']).toBe(false)
       expect(editor().props['anchor']).toBe(0)
       expect(editor().props['cursor']).toBe(2)
 
@@ -179,6 +181,7 @@ describe('Vim composer plugged into the actual app and native Tern dock', () => 
       app.changed()
       await new Promise<void>(resolve => setImmediate(resolve))
       expect(editor().props['mode']).toBeUndefined()
+      expect(editor().props['sendable']).toBe(true)
       if (typeof edit === 'function') edit({ ev: 'edit', sf: 'hermes', id: 'dock.composer.line.input', raw: {}, from: 3, to: 3, text: '文', cursor: 4, len: 3 })
       expect(app.stores.composer.text).toBe('abc文')
     } finally {
