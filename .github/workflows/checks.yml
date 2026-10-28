@@ -6,7 +6,7 @@ name: checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'integration/nightly-*']
 
 permissions:
   contents: read
