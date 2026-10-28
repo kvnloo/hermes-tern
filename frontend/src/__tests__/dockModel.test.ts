@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { drawFrame, type FrameCx } from '../app/frame.js'
 import type { Pill } from '../chrome/hud.js'
+import { NoticeStrip } from '../chrome/notices.js'
 import { liveSessionId } from '../core/ids.js'
 import { Attachments } from '../draft/attachments.js'
 import { busyHint } from '../turn/busyInput.js'
@@ -35,6 +36,34 @@ const byRole = (nodes: readonly JSX.Element[], role: string) => walk(nodes).filt
 
 /** Clicks `n` as Tern would. */
 const click = (n: Node | undefined) => n?.handlers?.onClick?.({ act: 'click', ev: 'action', id: 'x', raw: {}, sf: 'hermes' })
+
+describe('gateway notice discovery', () => {
+  it('draws an active error and latest notice, with a compact clickable count for inspection', () => {
+    const notices = new NoticeStrip({ changed: () => undefined })
+    notices.show({ key: 'error', kind: 'sticky', level: 'error', text: 'Credit access paused' })
+    notices.show({ key: 'later', kind: 'sticky', level: 'info', text: 'Later update' })
+    const inspect = vi.fn()
+    const model = dockModel(dockSources({ notices }), Date.now())
+    expect(model.status.otherError?.text).toBe('Credit access paused')
+    expect(model.status.notice?.text).toBe('Later update')
+    expect(model.status.noticeCount).toBe(2)
+    const nodes = walk(dockNodes(model, dockActions({ onNotices: inspect })))
+    expect(nodes.find(node => node.props['title'] === 'Credit access paused')).toBeDefined()
+    expect(nodes.find(node => node.props['title'] === 'Later update')).toBeDefined()
+    click(nodes.find(node => node.props['title'] === 'Inspect retained notices (/notices)'))
+    expect(inspect).toHaveBeenCalledTimes(1)
+    const errorPriority = nodes.find(node => node.props['title'] === 'Credit access paused')?.props['priority']
+    const countPriority = nodes.find(node => node.props['title'] === 'Inspect retained notices (/notices)')?.props['priority']
+    expect(errorPriority).toBe(9)
+    expect(countPriority).toBe(7)
+
+    // The newest notice may itself be the error; its priority must remain higher than the count too.
+    notices.show({ key: 'new-error', kind: 'sticky', level: 'error', text: 'Newest error' })
+    const withLatestError = walk(dockNodes(dockModel(dockSources({ notices }), Date.now()), dockActions({ onNotices: inspect })))
+    expect(withLatestError.find(node => node.props['title'] === 'Newest error')?.props['priority']).toBe(9)
+    notices.dispose()
+  })
+})
 
 describe('dockModel: what holds the session', () => {
   it('is idle with no turn and no compaction', () => {

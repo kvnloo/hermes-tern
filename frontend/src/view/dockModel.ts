@@ -55,7 +55,7 @@ export interface DockSources {
   readonly agents: Pick<Agents, 'running'>
   readonly processes: Pick<Processes, 'recent'>
   readonly prs: Pick<PullRequests, 'entries'>
-  readonly notices: Pick<NoticeStrip, 'current'>
+  readonly notices: Pick<NoticeStrip, 'current' | 'active' | 'otherError'>
   readonly title: Pick<SessionTitle, 'text'>
   readonly queue: Pick<PromptQueue, 'rows'>
 }
@@ -110,6 +110,7 @@ export function dockModel(src: DockSources, now: number): DockContext {
   const max = usage?.context_max ?? 0
   const list = shownTodos(src)
   const agents = src.agents.running()
+  const noticeCount = src.notices.active(now).length
 
   return {
     activity: dockActivity(src.activity),
@@ -146,6 +147,8 @@ export function dockModel(src: DockSources, now: number): DockContext {
       context: max > 0 ? { max, used } : undefined,
       cost: usage?.cost_usd ?? undefined,
       notice: src.notices.current(now),
+      otherError: src.notices.otherError(now),
+      noticeCount: noticeCount > 1 ? noticeCount : undefined,
       rates: {
         cache: typeof usage?.cache_hit_pct === 'number' ? usage.cache_hit_pct : undefined,
         tps: typeof usage?.avg_tps === 'number' && usage.avg_tps > 0 ? usage.avg_tps : undefined

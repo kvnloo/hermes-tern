@@ -26,6 +26,12 @@ function app(paused?: boolean) {
 
 const agents = (a: ReturnType<typeof app>, arg: string) => must(localCommand('agents')).run(stub<CommandHost>(a), arg)
 
+it('/notices opens the retained-notices report without sending a gateway command', () => {
+  const openNotices = vi.fn()
+  must(localCommand('notices')).run(stub<CommandHost>({ openNotices }), '')
+  expect(openNotices).toHaveBeenCalledTimes(1)
+})
+
 describe('/agents', () => {
   it('pauses and resumes spawns itself instead of sending them to slash.exec', async () => {
     const a = app()

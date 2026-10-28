@@ -33,6 +33,21 @@ describe('Hermes × Tern attention', () => {
     expect(notes.active(100).find(n => n.key === 'cap')?.expiresAt).toBe(60100)
   })
 
+  it.each([false, true])('retains the latest sticky error and latest notice on overflow (hidden=%s)', hidden => {
+    const notes = new Dispatches()
+    notes.show({ key: 'error', text: 'Credit access paused', kind: 'sticky', level: 'error' }, 0, hidden)
+    for (let i = 0; i < 10; i++) {
+      notes.show({ key: `info:${i}`, text: `Update ${i}` }, i + 1, hidden)
+    }
+    if (hidden) notes.resume(100)
+    const active = notes.active(hidden ? 100 : 11)
+    expect(active).toHaveLength(8)
+    expect(active.map(item => item.key)).toContain('error')
+    expect(active.at(-1)?.key).toBe('info:9')
+    expect(notes.clear('error')).toBe(true)
+    expect(notes.active(hidden ? 100 : 11).map(item => item.key)).not.toContain('error')
+  })
+
   it('coalesces hidden updates, cancels deferred keys and starts TTL on return', () => {
     const notes = new Dispatches()
     notes.show({ key: 'job', text: 'Old', kind: 'ttl', ttl_ms: 100 }, 10, true)

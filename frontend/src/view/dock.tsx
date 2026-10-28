@@ -25,6 +25,7 @@ import { type AutomationLine, automationNode, reconnectNode } from './automation
 import { btwNoticesNode } from './btwNotices.js'
 import { imageChip } from './image-chip.js'
 import { queuedNode } from './queued.js'
+import { statusNotices } from './statusNotice.js'
 import { compact } from './time.js'
 import { checklistNode } from './todos.js'
 import { workingRow } from './ui/live.js'
@@ -138,6 +139,8 @@ export interface DockActions {
   onTodos(): void
   onGoal(): void
   onLoop(): void
+  /** Inspect the gateway's retained notices. */
+  onNotices?(): void
 }
 
 /** The agent's todo list as a pill: a ring that fills as items are done, and the one under way. */
@@ -160,6 +163,8 @@ export interface StatusLine {
   readonly rates?: { readonly cache?: number | undefined; readonly tps?: number | undefined } | undefined
   /** The gateway's newest out-of-band notice (credits, a slow start), in its tone. */
   readonly notice?: { text: string; tone: 'error' | 'info' | 'success' | 'warning' } | undefined
+  readonly otherError?: { text: string } | undefined
+  readonly noticeCount?: number | undefined
 }
 
 /** The PR pill: the newest linked PR, or how many there are, toned by their checks. */
@@ -302,15 +307,7 @@ function statusLine(cx: DockContext, on: DockActions): JSX.Element {
     <status key="statusline" role="hermes.statusline">
       <seg key="brand" priority={9} role="hermes.statusline.brand" spans={[{ t: '☤ hermes' }]} />
       {s.title ? <seg key="title" priority={3} spans={[{ t: s.title }]} title={s.title} /> : null}
-      {s.notice ? (
-        <seg
-          key="notice"
-          priority={6}
-          {...optional('role', s.notice.tone === 'info' ? undefined : `hermes.statusline.${s.notice.tone === 'warning' ? 'warn' : s.notice.tone === 'error' ? 'bad' : 'good'}`)}
-          spans={[{ t: s.notice.text }]}
-          title={s.notice.text}
-        />
-      ) : null}
+      {statusNotices(s, on.onNotices)}
       {s.branch ? (
         <seg icon="git-branch" key="git" priority={4} spans={[{ s: 'statusLineGitClean', t: s.branch }]} title={`Branch ${s.branch}`} />
       ) : null}

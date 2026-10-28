@@ -19,6 +19,17 @@ export interface Notice {
   expires?: number
 }
 
+/** A read-only snapshot; indent every line so gateway text cannot create Markdown links or controls. */
+export function noticeReport(items: readonly Notice[]): string {
+  if (!items.length) {
+    return 'No retained notices at the time this report was opened.'
+  }
+
+  const lines = items.flatMap(item => [`[${item.tone}] ${item.text}`, ''])
+  return ['Snapshot at open time. Up to eight notices are retained. On overflow, only the newest sticky error and the newest notice are protected; others may have been omitted.', '',
+    ...lines.flatMap(line => line.split(/\r\n|\r|\n/).map(part => `    ${part}`))].join('\n')
+}
+
 /** One projection for notices, backed by the bounded Hermes attention reducer. */
 export class Notices {
   readonly #items = new Dispatches()
@@ -38,18 +49,24 @@ export class Notices {
   }
 
   current(now = Date.now()): Notice | undefined {
-    const item = this.#items.active(now).at(-1)
+    return this.active(now).at(-1)
+  }
 
-    if (!item) {
-      return undefined
-    }
-
-    return {
+  /** The retained gateway notices, oldest first; a snapshot, not durable history. */
+  active(now = Date.now()): Notice[] {
+    return this.#items.active(now).map(item => ({
       key: item.key,
       text: item.text,
       tone: item.level === 'warn' ? 'warning' : item.level,
       ...(item.expiresAt !== null ? { expires: item.expiresAt } : {})
-    }
+    }))
+  }
+
+  /** The newest retained error, if another notice is currently shown. */
+  otherError(now = Date.now()): Notice | undefined {
+    const items = this.active(now)
+    const latest = items.at(-1)
+    return items.toReversed().find(item => item.tone === 'error' && item.key !== latest?.key)
   }
 
   nextExpiry(now = Number.NEGATIVE_INFINITY): number | undefined {
@@ -102,6 +119,14 @@ export class NoticeStrip {
   /** The notice the strip shows at `now`. */
   current(now = Date.now()): Notice | undefined {
     return this.#notices.current(now)
+  }
+
+  active(now = Date.now()): Notice[] {
+    return this.#notices.active(now)
+  }
+
+  otherError(now = Date.now()): Notice | undefined {
+    return this.#notices.otherError(now)
   }
 
   /** Forgets every notice (another session is shown). */
