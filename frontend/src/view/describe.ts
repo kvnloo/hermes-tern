@@ -7,6 +7,11 @@ import { clip } from '../core/text.js'
 /** How long a title may get before it is cut. */
 const MAX = 72
 
+// Title parsing must stay bounded even for deeply nested SSH or untrusted tool arguments.
+const MAX_TITLE_INPUT = 4_096
+const MAX_TITLE_WORK = 16_384
+const MAX_SSH_DEPTH = 8
+
 /** Words of a shell segment: quotes removed, backslash escapes kept as written. */
 function words(segment: string): string[] {
   const out: string[] = []
@@ -310,6 +315,15 @@ const FILTERS = new Set(['head', 'tail', 'grep', 'sort', 'uniq', 'wc', 'cut', 't
  * chains by their first real step.
  */
 export function describeCommand(command: string): string {
+  return describe(command, { remaining: MAX_TITLE_WORK }, 0) ?? 'Run a command'
+}
+
+/** The shared budget covers every recursive parse, not the command or result itself. */
+function describe(command: string, budget: { remaining: number }, depth: number): string | undefined {
+  if (command.length > MAX_TITLE_INPUT || command.length > budget.remaining || depth > MAX_SSH_DEPTH) {
+    return undefined
+  }
+  budget.remaining -= command.length
   const text = command.trim()
 
   if (!text) {
@@ -333,8 +347,10 @@ export function describeCommand(command: string): string {
   if (remote) {
     const host = operand(remote.args, new Set(['-p', '-i', '-o', '-l', '-J', '-F']))?.replace(/^[^@]+@/, '')
     const after = remote.args.slice(remote.args.findIndex(a => a.replace(/^[^@]+@/, '') === host) + 1).join(' ')
-    const inner = after ? describeCommand(after) : 'Open a shell'
+    const inner = after ? describe(after, budget, depth + 1) : 'Open a shell'
 
+    // Do not reflect any part of an over-budget command, including outer hosts.
+    if (inner === undefined) return undefined
     title = host ? `${inner} on ${host}` : inner
   } else {
     // A pipeline is named by its producer; `grep` & co. only shape what it printed.
