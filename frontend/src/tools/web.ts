@@ -27,7 +27,12 @@ export interface FetchDetail {
   urls: string[]
   /** The single `url` older calls give. */
   url: string | undefined
-  pages: Source[]
+  pages: FetchPage[]
+}
+
+/** A returned extraction entry may have both partial text and an error. */
+export interface FetchPage extends Source {
+  error: string | undefined
 }
 
 function source(r: Record<string, unknown>): Source {
@@ -42,7 +47,7 @@ export function webSearchDetail({ args, result }: Raw): WebSearchDetail {
 
 export function fetchDetail({ args, result }: Raw): FetchDetail {
   return {
-    pages: objects(result?.['results']).map(source),
+    pages: objects(result?.['results']).map(r => ({ ...source(r), error: typeof r['error'] === 'string' && /\S/.test(r['error']) ? r['error'] : undefined })),
     tool: 'web_extract',
     url: text(args['url']),
     urls: (list(args['urls']) ?? []).filter(u => typeof u === 'string')
