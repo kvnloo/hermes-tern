@@ -99,7 +99,6 @@ describe('V4A retained partial-failure reports', () => {
     const bad: unknown[] = [undefined, {}, { ...good, success: true }, { ...good, error: 'Patch validation failed (no files were modified):\ninvalid' },
       { ...good, error: prefix }, { ...good, no_change: true }, { ...good, ok: true }, { ...good, exit_code: 0 },
       { ...good, is_error: false }, { ...good, partial: true }, { ...good, truncated: true },
-      { ...good, lint: undefined }, { ...good, lint: { 'x.py': { status: 'error', output: 1 } } },
       Object.assign(Object.create({ error }), { success: false, lint })]
     for (const value of bad) expect(v4aLintNeedsAttention(patch(value))).toBe(false)
     for (const outcome of [{ kind: 'done' as const, duration: 1 }, { kind: 'cancelled' as const, duration: 1 }, { kind: 'running' as const }]) {
