@@ -119,7 +119,8 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
     const list = (files ?? []).map(f => f.replace(/^\.\//, ''))
     const total = d.total ?? list.length
     const notices = [
-      ...(d.total !== undefined && (d.totalLowerBound || d.truncated) ? [count(total, true, 'file')] : []),
+      ...(d.total !== undefined && (d.totalLowerBound || d.truncated) ? [`${d.omitted ? 'Hermes total: ' : ''}${count(total, true, 'file')}`] : []),
+      ...(d.omitted ? ['Hermes omitted some search results'] : []),
       ...(d.truncated ? ['Search results truncated upstream'] : []),
       ...(list.length > FILE_LIMIT ? [`Showing ${FILE_LIMIT} of ${list.length} retained files`] : [])
     ]
@@ -137,10 +138,11 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
       folded: list.length > 20,
       frame: 'inline',
       meta: files ? [
-        `${d.total === undefined ? `${plural(total, 'retained file')}` : count(total, d.totalLowerBound || d.truncated, 'file')}${inPath}`,
+        `${d.omitted && d.total !== undefined ? 'Hermes total: ' : ''}${d.total === undefined ? `${plural(total, 'retained file')}` : count(total, d.totalLowerBound || d.truncated, 'file')}${inPath}`,
+        ...(d.omitted ? ['Hermes omitted some search results'] : []),
         ...(d.truncated ? ['Search results truncated upstream'] : []),
         ...(list.length > FILE_LIMIT ? [`Showing ${FILE_LIMIT} of ${list.length} retained files`] : [])
-      ] : d.truncated ? ['Search results truncated upstream'] : undefined,
+      ] : [...(d.omitted ? ['Hermes omitted some search results'] : []), ...(d.truncated ? ['Search results truncated upstream'] : [])],
       name: 'glob',
       target: pattern,
       targetKind: 'pattern',
@@ -220,8 +222,11 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
   if (dense) {
     body.push(<code key="dense" lang="text" text={safe ?? ''} />)
   }
+  const lowerTotal = d.total !== undefined && (d.totalLowerBound || d.truncated)
+    ? `${d.omitted ? 'Hermes total: ' : ''}${count(total, true, 'match', 'matches')}` : undefined
   const notices = [
-    ...(d.total !== undefined && (d.totalLowerBound || d.truncated) ? [count(total, true, 'match', 'matches')] : []),
+    ...(lowerTotal ? [lowerTotal] : []),
+    ...(d.omitted ? ['Hermes omitted some search results'] : []),
     ...(d.truncated ? ['Search results truncated upstream'] : []),
     ...(dense && dense.length > DENSE_LIMIT ? ['Search text clipped in view'] : []),
     ...(prefix !== safe ? ['Control characters escaped in view'] : [])
@@ -234,9 +239,9 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
     folded: total > 40,
     frame: 'inline',
     meta: [
-      ...(matches ? [`${d.total === undefined ? plural(total, 'retained match', 'retained matches') : count(total, d.totalLowerBound || d.truncated, 'match', 'matches')} · ${plural(byFile.size, 'file')} shown${inPath}`]
-        : dense && d.total !== undefined ? [`${count(d.total, d.totalLowerBound || d.truncated, 'match', 'matches')}${inPath}`] : []),
-      ...notices.filter(n => !n.startsWith('At least '))
+      ...(matches ? [`${d.omitted && d.total !== undefined ? 'Hermes total: ' : ''}${d.total === undefined ? plural(total, 'retained match', 'retained matches') : count(total, d.totalLowerBound || d.truncated, 'match', 'matches')} · ${plural(byFile.size, 'file')} shown${inPath}`]
+        : dense && d.total !== undefined ? [`${d.omitted ? 'Hermes total: ' : ''}${count(d.total, d.totalLowerBound || d.truncated, 'match', 'matches')}${inPath}`] : []),
+      ...notices.filter(n => n !== lowerTotal)
     ],
     name: 'grep',
     target: pattern,
