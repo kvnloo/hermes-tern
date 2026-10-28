@@ -1,14 +1,17 @@
 // App-level regression checks use the actual Tern JSX Node implementation.
 import { EventEmitter } from 'node:events'
 
-import { Session, type Op } from '@stencil-hq/tern'
+import { Node, Session, type Op } from '@stencil-hq/tern'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { SessionInfo } from '@tui/types.js'
 import { copyToClipboard } from '../clipboard.js'
+import { storedSessionId } from '../core/ids.js'
+import { openSettings } from '../overlays/settings.js'
 import { isReportCommand } from '../reports.js'
 
 import { App, setup, settle } from './appSetup.js'
-import { FakeGateway, given, key, must, stubOverlay, tree } from './fakes.js'
+import { FakeGateway, given, key, must, stub, stubOverlay, tree } from './fakes.js'
 
 vi.mock('@tui/lib/history.js', () => ({ append: () => undefined, load: () => [] }))
 vi.mock('../clipboard.js', () => ({ copyToClipboard: vi.fn() }))
@@ -178,6 +181,111 @@ describe('native general report sheets', () => {
     given.session(f.app, 's2')
     f.app.operations.adopt('s2')
     expect(f.app.overlays).toEqual([])
+  })
+
+  it('invalidates a completed report on same-session reattach without disturbing an approval or draft', async () => {
+    const f = setup({ 'session.resume': () => ({ session_id: 's1', subscription_id: 'new-sub', info: { stored_session_id: 's1' } }) })
+    f.app.stores.composer.set('draft !literal', { cursor: 3, pasted: ['!literal'] })
+    f.app.operations.showText('/history', 'OLD REPORT')
+    const report = must(f.app.overlays.at(-1))
+    const root = report.node('layer.overlay-1')
+    if (!(root instanceof Node)) throw new Error('expected report node')
+    const flatten = (n: Node): Node[] => [n, ...n.children.filter((child): child is Node => child instanceof Node).flatMap(flatten)]
+    const copy = must(flatten(root).find(n => n.props['title'] === 'Copy')?.handlers?.onClick)
+    const approval = stubOverlay('approval', { modal: true })
+    f.app.open(approval)
+    const before = f.app.session.ref
+
+    await f.app.stores.life.reattach(storedSessionId('s1'))
+    expect(f.app.session.ref).not.toBe(before)
+    expect(f.app.session.ref.live).toBe('s1')
+    expect(f.app.overlays).toEqual([approval])
+    report.onKey(key('c'))
+    copy({ ev: 'action', sf: 'hermes', id: 'layer.overlay-1.body.actions.copy', act: 'click', raw: {} })
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    expect(f.app.stores.composer.text).toBe('draft !literal')
+    expect(f.app.stores.composer.cursor).toBe(3)
+    expect(f.app.stores.composer.pasted).toEqual(['!literal'])
+  })
+
+  it('invalidates a pending report and the Settings owner together on same-ID reattach', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const f = setup({
+      'config.get': () => ({ value: 'manual' }),
+      'session.resume': () => ({ session_id: 's1', subscription_id: 'new-sub', info: { stored_session_id: 's1', profile_name: 'work' } }),
+      'tools.show': () => pending.promise
+    })
+    f.app.session.info = stub<SessionInfo>({ profile_name: 'work' })
+    f.app.stores.composer.set('unsent', { cursor: 2 })
+    const request = f.app.operations.showTools()
+    const report = must(f.app.overlays.at(-1))
+    openSettings(f.app)
+    await vi.waitFor(() => expect(f.sent('config.get').some(p => p['key'] === 'skin')).toBe(true))
+    const settings = must(f.app.overlays.at(-1))
+    expect(settings.key).toBe('settings')
+    expect(tree(settings.node('layer.settings')).k).toBe('prefs')
+
+    await f.app.stores.life.reattach(storedSessionId('s1'))
+    expect(f.app.overlays).toEqual([settings])
+    expect(JSON.stringify(tree(settings.node('layer.settings')))).toContain('belongs to a previous session')
+    pending.resolve({ sections: [{ name: 'old', tools: [{ name: 'private_old_tool' }] }], total: 1 })
+    await request
+    report.onKey(key('c'))
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    expect(f.sent('config.set').filter(p => p['key'] !== 'show_reasoning')).toEqual([])
+    expect(f.app.stores.composer.text).toBe('unsent')
+    expect(f.app.stores.composer.cursor).toBe(2)
+  })
+
+  it('closes the old report on observed session loss and rejects its late reply', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const f = setup({ 'tools.show': () => pending.promise })
+    f.app.stores.composer.set('unsent', { cursor: 2 })
+    const request = f.app.operations.showTools()
+    const report = must(f.app.overlays.at(-1))
+    const approval = stubOverlay('approval', { modal: true })
+    f.app.open(approval)
+    f.app.stores.life.lost()
+    expect(f.app.overlays).toEqual([approval])
+    expect(f.app.session.ref.live).toBeNull()
+    pending.resolve({ sections: [{ name: 'old', tools: [{ name: 'stale_tool' }] }], total: 1 })
+    await request
+    report.onKey(key('c'))
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    expect(f.app.stores.composer.text).toBe('unsent')
+    expect(f.app.stores.composer.cursor).toBe(2)
+  })
+
+  it('rejects pending and already selected report actions across same-ID and A to B to A adoption', async () => {
+    const pending = [Promise.withResolvers<unknown>(), Promise.withResolvers<unknown>()]
+    let index = 0
+    const f = setup({
+      'tools.show': () => pending[index++]?.promise,
+      'session.resume': params => ({ session_id: params['session_id'], subscription_id: `sub-${index}`, info: { stored_session_id: params['session_id'] } })
+    })
+    const first = f.app.operations.showTools()
+    const stale = must(f.app.overlays.at(-1))
+    await f.app.stores.life.reattach(storedSessionId('s1'))
+    expect(f.app.overlays).toEqual([])
+    const second = f.app.operations.showTools()
+    const current = must(f.app.overlays.at(-1))
+    pending[1]?.resolve({ sections: [{ name: 'new', tools: [{ name: 'current_tool' }] }], total: 1 })
+    await second
+    expect(sheetView(f.app).body).toContain('current_tool')
+    pending[0]?.resolve({ sections: [{ name: 'old', tools: [{ name: 'stale_tool' }] }], total: 1 })
+    await first
+    expect(sheetView(f.app).body).toContain('current_tool')
+    expect(sheetView(f.app).body).not.toContain('stale_tool')
+    stale.onKey(key('c'))
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    current.onKey(key('c'))
+    expect(copyToClipboard).toHaveBeenCalledWith('[new] current_tool\nTotal: 1 tools')
+    vi.mocked(copyToClipboard).mockClear()
+    await f.app.stores.life.reattach(storedSessionId('s2'))
+    await f.app.stores.life.reattach(storedSessionId('s1'))
+    expect(f.app.overlays).toEqual([])
+    current.onKey(key('c'))
+    expect(copyToClipboard).not.toHaveBeenCalled()
   })
 
   it('late asynchronous slash output cannot reopen a closed native report', async () => {
