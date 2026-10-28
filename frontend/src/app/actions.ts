@@ -290,9 +290,7 @@ export class AppActions {
 
   /** Tern native Send obeys the same busy intent as keyboard Enter. */
   submitNative(raw: string) {
-    if (isModal(this.#cx.chat.overlays)) {
-      return
-    }
+    if (isModal(this.#cx.chat.overlays)) return
     if (shouldSteer(this.#cx, raw, false)) {
       void this.#busyDraft.steer(raw)
       return
@@ -302,13 +300,8 @@ export class AppActions {
     this.submit(raw, true, 'queue', unknown || this.#cx.composer.literal ? [raw] : this.#cx.composer.pasted.filter(p => raw.includes(p)))
   }
 
-
-  /**
-   * Sends or queues a prompt, or runs a command; `draft`: the user entered it (it takes the draft's
-   * images). While a turn runs the prompt goes as `busy` says: the session's busy_input_mode for
-   * a typed one; a message the app writes (a connect result) waits behind the turn. `pasted`:
-   * the draft's pastes, whose `{!cmd}`s and leading `!` stay as written.
-   */
+  /** Sends or queues a prompt, or runs a command. A draft takes its images; `busy` controls
+   * routing during a turn. Shell syntax covered by `pasted` markers stays literal. */
   submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     // Tern native Send and keyboard Enter never take the draft while voice owns input.
