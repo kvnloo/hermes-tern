@@ -20,11 +20,12 @@ const card = (result: unknown, args: Record<string, unknown> = {}) => tree(toolN
 describe('Hermes dense search cards', () => {
   it('replays search, generic and terminal cards with their separate retained-result and language rules', () => {
     const generic = 'g'.repeat(4001)
+    const denseText = 'dense result' + 'x'.repeat(4001)
     let n = 0
     const entries = history({ kept: [], compactions: [], id: prefix => entryId(`${prefix}${++n}`), messages: [
       { role: 'user', text: 'inspect results' },
-      { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: 'dense result', total_count: 5 }) },
-      { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 1 }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: denseText, total_count: 5, truncated: true, _omitted: 'filtered' }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 2, _omitted: 'filtered' }) },
       { role: 'tool', name: 'search_files', tool_call_id: 'count', args: { pattern: 'hit', output_mode: 'count' }, content: JSON.stringify({ counts: { 'file.py': 2 }, total_count: 8, truncated: true, _omitted: 'filtered' }) },
       { role: 'tool', name: 'custom_result', tool_call_id: 'generic', args: {}, content: generic },
       { role: 'tool', name: 'terminal', tool_call_id: 'terminal', args: { command: 'curl https://user:secret@[' }, content: JSON.stringify({ exit_code: 2, output: 'curl failed' }) }
@@ -35,8 +36,12 @@ describe('Hermes dense search cards', () => {
     const counted = calls.find(c => c.id === 'count')
     const terminal = calls.find(c => c.id === 'terminal')
     if (!dense || !structured || !counted || !terminal) throw new Error('missing replay tool')
-    expect(codes(tree(toolNode(dense, 0)))[0]?.p?.['text']).toBe('dense result')
-    const code = codes(tree(toolNode(structured, 0)))[0]
+    const denseCard = tree(toolNode(dense, 0))
+    expect(codes(denseCard)[0]?.p?.['text']).toBe(denseText.slice(0, 4000))
+    expect(denseCard.p?.['meta']).toEqual(['Hermes total: At least 5 matches', 'Hermes omitted some search results', 'Search results truncated upstream', 'Search text clipped in view'])
+    const structuredCard = tree(toolNode(structured, 0))
+    expect(structuredCard.p?.['meta']).toEqual(['Hermes total: 2 matches · 1 file shown', 'Hermes omitted some search results'])
+    const code = codes(structuredCard)[0]
     expect(code?.p?.['text']).toBe('hit')
     expect(code?.p?.['lang']).toBeUndefined()
     const countCard = tree(toolNode(counted, 0))

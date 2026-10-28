@@ -81,7 +81,7 @@ export function searchDetail({ args, result }: Raw): SearchDetail {
     path: text(args['path']),
     pattern: text(args['pattern']),
     resultPresent: result !== undefined,
-    omitted: typeof result?.['_omitted'] === 'string' && Boolean(result['_omitted']),
+    omitted: typeof result?.['_omitted'] === 'string' && /\S/.test(result['_omitted']),
     tool: 'search_files',
     total: total !== undefined && Number.isSafeInteger(total) && total >= 0 ? total : undefined,
     totalLowerBound: result?.['total_count_is_lower_bound'] === true,
