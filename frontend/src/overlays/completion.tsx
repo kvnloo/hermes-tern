@@ -10,7 +10,8 @@ import type { GatewayClient } from '@tui/gatewayClient.js'
 import { HIDDEN_COMMANDS, localCommands } from '../commands/local.js'
 import { optional } from '../core/assert.js'
 import type { Composer } from '../draft/composer.js'
-import { applyCompletion, completionRequestForInput, completionToApplyOnSubmit, scoreSlashMenuItem } from '../hermes/completion.js'
+import { boundaryAt } from '../draft/keys.js'
+import { applyCompletion, completionRequestForInput, scoreSlashMenuItem } from '../hermes/completion.js'
 import { oneLine } from '../view/describe.js'
 import { rpc } from '../wire/rpc.js'
 
@@ -21,6 +22,8 @@ const DEBOUNCE_MS = 60
 const ROW_PX = 666
 const NAME_PX = 7.4
 const DETAIL_PX = 6.4
+type CompletionKind = 'path' | 'skill' | 'slash'
+type Answer = { revision: bigint; owner: unknown; sid: string | null; cursor: number; kind: CompletionKind }
 
 /** The composer's completion list: queries the gateway as the text before the caret changes and accepts rows into it. */
 export class Completion {
@@ -31,19 +34,23 @@ export class Completion {
   /** The text before the caret the items answer. */
   #for = ''
   /** The text before the caret last queried (scheduled, in flight or answered); null until the first update. */
-  #asked: string | null = null
+  #asked: { before: string; revision: bigint; owner: unknown } | undefined
+  #answer: Answer | undefined
   /** Bumped by every new query and every dismissal: replies of an older generation are dropped. */
   #gen = 0
+  #pending = false
   #timer: NodeJS.Timeout | undefined
   #composer: Composer | undefined
   readonly #host: OverlayHost
   readonly #gw: GatewayClient
   readonly #sid: () => string | null
+  readonly #owner: () => unknown
 
-  constructor(host: OverlayHost, gw: GatewayClient, sid: () => string | null) {
+  constructor(host: OverlayHost, gw: GatewayClient, sid: () => string | null, owner: () => unknown = sid) {
     this.#host = host
     this.#gw = gw
     this.#sid = sid
+    this.#owner = owner
   }
 
   get open(): boolean {
@@ -55,7 +62,7 @@ export class Completion {
     const row = this.items[this.selected]
     const composer = this.#composer
 
-    if (!row || !composer || composer.cursor !== composer.text.length) {
+    if (!row || !composer || !this.#current() || composer.cursor !== composer.text.length) {
       return ''
     }
 
@@ -68,16 +75,24 @@ export class Completion {
   update(composer: Composer) {
     this.#composer = composer
     const before = composer.text.slice(0, composer.cursor)
+    const revision = composer.revision
+    const owner = this.#owner()
+    const sid = this.#sid()
 
-    if (before === this.#asked) {
+    if (before === this.#asked?.before && revision === this.#asked.revision && owner === this.#asked.owner) {
       return
     }
 
-    this.#asked = before
+    this.#asked = { before, owner, revision }
     const gen = ++this.#gen
+    this.#answer = undefined
+    if (this.items.length) {
+      this.items = []
+      this.#host.changed()
+    }
     clearTimeout(this.#timer)
     this.#timer = undefined
-    const request = requestFor(before, this.#sid())
+    const request = requestFor(before, sid)
 
     if (!request) {
       this.dismiss()
@@ -85,17 +100,32 @@ export class Completion {
       return
     }
 
+    this.#pending = true
     this.#timer = setTimeout(() => {
       this.#timer = undefined
-      const sid = this.#sid()
-
+      if (gen !== this.#gen || composer.revision !== revision || this.#owner() !== owner || this.#sid() !== sid ||
+          composer.anchor !== undefined) {
+        if (gen === this.#gen) { this.#pending = false }
+        return
+      }
       const params =
         request.method === 'complete.slash' && sid ? { ...request.params, session_id: sid } : request.params
 
       rpc(this.#gw, request.method, params)
         // Either method's answer: only complete.slash's says where its replacement starts.
         .then((r: CompleteSlashResult) => {
-          if (gen !== this.#gen || composer.text.slice(0, composer.cursor) !== before) {
+          if (gen === this.#gen) { this.#pending = false }
+          if (gen !== this.#gen || composer.revision !== revision || this.#owner() !== owner || this.#sid() !== sid ||
+              composer.text.slice(0, composer.cursor) !== before || composer.anchor !== undefined) {
+            return
+          }
+
+          const replaceFrom = request.method === 'complete.slash' && !request.skillsOnly
+            ? slashOffset(request.params.text, r?.replace_from)
+            : request.replaceFrom
+
+          if (replaceFrom === undefined) {
+            this.dismiss()
             return
           }
 
@@ -108,8 +138,8 @@ export class Completion {
                 : slashItems(items, before)
           this.selected = 0
           this.#for = before
-          this.#replaceFrom =
-            request.method === 'complete.slash' && !request.skillsOnly ? (r?.replace_from ?? 1) : request.replaceFrom
+          this.#replaceFrom = replaceFrom
+          this.#answer = { cursor: composer.cursor, kind: request.method === 'complete.path' ? 'path' : request.skillsOnly ? 'skill' : 'slash', owner, revision, sid }
           this.#host.changed()
         })
         .catch(() => {
@@ -123,6 +153,7 @@ export class Completion {
   /** Hides the list and drops pending queries; it reopens once the text before the caret changes. */
   dismiss() {
     this.#gen++
+    this.#pending = false
     clearTimeout(this.#timer)
     this.#timer = undefined
 
@@ -132,6 +163,7 @@ export class Completion {
     }
 
     this.#for = ''
+    this.#answer = undefined
   }
 
   /** Keys while the list is open: ↑/↓ move, Tab accepts, Enter accepts a changing row, Esc closes. */
@@ -139,7 +171,16 @@ export class Completion {
     const composer = this.#composer
 
     if (!this.open || !composer) {
+      if (key.name === 'escape' && this.#pending) {
+        this.dismiss()
+        return true
+      }
       return false
+    }
+
+    if ((key.name === 'tab' || (key.name === 'enter' && !key.shift && !key.alt)) && !this.#current()) {
+      this.dismiss()
+      return true
     }
 
     // Walking the prompt history: ↑/↓ keep walking it, though a recalled entry opened the list.
@@ -171,9 +212,14 @@ export class Completion {
           return false
         }
 
-        const next = completionToApplyOnSubmit(this.#for, this.items[this.selected]?.text, this.#replaceFrom)
+        const row = this.items[this.selected]
+        const answer = this.#answer
+        if (!row || !answer) { return false }
+        const next = applyCompletion(this.#for, row.text, this.#replaceFrom)
+        const remaining = tokenTail(composer.text.slice(composer.cursor), answer.kind)
+        const existing = this.#for + remaining
 
-        if (next === null) {
+        if (next === existing || next.trimEnd() === existing.trimEnd()) {
           this.dismiss()
 
           return false
@@ -194,20 +240,23 @@ export class Completion {
       return []
     }
 
-    const listId = 'layer.complete.select.list'
+    const key = `complete-${this.#gen}`
+    const listId = `layer.${key}.select.list`
+    const answer = this.#answer
+    const items = this.items
     // While any row is cut off, the footer shows the highlighted row's whole description: shown for
     // the list, not per row, so the list keeps its height as the highlight moves.
     const more = this.items.some(cutOff) ? detailOf(this.items[this.selected]) : undefined
 
     return [
-      <overlay anchor={{ node: composerId, side: 'above' }} key="complete" role="omp.autocomplete">
+      <overlay anchor={{ node: composerId, side: 'above' }} key={key} role="omp.autocomplete">
         <col key="select" role="omp.select">
           <list
             empty={this.#for.includes('@') ? 'No files' : 'No items'}
             key="list"
             max={{ lines: 8 }}
-            onActivate={ev => this.#pick(ev.item, listId, { accept: true })}
-            onSelect={ev => this.#pick(ev.item, listId, { accept: false })}
+            onActivate={ev => this.#pick(ev.item, listId, { accept: true }, answer, items)}
+            onSelect={ev => this.#pick(ev.item, listId, { accept: false }, answer, items)}
             selected={`${listId}.${this.selected}`}
           >
             {this.items.map((item, i) => (
@@ -228,7 +277,10 @@ export class Completion {
     ]
   }
 
-  #pick(itemId: string, listId: string, { accept }: { accept: boolean }) {
+  #pick(itemId: string, listId: string, { accept }: { accept: boolean }, answer: Answer | undefined, items: CompletionItem[]) {
+    if (answer !== this.#answer || items !== this.items || !this.#current() || !itemId.startsWith(listId + '.')) {
+      return
+    }
     const i = Number(itemId.slice(listId.length + 1))
 
     if (Number.isInteger(i) && this.items[i]) {
@@ -246,20 +298,62 @@ export class Completion {
   #accept(before: string): boolean {
     const composer = this.#composer
 
-    if (!composer || composer.text.slice(0, composer.cursor) !== this.#for) {
+    if (!composer || !this.#current()) {
       return false
     }
+
+    const answer = this.#answer
+    if (!answer) { return false }
+    const tail = composer.text.slice(composer.cursor)
+    // Quotes, escaped paths and punctuation are ambiguous without a gateway token-end contract.
+    // Refuse rather than delete text that might belong outside the completion.
+    const token = tokenTail(tail, answer.kind)
+    const typed = this.#for.slice(this.#replaceFrom)
+    if (/[\\'"`]/.test(typed + token) || (token && (/[()[\]{},;!?]/.test(token) || token.includes('/') || token.endsWith('.'))) ||
+        (answer.kind === 'path' && /\s/.test(before.slice(this.#replaceFrom))) ||
+        boundaryAt(composer.text, this.#replaceFrom) !== this.#replaceFrom ||
+        boundaryAt(composer.text, composer.cursor) !== composer.cursor ||
+        boundaryAt(composer.text, composer.cursor + token.length) !== composer.cursor + token.length) {
+      this.dismiss()
+      return true
+    }
+    const end = composer.cursor + token.length
 
     // A finished `@` mention takes one space after it, like t3code: the list closes and typing goes on.
     // Folders (`/`) and kinds (`@file:`) stay open to keep picking; a space already there is reused.
     const finished = /(?:^|\s)@[^\s]*[^\s/:]$/.test(before)
-    const spaced = finished && composer.text[composer.cursor] === ' '
-    composer.splice(0, composer.cursor + (spaced ? 1 : 0), finished ? `${before} ` : before)
+    const hasSpace = composer.text[end] === ' '
+    const replacement = finished ? `${before} ` : before
+    const reuseSpace = hasSpace && replacement.endsWith(' ')
+    composer.splice(0, end + (reuseSpace ? 1 : 0), replacement)
     this.dismiss()
     this.update(composer)
 
     return true
   }
+
+  #current(): boolean {
+    const c = this.#composer
+    const a = this.#answer
+    return Boolean(c && a && c.revision === a.revision && c.cursor === a.cursor && c.anchor === undefined &&
+      this.#owner() === a.owner && this.#sid() === a.sid && c.text.slice(0, c.cursor) === this.#for)
+  }
+}
+
+function tokenTail(tail: string, kind: CompletionKind): string {
+  return (kind === 'skill' ? /^[\w-]*/ : /^\S*/).exec(tail)?.[0] ?? ''
+}
+
+/** Hermes reports slash offsets as Python code points; Tern and JavaScript use UTF-16. */
+function slashOffset(input: string, offset: number | null | undefined): number | undefined {
+  const points = [...input]
+  const lastSpace = points.lastIndexOf(' ')
+  const details = input.toLowerCase() === '/details'
+  const actual = offset ?? (lastSpace < 0 && !details ? 1 : undefined)
+  return actual !== undefined && Number.isSafeInteger(actual) && actual >= 1 && actual <= points.length &&
+    (lastSpace < 0 ? details ? actual === points.length : actual === 1 : actual === lastSpace + 1)
+    ? points.slice(0, actual).join('').length
+    : undefined
 }
 
 /**

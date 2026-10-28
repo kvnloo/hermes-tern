@@ -282,7 +282,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
   })
   /** Whose colors the surface wears, and the gateway's skin. */
   const theme = new Theme({ palette: palette => surface().palette(palette), settings }, saved.theme ?? 'tern')
-  const completion = new Completion(chat, gw, () => session.ref.live)
+  const completion = new Completion(chat, gw, () => session.ref.live, () => session.ref)
   const welcome: WelcomeContext = { tip: randomTip(launch.pythonSrcRoot), version: version && version !== 'unknown' ? `v${version}` : '' }
 
   return { ...shared, attachments, completion, cron, life, liveVoice, router, stack, theme, warned, welcome }
