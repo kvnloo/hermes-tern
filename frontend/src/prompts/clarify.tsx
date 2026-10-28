@@ -65,6 +65,12 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
 
   /** Records the current question's answer and moves to the next unanswered one, or submits. */
   const commit = (answer: string | null) => {
+    // The visible draft must remain the answer that is in flight. In particular, a
+    // late pointer event must not change it while the gateway is deciding.
+    if (sending.busy) {
+      return
+    }
+
     const q = questions[step]
 
     if (q) {
@@ -86,6 +92,10 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
 
   /** The answer the current question would get from Enter / Submit. */
   const submit = () => {
+    if (sending.busy) {
+      return
+    }
+
     const q = questions[step]
     const d = drafts[step]
 
@@ -117,6 +127,10 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
 
   /** A click or Enter on row `i`: a radio answers, a checkbox toggles, Other starts typing. */
   const activate = (i: number) => {
+    if (sending.busy) {
+      return
+    }
+
     const q = questions[step]
     const d = drafts[step]
 
@@ -142,6 +156,10 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
   }
 
   const go = (to: number) => {
+    if (sending.busy) {
+      return
+    }
+
     step = (to + questions.length) % questions.length
     host.changed()
   }
@@ -202,6 +220,9 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
                   optionsOf(q, d),
                   d.selected,
                   i => {
+                    if (sending.busy) {
+                      return
+                    }
                     d.selected = i
                     d.typing = i >= q.choices.length
                     host.changed()
@@ -213,10 +234,16 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
                 cursor={d.other.cursor}
                 key="answer"
                 onEdit={ev => {
+                  if (sending.busy) {
+                    return
+                  }
                   d.other.edit(ev)
                   host.changed()
                 }}
                 onUndo={() => {
+                  if (sending.busy) {
+                    return
+                  }
                   d.other.undo()
                   host.changed()
                 }}
@@ -242,6 +269,10 @@ export function clarifyOverlay(host: OverlayHost, prompt: ClarifyPrompt): Overla
       )
     },
     onKey: k => {
+      if (sending.busy) {
+        return true
+      }
+
       const q = questions[step]
       const d = drafts[step]
 

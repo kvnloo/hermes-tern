@@ -17,7 +17,7 @@ import { openModelPicker } from '../overlays/models.js'
 import type { Overlay } from '../overlays/overlay.js'
 import { INPUT_ID } from '../surface/host.js'
 
-import { FakeGateway } from './fakes.js'
+import { FakeGateway, must } from './fakes.js'
 import { Peer } from './surfacePeer.js'
 
 const turn = () => new Promise<void>(resolve => setImmediate(resolve))
@@ -449,6 +449,82 @@ undefined  })
       await painted()
       expect(next.answers).toEqual([{ answers: { q: 'Yes' } }])
       expect(first.answers).toEqual([])
+    })
+  })
+
+  it('ignores native edits and skip clicks while a clarify answer is in flight', async () => {
+    await withApp(async h => {
+      const replies: PromiseWithResolvers<unknown>[] = []
+      const answers: unknown[] = []
+      const req: ServerRequest = {
+        id: 'clarify-pending', method: 'clarify',
+        params: { session_id: 's1', questions: [{ qid: 'q', question: 'Why?' }] },
+        fail: () => { throw new Error('Unexpected clarify failure') },
+        respond: value => {
+          answers.push(value)
+          const reply = Promise.withResolvers<unknown>()
+          replies.push(reply)
+          return reply.promise
+        }
+      }
+
+      h.gw.emit('request', req)
+      await painted()
+      const id = root(h)
+      const input = `${id}.body.answer`
+      await h.event({ ev: 'edit', sf: h.surface.id, id: input, from: 0, to: 0, text: 'A', cursor: 1, len: 0 })
+      await h.event(click(h, `${id}.body.actions.submit`))
+      expect(answers).toEqual([{ answers: { q: 'A' } }])
+
+      await h.event({ ev: 'edit', sf: h.surface.id, id: input, from: 1, to: 1, text: 'B', cursor: 2, len: 1 })
+      await h.event(click(h, `${id}.body.actions.skip`))
+      expect(answers).toHaveLength(1)
+      must(replies[0]).reject(new Error('gateway unavailable'))
+      await painted()
+      await h.event(click(h, `${id}.body.actions.submit`))
+      expect(answers).toEqual([{ answers: { q: 'A' } }, { answers: { q: 'A' } }])
+      must(replies[1]).resolve({})
+      await painted()
+    })
+  })
+
+  it('ignores native selection and activation while a clarify choice is in flight', async () => {
+    await withApp(async h => {
+      const replies: PromiseWithResolvers<unknown>[] = []
+      const answers: unknown[] = []
+      const req: ServerRequest = {
+        id: 'clarify-choice-pending', method: 'clarify',
+        params: { session_id: 's1', questions: [{ qid: 'q', question: 'Which?', choices: ['A', 'B'] }] },
+        fail: () => { throw new Error('Unexpected clarify failure') },
+        respond: value => {
+          answers.push(value)
+          const reply = Promise.withResolvers<unknown>()
+          replies.push(reply)
+          return reply.promise
+        }
+      }
+
+      h.gw.emit('request', req)
+      await painted()
+      const id = root(h)
+      await h.event(click(h, `${id}.body.actions.submit`))
+      expect(answers).toEqual([{ answers: { q: 'A' } }])
+      const list = `${id}.body.q0`
+      const item = `${list}.option:1`
+      const select = { ev: 'select', sf: h.surface.id, id: list, item, raw: {} } as const
+      const activate = { ev: 'activate', sf: h.surface.id, id: list, item, raw: {} } as const
+      expect(h.surface.dispatch(select)).toBeTypeOf('function')
+      expect(h.surface.dispatch(activate)).toBeTypeOf('function')
+      await h.event(select)
+      await h.event(activate)
+      expect(answers).toHaveLength(1)
+
+      must(replies[0]).reject(new Error('gateway unavailable'))
+      await painted()
+      await h.event(click(h, `${id}.body.actions.submit`))
+      expect(answers).toEqual([{ answers: { q: 'A' } }, { answers: { q: 'A' } }])
+      must(replies[1]).resolve({})
+      await painted()
     })
   })
 
