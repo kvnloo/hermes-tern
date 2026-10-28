@@ -78,7 +78,57 @@ function noLintGateway(): Record<string, unknown>[] {
   return data.map(value => { const result = record(value); if (!result) throw new Error('invalid gateway payload'); return result })
 }
 
+function fixture(name: string): unknown {
+  return parseJson(execFileSync('python3', [resolve(`src/__tests__/fixtures/${name}`)], {
+    cwd: resolve('.hermes-src'), encoding: 'utf8', env: { ...process.env, PYTHONPATH: resolve('.hermes-src'), PYTHONDONTWRITEBYTECODE: '1' }
+  }))
+}
+
 describe('retained terminal recreation attention', () => {
+  it('keeps actual write refusal, terminal advisories and staged memory beside existing attention', () => {
+    const refusalPayload = record(fixture('write-refusal-core.py'))
+    const memories = fixture('memory-staged-core.py')
+    const terminals = fixture('terminal-masked-core.py')
+    const skills = fixture('skill-stub-core.py')
+    if (!refusalPayload || !Array.isArray(memories) || !Array.isArray(terminals) || !Array.isArray(skills)) throw new Error('missing producer fixtures')
+    const memoryPayload = record(memories[0])
+    const both = record(terminals[2])
+    const skillResult = record(skills[0])
+    if (!memoryPayload || !both || !skillResult) throw new Error('missing producer results')
+    const transcript = new Transcript()
+    transcript.toolComplete(stub(refusalPayload), 10)
+    transcript.toolComplete(stub(memoryPayload), 11)
+    const refused = transcript.call(toolCallId(String(refusalPayload['tool_id'])))
+    const staged = transcript.call(toolCallId(String(memoryPayload['tool_id'])))
+    if (!refused || !staged) throw new Error('missing live calls')
+    const noop = tool('noop', call('patch', { path: 'old.py' }, { result: { success: true, no_change: true } }))
+    const skill = tool('skill', call('skill_view', { name: 'example' }, { result: skillResult }))
+    const write = tool('refused', refused)
+    const terminal = tool('terminal', call('terminal', { command: 'npm test | tail' }, { result: both }))
+    const memory = tool('memory', staged)
+    const web = tool('web', call('web_extract', {}, { result: { results: [{ error: 'invalid URL' }] } }))
+    const evaluation = tool('eval', call('execute_code', {}, { result: { stdout_truncated: true, output: 'partial' } }))
+    const partial = tool('partial', call('patch', { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }, { result: v4aProducer()[1], outcome: { kind: 'error', duration: 1 } }))
+    const t = turn([noop, skill, write, terminal, memory, web, partial, evaluation, text('answer')])
+    expect(parts(t).flatMap(part => part.blocks.map(block => block.id))).toEqual(['noop', 'skill', 'refused', 'terminal', 'memory', 'web', 'partial', 'eval', 'answer'])
+    expect([write, terminal, memory, web, partial, evaluation].map(block => foldOf(t)?.hidden.has(block.id))).toEqual([false, false, false, false, false, false])
+    for (const block of [write, terminal, memory]) expect(pieces([block])).toEqual([{ kind: 'block', block }])
+    const root = tree(entryNode(t, 'main.batch', cx))
+    const cards = nodes(root).filter(node => node.k === 'tool')
+    const writeCard = cards.find(node => node.p?.['name'] === 'write' && JSON.stringify(node).includes('NOT created or modified'))
+    const terminalCard = cards.find(node => node.p?.['name'] === 'bash' && JSON.stringify(node).includes('exit 0 may mask'))
+    const memoryCard = cards.find(node => node.p?.['name'] === 'memory')
+    expect(writeCard?.p).toMatchObject({ status: 'error', collapsed: false })
+    expect(terminalCard?.p).toMatchObject({ status: 'done', collapsed: false, exit: 0 })
+    expect(memoryCard?.p).toMatchObject({ status: 'done', collapsed: false })
+    const rendered = JSON.stringify(root)
+    for (const value of ['Candidate content; write refused', 'NOT created or modified', 'exit 0 may mask', notice,
+      'memory change was staged for approval', 'Target text appears present; no write performed',
+      'skill view is unchanged; content was not returned', 'Extraction failed: invalid URL', 'Hermes reports stdout was truncated']) expect(rendered).toContain(value)
+    expect(rendered.split('NOT created or modified')).toHaveLength(2)
+    expect(rendered).toContain('Lint reported an error for x.py')
+    expect(partial.call.outcome.kind).toBe('error')
+  })
   it('shows the real finalizer warning on an unfolded card before the answer without changing the result', () => {
     const { flagged } = producer()
     const warned = tool('warned', make(flagged))

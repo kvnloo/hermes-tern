@@ -132,6 +132,8 @@ interface EditFields {
   diagnostics?: EditDiagnostics
   /** Original result string used only if the structured companion is missing/invalid. */
   diagnosticsText?: string
+  /** Exact pinned fail-closed write error, when validated. */
+  writeRefusal?: string
   /** A retained syntax/lint error; it does not change the tool outcome. */
   lintError?: { output: string; message?: string }
   /** V4A's retained per-path reports, bounded-scan disclosure and optional apply error. */
@@ -200,6 +202,25 @@ function replaceLintError({ args, result }: Raw): EditFields['lintError'] {
   return lintError(result)
 }
 
+/** Validate the pinned structured-format pre-write refusal without inferring file state. */
+function writeRefusal({ args, result }: Raw): string | undefined {
+  if (!Object.hasOwn(args, 'path') || typeof args['path'] !== 'string' || !args['path'] ||
+      !Object.hasOwn(args, 'content') || typeof args['content'] !== 'string' || !result ||
+      !Object.hasOwn(result, 'error') || typeof result['error'] !== 'string' ||
+      !Object.hasOwn(result, 'bytes_written') || result['bytes_written'] !== 0 ||
+      !Object.hasOwn(result, 'dirs_created') || result['dirs_created'] !== false) return undefined
+  if (result['verified'] !== undefined || result['diff'] !== undefined || result['status'] !== undefined ||
+      result['success'] !== undefined || result['no_change'] !== undefined ||
+      ['files_modified', 'files_created', 'files_deleted'].some(key => result[key] !== undefined &&
+        (!Array.isArray(result[key]) || result[key].length !== 0))) return undefined
+  const error = result['error']
+  const start = error.slice(0, 4096)
+  const suffix = '). The file was NOT created or modified. Fix the content and retry.'
+  if (!start.startsWith("Refusing to write '") || !error.endsWith(suffix) ||
+      !['.json', '.yaml', '.yml', '.toml'].some(ext => start.includes(`': candidate content fails ${ext} syntax validation (`))) return undefined
+  return error
+}
+
 /** A `patch` or `write_file` call, read once. */
 export type EditDetail = (EditFields & { tool: 'patch' }) | (EditFields & { tool: 'write_file' })
 
@@ -233,6 +254,7 @@ export function editDetail<T extends EditDetail['tool']>(tool: T): (raw: Raw) =>
     ...optional('diagnosticsText', text(result?.['lsp_diagnostics'])),
     ...optional('lintError', tool === 'write_file' ? lintError(result) : replaceLintError({ args, result })),
     ...optional('v4aLint', tool === 'patch' ? v4aLint({ args, result }) : undefined),
+    ...optional('writeRefusal', tool === 'write_file' ? writeRefusal({ args, result }) : undefined),
     diff: text(result?.['diff']),
     path: text(args['path']),
     tool

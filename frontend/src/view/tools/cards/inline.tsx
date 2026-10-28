@@ -2,6 +2,7 @@
 
 import { clip, plural } from '../../../core/text.js'
 import type { Todo, ToolCall } from '../../../model.js'
+import { memoryStagingReported } from '../../../tools/memory-staged.js'
 import type { MemoryDetail, SkillDetail, SkillsDetail } from '../../../tools/misc.js'
 import { unchangedSkillFile } from '../../../tools/skill-stub.js'
 import { checklistNode } from '../../todos.js'
@@ -43,10 +44,11 @@ function todoCard(call: ToolCall): Card {
 
 /** The memory tool: one line, its action and how full memory is. */
 function memoryCard(call: ToolCall, d: MemoryDetail): Card {
+  const staged = memoryStagingReported(call)
   return {
-    body: [],
-    frame: 'inline',
-    meta: d.usage ? [d.usage] : undefined,
+    body: staged ? [<text key="staged" role="omp.tool.notice" text="Hermes reported this memory change was staged for approval; application was not confirmed." wrap="word" />] : [],
+    ...(staged ? { folded: false } : { frame: 'inline' as const }),
+    meta: staged ? [...(d.usage ? [d.usage] : []), 'Staging reported'] : d.usage ? [d.usage] : undefined,
     name: 'memory',
     target: call.context || d.action,
     targetKind: 'text',

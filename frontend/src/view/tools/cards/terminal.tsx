@@ -7,7 +7,7 @@ import type { ToolCall } from '../../../model.js'
 import { PROCESS_LOOK } from '../../../processes/look.js'
 import { isRunning as processRuns, processElapsed, processIdOf, processTone, processVerdict, watchersOf } from '../../../processes/store.js'
 import { primaryNode } from '../../../processes/widgets/view.js'
-import { terminalRecreationNeedsAttention, type TerminalDetail } from '../../../tools/terminal.js'
+import { terminalMaskedNeedsAttention, terminalRecreationNeedsAttention, type TerminalDetail } from '../../../tools/terminal.js'
 import { commandDisplayText } from '../../../vendor/t3code/commandLabel.js'
 import { commandLine, describeCommand } from '../../describe.js'
 import { duration, flat } from '../../format.js'
@@ -49,6 +49,7 @@ function bashCard(call: ToolCall, d: TerminalDetail, instead?: JSX.Element): Car
   const line = commandLine(command)
   const running = call.outcome.kind === 'running'
   const recreated = terminalRecreationNeedsAttention(call, d)
+  const masked = terminalMaskedNeedsAttention(call, d)
 
   // The head says what the step is for and shows the command on one line, so it never grows
   // when the card opens; a command longer than that line opens into the body, above its output.
@@ -59,11 +60,12 @@ function bashCard(call: ToolCall, d: TerminalDetail, instead?: JSX.Element): Car
         : []),
       ...(instead ? [instead] : output ? [<ansi follow key="out" max={{ h: '20lines' }} text={output} />] : []),
       ...(error ? [<text key="err" role="omp.tool.error" spans={[{ s: 'error', t: error }]} wrap="word" />] : []),
-      ...(recreated ? [<text key="recreated" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Hermes reports the execution environment was recreated; background processes and unpersisted files may be lost.' }]} wrap="word" />] : [])
+      ...(recreated ? [<text key="recreated" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Hermes reports the execution environment was recreated; background processes and unpersisted files may be lost.' }]} wrap="word" />] : []),
+      ...(masked ? [<text key="masked" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Hermes reports that exit 0 may mask a failure in an earlier command.' }]} wrap="word" />] : [])
     ],
-    folded: !recreated,
+    folded: !recreated && !masked,
     lang: 'bash',
-    ...(recreated ? { meta: ['Environment recreated; state may be lost'] } : {}),
+    ...((recreated || masked) ? { meta: [...(recreated ? ['Environment recreated; state may be lost'] : []), ...(masked ? ['Exit 0 may mask failure'] : [])] } : {}),
     name: 'bash',
     preview: { tail: running ? 4 : 3 },
     // A short command is the head's target; a longer one shows whole in the body instead.
