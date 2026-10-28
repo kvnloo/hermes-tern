@@ -25,6 +25,7 @@ import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { writeRefusalNeedsAttention } from '../tools/write-refusal.js'
 import { staleWriteMarker } from '../tools/stale-write.js'
+import { readConflictCount } from '../tools/read-conflicts.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -54,6 +55,7 @@ export function ownsCard(call: ToolCall): boolean {
     isBackgroundCall(call) ||
     waiting(call) ||
     isConnectCall(call) ||
+    readConflictCount(call) !== undefined ||
     call.name === 'image_generate' ||
     showsImage(call)
   )
@@ -81,7 +83,7 @@ function terminalNeedsAttention(call: ToolCall): boolean {
   }
 }
 
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || v4aLintNeedsAttention(call) || terminalNeedsAttention(call) || memoryStagingReported(call) || patchContextWarning(call) || writeContextWarning(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || v4aLintNeedsAttention(call) || terminalNeedsAttention(call) || memoryStagingReported(call) || patchContextWarning(call) || writeContextWarning(call) || readConflictCount(call) !== undefined
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
