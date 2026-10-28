@@ -85,6 +85,8 @@ function fixture(name: string): unknown {
 }
 
 describe('retained terminal recreation attention', () => {
+  // Five isolated pinned Python producers can exceed Vitest's 5s default under CI load.
+  // Synchronous subprocesses cannot be interrupted by this timer; CI bounds the whole job.
   it('keeps actual write refusal, terminal advisories and staged memory beside existing attention', () => {
     const refusalPayload = record(fixture('write-refusal-core.py'))
     const memories = fixture('memory-staged-core.py')
@@ -128,7 +130,7 @@ describe('retained terminal recreation attention', () => {
     expect(rendered.split('NOT created or modified')).toHaveLength(2)
     expect(rendered).toContain('Lint reported an error for x.py')
     expect(partial.call.outcome.kind).toBe('error')
-  })
+  }, 20_000)
   it('shows the real finalizer warning on an unfolded card before the answer without changing the result', () => {
     const { flagged } = producer()
     const warned = tool('warned', make(flagged))
