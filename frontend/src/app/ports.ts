@@ -25,8 +25,12 @@ import type { Transcript } from '../transcript/store.js'
 import type { Busy } from '../turn/activity.js'
 import type { LiveVoice } from '../voice/live.js'
 
+import type { Ticket } from '../core/epoch.js'
+
 /** The session as the ports read it, live: each read sees the current ids and info. */
 export interface SessionView {
+  /** Monotonic owner lifetime, invalidated by session or profile changes. */
+  ownerTicket?(): Ticket
   /** The open session's ids: `live` for the gateway's requests, `durable(ref)` to file or resume it. */
   readonly ref: SessionIds
   /**
