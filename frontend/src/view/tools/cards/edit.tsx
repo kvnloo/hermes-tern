@@ -65,6 +65,12 @@ function lintText(text: string, limit = 2000, singleLine = false): { value: stri
 function v4aLintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
   if (!v4aLintNeedsAttention(call) || !d.v4aLint) return []
   const rows: JSX.Element[] = []
+  if (d.v4aLint.failure) {
+    const failure = lintText(d.v4aLint.failure)
+    rows.push(<text key="v4a-failure" role="omp.tool.error" spans={[{ s: 'error', t: failure.value }]} wrap="word" />)
+    if (failure.clipped) rows.push(<text key="v4a-failure-clipped" role="omp.tool.notice" text="Patch error clipped in view" />)
+    if (failure.escaped) rows.push(<text key="v4a-failure-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />)
+  }
   d.v4aLint.errors.forEach(({ path, output, message }, i) => {
     const name = lintText(path, 256, true)
     const report = output ? lintText(output, 1000) : undefined
@@ -182,6 +188,7 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   const multiLint = v4aLintNodes(d, call)
   const lint = [...singleLint, ...multiLint]
   const lintMeta = [
+    ...(multiLint.length && d.v4aLint?.failure ? ['Patch reported an error'] : []),
     ...(singleLint.length || (multiLint.length && d.v4aLint?.errors.length) ? ['Lint reported an error'] : []),
     ...(multiLint.length && d.v4aLint?.uninspected ? ['Additional lint entries were not inspected'] : [])
   ]
