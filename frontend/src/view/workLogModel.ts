@@ -13,6 +13,7 @@ import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
 import { evalNeedsAttention } from '../tools/eval-attention.js'
+import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
@@ -231,6 +232,7 @@ export function parts(turn: TurnEntry): Part[] {
 
 /** What a call counts as in a summary: its view's action (an app's while it acted in apps only); `other` when its view throws. */
 export function actionOf(call: ToolCall): Action {
+  if (patchNoChangeSignal(call)) return 'other'
   return withView(call, view => view.action())
 }
 
