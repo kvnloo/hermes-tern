@@ -231,6 +231,58 @@ function sheetText(overlay: Overlay): string {
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('a shared prompt sheet', () => {
+  it('keeps the submitted text unchanged while the gateway is deciding, then permits editing after refusal', async () => {
+    const { overlay, replies, request } = shared('clarify.request', { question: 'Why?' })
+
+    overlay.onKey(key('a', { text: 'a' }))
+    overlay.onKey(key('enter'))
+    overlay.onKey(key('b', { text: 'b' }))
+    overlay.onKey(key('escape'))
+    expect(inputText(overlay)).toBe('a')
+    expect(request).toHaveBeenCalledTimes(1)
+
+    must(replies[0]).reject(new Error('gateway unavailable'))
+    await settle()
+    overlay.onKey(key('b', { text: 'b' }))
+    expect(inputText(overlay)).toBe('ab')
+    overlay.onKey(key('enter'))
+    expect(request).toHaveBeenLastCalledWith('clarify.respond', expect.objectContaining({ answer: 'ab' }))
+    must(replies[1]).resolve({ status: 'resolved' })
+    await settle()
+  })
+
+  it('does not let keys change a submitted batch while its answer is in flight', async () => {
+    const replies: PromiseWithResolvers<unknown>[] = []
+    const respond = vi.fn(() => {
+      const reply = Promise.withResolvers<unknown>()
+      replies.push(reply)
+      return reply.promise
+    })
+    const req: ServerRequest = {
+      id: 'batch', method: 'clarify', fail: () => undefined, respond,
+      params: { questions: [
+        { qid: 'one', question: 'First?', choices: ['A', 'B'] },
+        { qid: 'two', question: 'Second?', choices: ['C', 'D'] }
+      ] }
+    }
+    const host: OverlayHost = { changed: () => undefined, close: () => undefined, open: () => undefined }
+    const overlay = must(promptOverlay(host, parsed(req)))
+
+    overlay.onKey(key('1'))
+    overlay.onKey(key('2'))
+    expect(respond).toHaveBeenCalledWith({ answers: { one: 'A', two: 'D' } })
+    overlay.onKey(key('tab'))
+    overlay.onKey(key('2'))
+    expect(respond).toHaveBeenCalledTimes(1)
+
+    must(replies[0]).reject(new Error('gateway unavailable'))
+    await settle()
+    overlay.onKey(key('enter'))
+    expect(respond).toHaveBeenLastCalledWith({ answers: { one: 'A', two: 'D' } })
+    must(replies[1]).resolve({})
+    await settle()
+  })
+
   it('closes only once approval.respond lands', async () => {
     const { closed, overlay, replies, request } = shared('approval.request', { command: 'rm -rf build' })
 
