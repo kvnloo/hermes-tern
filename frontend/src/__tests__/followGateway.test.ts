@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { followGateway } from '../gateway/follow.js'
 
-import { FakeGateway } from './fakes.js'
+import { FakeGateway, stub } from './fakes.js'
 
 // Stub only the dispatcher boundary; no real handler tables or whole-App initialization.
 const dispatch = vi.hoisted(() => vi.fn())
-const captured = vi.hoisted(() => ({ args: [] as unknown[] }))
+const captured = vi.hoisted((): { args: unknown[] } => ({ args: [] }))
 
 vi.mock('../gateway/dispatch.js', () => ({
   dispatcher: (...args: unknown[]) => {
@@ -49,9 +49,9 @@ function context(eventLog = join(dir, 'events.jsonl')) {
   }
 }
 
-// Keep the single test-double-to-production-context cast at this boundary.
+// Only the follow boundary is exercised; the dispatcher is mocked above.
 function follow(gw: FakeGateway, cx: unknown) {
-  followGateway(gw.client, cx as never)
+  followGateway(gw.client, stub(cx))
 }
 
 function lines(path: string): string[] {
