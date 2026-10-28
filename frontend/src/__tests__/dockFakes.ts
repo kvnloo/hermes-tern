@@ -53,7 +53,7 @@ export function dockSources(over: Partial<DockSources> = {}): DockSources {
     activity: { busy: null, compacting: undefined },
     btw: { notices: [] },
     agents: { running: () => [] },
-    attachments: { chips: () => [] },
+    attachments: { chips: () => [], uploading: false },
     automation: { goal: null, loop: () => null, loopSnapshot: null },
     completion: { ghost: '' },
     composer: new Composer(),
@@ -71,3 +71,4 @@ export function dockSources(over: Partial<DockSources> = {}): DockSources {
     ...over
   }
 }
+

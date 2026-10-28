@@ -46,7 +46,7 @@ export interface DockSources {
   readonly completion: Pick<Completion, 'ghost'>
   /** The open overlays, bottom first: a modal one on top takes the keys and the completion. */
   readonly overlays: readonly Pick<Overlay, 'modal'>[]
-  readonly attachments: Pick<Attachments, 'chips'>
+  readonly attachments: Pick<Attachments, 'chips' | 'uploading'>
   readonly automation: Pick<Automation, 'goal' | 'loop' | 'loopSnapshot'>
   readonly reconnect: Pick<Reconnect, 'redial'>
   readonly hud: Pick<Hud, 'focused' | 'todosOpen'>
@@ -120,7 +120,10 @@ export function dockModel(src: DockSources, now: number): DockContext {
       draft: src.composer,
       ghost: modal ? '' : src.completion.ghost,
       placeholder: PLACEHOLDER,
-      ready: src.session.ref.live !== null && !src.liveVoice.blocked
+      // Native Send may carry different text from the painted draft. During an upload, do not
+      // advertise admission for arbitrary text even though keyboard slash commands remain usable.
+      ready: src.session.ref.live !== null && !src.liveVoice.blocked && !modal &&
+        !src.composer.vim.enabled && !src.attachments.uploading
     },
     now,
     pills: {
@@ -172,3 +175,4 @@ function shellsOf(processes: DockSources['processes'], now: number): ShellsPill 
     tone: exited[0] ? processTone(exited[0].state.status) : 'muted'
   }
 }
+

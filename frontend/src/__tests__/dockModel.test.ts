@@ -142,6 +142,20 @@ describe('dockModel: the composer and pills', () => {
     expect(modal.pills.focused).toBeUndefined()
   })
 
+  it('advertises native readiness only when modal, Vim, voice and upload do not block it', () => {
+    const src = dockSources({ session: { busyMode: 'queue', info: null, ref: { live: liveSessionId('s1') }, usage: null } })
+    expect(dockModel(src, NOW).composer.ready).toBe(true)
+    expect(dockModel({ ...src, overlays: [{ modal: true }] }, NOW).composer.ready).toBe(false)
+    expect(dockModel({ ...src, overlays: [{ modal: false }] }, NOW).composer.ready).toBe(true)
+    expect(dockModel({ ...src, liveVoice: { blocked: true } }, NOW).composer.ready).toBe(false)
+    expect(dockModel({ ...src, attachments: { ...src.attachments, uploading: true } }, NOW).composer.ready).toBe(false)
+    expect(dockModel({ ...src, activity: { busy, compacting: undefined } }, NOW).composer.ready).toBe(true)
+    src.composer.vim.setEnabled(true)
+    expect(dockModel(src, NOW).composer.ready).toBe(false)
+    src.composer.vim.setEnabled(false)
+    expect(dockModel(src, NOW).composer.ready).toBe(true)
+  })
+
   it('reads the context window and the rates from usage, and the route from info', () => {
     const src = dockSources({
       session: {
@@ -298,3 +312,4 @@ describe('drawFrame', () => {
     expect(log).toEqual([])
   })
 })
+
