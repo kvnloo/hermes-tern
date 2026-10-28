@@ -27,6 +27,8 @@ describe('Hermes dense search cards', () => {
       { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: denseText, total_count: 5, truncated: true, _omitted: 'filtered', error: 'dense failed' }) },
       { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 2, _omitted: 'filtered', error: 'structured failed' }) },
       { role: 'tool', name: 'search_files', tool_call_id: 'count', args: { pattern: 'hit', output_mode: 'count' }, content: JSON.stringify({ counts: { 'file.py': 2 }, total_count: 8, truncated: true, _omitted: 'filtered', error: 'count failed' }) },
+      { role: 'tool', name: 'read_file', tool_call_id: 'unchanged', args: { path: 'file.constructor' }, content: JSON.stringify({ status: 'unchanged', dedup: true, content_returned: false }) },
+      { role: 'tool', name: 'read_file', tool_call_id: 'clamped', args: { path: 'file.constructor' }, content: JSON.stringify({ content: '1|part', total_lines: 1, truncated: true, truncated_lines: true, truncated_by: 'bytes', next_offset: 2 }) },
       { role: 'tool', name: 'custom_result', tool_call_id: 'generic', args: {}, content: generic },
       { role: 'tool', name: 'terminal', tool_call_id: 'terminal', args: { command: 'curl https://user:secret@[' }, content: JSON.stringify({ exit_code: 2, output: 'curl failed' }) }
     ] })
@@ -35,7 +37,9 @@ describe('Hermes dense search cards', () => {
     const structured = calls.find(c => c.id === 'structured')
     const counted = calls.find(c => c.id === 'count')
     const terminal = calls.find(c => c.id === 'terminal')
-    if (!dense || !structured || !counted || !terminal) throw new Error('missing replay tool')
+    const unchanged = calls.find(c => c.id === 'unchanged')
+    const clamped = calls.find(c => c.id === 'clamped')
+    if (!dense || !structured || !counted || !terminal || !unchanged || !clamped) throw new Error('missing replay tool')
     const denseCard = tree(toolNode(dense, 0))
     expect(codes(denseCard)[0]?.p?.['text']).toBe(denseText.slice(0, 4000))
     expect(denseCard.p?.['meta']).toEqual(['Hermes total: At least 5 matches', 'Hermes omitted some search results', 'Search results truncated upstream', 'Search text clipped in view'])
@@ -52,6 +56,15 @@ describe('Hermes dense search cards', () => {
       expect(nodes(rendered).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans'])).toEqual([[{ s: 'error', t: reason }]])
       expect(toolDetail(call, 0).map(tree).flatMap(nodes).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans'])).toEqual([[{ s: 'error', t: reason }]])
     }
+    const stubCard = tree(toolNode(unchanged, 0))
+    expect(stubCard.p?.['meta']).toContain('Unchanged; Hermes did not return file content')
+    expect(codes(stubCard)).toHaveLength(0)
+    const clampedCard = tree(toolNode(clamped, 0))
+    expect(codes(clampedCard)[0]?.p).toMatchObject({ text: 'part' })
+    expect(codes(clampedCard)[0]?.p?.['lang']).toBeUndefined()
+    expect(clampedCard.p?.['meta']).toEqual(['1 lines', 'Hermes marked this read as truncated', 'Some lines were clipped; their missing text may not be recoverable by offset', 'Hermes continuation offset: 2'])
+    const clampedDetail = toolDetail(clamped, 0).map(tree).flatMap(nodes)
+    expect(clampedDetail.filter(node => node.p?.['role'] === 'omp.tool.notice')).toHaveLength(3)
     const shell = tree(toolNode(terminal, 0))
     expect(shell.p).toMatchObject({ name: 'bash', title: 'Fetch a URL' })
     expect(nodes(shell).find(node => node.k === 'ansi')?.p?.['text']).toBe('curl failed')

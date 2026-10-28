@@ -13,6 +13,11 @@ export interface ReadDetail {
   content: string | undefined
   /** How many lines the whole file has. */
   totalLines: number | undefined
+  /** Only the exact no-content dedup stub, never inferred from a title or message. */
+  unchanged?: true
+  truncated?: true
+  truncatedLines?: true
+  nextOffset?: number
 }
 
 /** Hermes edit companion: one-based UTF-16 locations, independent of syntax lint. */
@@ -133,11 +138,24 @@ interface EditFields {
 export type EditDetail = (EditFields & { tool: 'patch' }) | (EditFields & { tool: 'write_file' })
 
 export function readDetail({ args, result }: Raw): ReadDetail {
+  const clearFlags = ['truncated', 'truncated_lines', 'is_binary', 'is_image', 'not_found']
+    .every(key => result?.[key] === undefined || result[key] === false)
+  const noPayload = ['content', 'error', 'truncated_by', 'next_offset', 'base64_content', 'mime_type', 'dimensions']
+    .every(key => result !== undefined && !Object.hasOwn(result, key))
+  const unchanged = result?.['status'] === 'unchanged' && result['dedup'] === true && result['content_returned'] === false &&
+    clearFlags && noPayload
+  const truncated = result?.['truncated'] === true
+  const next = result?.['next_offset']
+  const nextOffset = truncated && result?.['truncated_by'] === 'bytes' && typeof next === 'number' && Number.isSafeInteger(next) && next > 0 ? next : undefined
   return {
     content: text(result?.['content']),
+    ...optional('nextOffset', nextOffset),
     path: text(args['path']),
     tool: 'read_file',
-    totalLines: num(result?.['total_lines'])
+    totalLines: num(result?.['total_lines']),
+    ...optional('truncated', truncated ? true : undefined),
+    ...optional('truncatedLines', result?.['truncated_lines'] === true ? true : undefined),
+    ...optional('unchanged', unchanged ? true : undefined)
   }
 }
 
