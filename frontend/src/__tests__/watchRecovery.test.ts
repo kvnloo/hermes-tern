@@ -293,6 +293,30 @@ describe('WatchApp public SDK document and gesture recovery', () => {
     })
   })
 
+  it('keeps watcher input hidden across stale and malformed events after recovery', async () => {
+    await withWatch(async h => {
+      const old = h.surface()
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const current = h.surface()
+      expect(current.id).toBe('hermes.recovery-1')
+      h.watch.composer.set('draft', { cursor: 5 })
+      await h.event({ ev: 'visible', sf: current.id, visible: false })
+      await h.event({ ev: 'visible', sf: old.id, visible: true })
+      await h.event({ ev: 'resize', sf: old.id, cols: 77, visible: true })
+      await h.event({ ev: 'visible', sf: current.id, visible: 'bad' })
+      await h.key('x')
+      expect(h.watch.composer.text).toBe('draft')
+      await h.event({ ev: 'resize', sf: current.id, cols: 90, visible: true })
+      await h.key('z')
+      expect(h.watch.composer.text).toBe('draftz')
+      await h.event({ ev: 'visible', sf: old.id, visible: false })
+      await h.key('q')
+      expect(h.watch.composer.text).toBe('draftzq')
+      expect(h.gw.sent('subagent.steer')).toEqual([])
+    })
+  })
+
   it('waits for explicit show on hidden whole loss and bounds distinct replacements to three', async () => {
     const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     await withWatch(async h => {

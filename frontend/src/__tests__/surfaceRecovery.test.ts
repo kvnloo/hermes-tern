@@ -9,6 +9,7 @@ import { node, Session, type Surface } from '@stencil-hq/tern'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from '../app/chat.js'
+import { ThinkingOrb } from '../chrome/orb.js'
 import { readLaunchEnv } from '../config/env.js'
 import { entryId } from '../core/ids.js'
 import { ACK_STALL_MS, MAX_SURFACE_RECOVERIES } from '../surface/lifecycle.js'
@@ -16,6 +17,8 @@ import { INPUT_ID } from '../surface/host.js'
 
 import { FakeGateway, stubOverlay } from './fakes.js'
 import { Peer } from './surfacePeer.js'
+
+vi.mock('../../assets/logo.png', () => ({ default: new Uint8Array([137, 80, 78, 71]) }))
 
 
 const turn = () => new Promise<void>(resolve => setImmediate(resolve))
@@ -38,7 +41,7 @@ interface Harness {
 
 async function withApp(
   check: (h: Harness) => Promise<void>,
-  options: { retention?: boolean; credits?: number } = {}
+  options: { retention?: boolean; credits?: number; blobs?: boolean } = {}
 ) {
   const home = mkdtempSync(join(tmpdir(), 'hermes-surface-recovery-'))
   const previous = process.env['HERMES_HOME']
@@ -51,7 +54,7 @@ async function withApp(
   input.emit('data', '\x1b_tsp;r;' + JSON.stringify({
     ...tern.caps,
     r: 'hello', v: 1, term: 'strict-peer', ver: '0',
-    features: options.retention === false ? [] : ['settle'],
+    features: [...(options.retention === false ? [] : ['settle']), ...(options.blobs ? ['blobs'] : [])],
     credits: options.credits ?? 64, apc: 1048576
   }) + '\x1b\\')
 
@@ -186,6 +189,89 @@ describe('whole Tern document recovery with real SDK frames', () => {
       await h.ack(fresh.id, fresh.seq)
       expect(h.peer.frames.length).toBeGreaterThan(count)
     }, { credits: 1 })
+  })
+
+  it.each([true, false])('routes recovered visibility to notices without accepting stale surface events (settle=%s)', async retention => {
+    await withApp(async h => {
+      const old = h.surface()
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const current = h.surface()
+      expect(current.id).toBe('hermes.recovery-1')
+      h.app.stores.composer.set('untouched', { cursor: 3 })
+      h.app.open(stubOverlay('held-modal', { modal: true }))
+      await painted()
+      expect(JSON.stringify(h.peer.frames.filter(frame => frame.sf === current.id))).toContain('"sendable":false')
+      await h.event({ ev: 'visible', sf: current.id, visible: false })
+      h.gw.event({ type: 'notification.show', session_id: 's1', payload: { key: 'held', text: 'Pending notice', kind: 'ttl', ttl_ms: 60_000 } })
+      await painted()
+      expect(h.app.stores.notices.current()).toBeUndefined()
+      await h.event({ ev: 'visible', sf: old.id, visible: true })
+      await h.event({ ev: 'resize', sf: old.id, cols: 77, visible: true })
+      // The pinned Session updates caps before App can reject a stale resize.
+      expect(h.tern.caps.cols).toBe(77)
+      await h.event({ ev: 'visible', sf: current.id, visible: 'bad' })
+      await h.event({ ev: 'resize', sf: current.id, visible: true })
+      expect(h.app.stores.notices.current()).toBeUndefined()
+      await h.event({ ev: 'resize', sf: current.id, cols: 90, visible: true })
+      expect(h.tern.caps.cols).toBe(90)
+      expect(h.app.stores.notices.current()?.text).toBe('Pending notice')
+      expect(h.app.stores.notices.current()?.expires).toBeGreaterThan(Date.now())
+      expect(h.app.stores.composer.text).toBe('untouched')
+      expect(h.app.stores.composer.cursor).toBe(3)
+      await h.event({ ev: 'send', sf: current.id, id: INPUT_ID, text: 'should not send' })
+      expect(h.gw.sent('prompt.submit')).toEqual([])
+      expect(h.app.stores.composer.text).toBe('untouched')
+      expect(h.app.overlays.at(-1)?.key).toBe('held-modal')
+      await h.event({ ev: 'visible', sf: old.id, visible: false })
+      h.app.stores.notices.show({ key: 'fresh', text: 'Still visible', kind: 'sticky' })
+      expect(h.app.stores.notices.current()?.text).toBe('Still visible')
+    }, { retention })
+  })
+
+  it('holds a real hidden-turn completion notice through a stale show after recovery', async () => {
+    await withApp(async h => {
+      const old = h.surface()
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      const current = h.surface()
+      await h.event({ ev: 'visible', sf: current.id, visible: false })
+      await h.event({ ev: 'visible', sf: old.id, visible: true })
+      h.gw.event({ type: 'message.start', session_id: 's1', payload: {} })
+      h.gw.event({ type: 'message.complete', session_id: 's1', payload: { status: 'done' } })
+      await painted()
+      expect(h.app.stores.notices.current()).toBeUndefined()
+      await h.event({ ev: 'visible', sf: current.id, visible: true })
+      expect(h.app.stores.notices.current()?.text).toBe('A Hermes turn finished while this pane was hidden.')
+    })
+  })
+
+  it('routes global theme, motion and visibility while retaining a detached owner until show', async () => {
+    const environment = vi.spyOn(ThinkingOrb.prototype, 'environment')
+    await withApp(async h => {
+      const old = h.surface()
+      await h.event({ ev: 'theme', dark: false })
+      await h.event({ ev: 'motion', reduce: true })
+      expect(environment).toHaveBeenCalledWith({ dark: false })
+      expect(environment).toHaveBeenCalledWith({ reduce: true })
+      await h.event({ ev: 'visible', sf: old.id, visible: false })
+      h.app.stores.notices.show({ key: 'held', text: 'While detached', kind: 'ttl', ttl_ms: 60_000 })
+      h.peer.remove(old.id, old.id)
+      await h.event({ ev: 'gone', sf: old.id, ids: [old.id] })
+      expect(h.tern.surfaces).toHaveLength(0)
+      await h.event({ ev: 'visible', sf: old.id, visible: true })
+      expect(h.surface().id).toBe('hermes.recovery-1')
+      expect(h.app.stores.notices.current()?.text).toBe('While detached')
+      await h.event({ ev: 'theme', dark: true })
+      await h.event({ ev: 'motion', reduce: false })
+      expect(environment).toHaveBeenCalledWith({ dark: true })
+      expect(environment).toHaveBeenCalledWith({ reduce: false })
+      await h.event({ ev: 'visible', visible: false })
+      h.app.stores.notices.show({ key: 'global', text: 'Global show', kind: 'ttl', ttl_ms: 60_000 })
+      expect(h.app.stores.notices.current()?.text).not.toBe('Global show')
+      await h.event({ ev: 'visible', visible: true })
+      expect(h.app.stores.notices.current()?.text).toBe('Global show')
+    }, { blobs: true })
   })
 
   it('waits for an explicit show edge after hidden document loss, and never polls', async () => {
