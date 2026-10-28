@@ -8,6 +8,7 @@ import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import { detailOf } from '../../../tools/detail.js'
+import { taskNeedsAttention } from '../../../tools/task-attention.js'
 import type { TaskDetail, TaskResult } from '../../../tools/task.js'
 import { namedStep } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -41,7 +42,7 @@ function taskCard(call: ToolCall, d: TaskDetail, now: number): Card {
   const working = agents.some(a => a.status === 'running' || a.status === 'queued') || (!agents.length && d.dispatched)
 
   const settled = agents.filter(a => a.status !== 'running' && a.status !== 'queued')
-  const limited = hasIterationLimit(call, d)
+  const limited = taskNeedsAttention(call)
   const count = goals.length || agents.length
   let meta: string | undefined
   let took: number | undefined
@@ -117,7 +118,7 @@ function outcome(r: TaskResult | undefined): { status: string; summary: string |
  */
 function soloTask(call: ToolCall, d: TaskDetail, now: number): JSX.Element | undefined {
   // The enclosing card keeps a result-level warning visible, without assigning it to a live agent.
-  if (hasIterationLimit(call, d)) {
+  if (taskNeedsAttention(call)) {
     return undefined
   }
 
@@ -154,12 +155,6 @@ function soloTask(call: ToolCall, d: TaskDetail, now: number): JSX.Element | und
       {summary ? <md key="o">{summary}</md> : null}
     </agent>
   )
-}
-
-/** Only a settled call's retained, non-dispatch result can report this fact. */
-function hasIterationLimit(call: ToolCall, d: TaskDetail): boolean {
-  return call.outcome.kind === 'done' && !d.dispatched && !d.failed
-    && d.results.some(r => r?.iterationLimit)
 }
 
 const ITERATION_LIMIT_NOTICE = 'At least one delegated task reached its iteration limit; its report may be incomplete.'
