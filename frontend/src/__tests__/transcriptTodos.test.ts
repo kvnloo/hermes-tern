@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { Entry, Todo } from '../model.js'
 import { TODO_LOOK, currentTodos, todoProgress, todosOf, toTodos } from '../transcript/todos.js'
 
+import { stub } from './fakes.js'
+
 const todo = (id: string, status: Todo['status'], content = 'Step ' + id, parent?: string): Todo => ({
   content,
   id,
@@ -15,7 +17,7 @@ function toolBlock(todos?: Todo[]): { kind: 'tool'; call: { todos: Todo[] | unde
 }
 
 function turn(...blocks: ReturnType<typeof toolBlock>[]): Entry {
-  return { kind: 'turn', blocks } as unknown as Entry
+  return stub<Entry>({ kind: 'turn', blocks })
 }
 
 describe('transcript todo snapshots and merges', () => {
@@ -95,7 +97,7 @@ describe('transcript todo snapshots and merges', () => {
 
     expect(todosOf({ merge: false, todos: [raw] }, current)).toEqual(expected)
     // The runtime also accepts callers with no merge flag, despite TodoDetail typing it boolean.
-    expect(todosOf({ merge: undefined as never, todos: [raw] }, current)).toEqual(expected)
+    expect(todosOf(stub({ merge: undefined, todos: [raw] }), current)).toEqual(expected)
     expect(current).toEqual([todo('old', 'pending')])
   })
 
