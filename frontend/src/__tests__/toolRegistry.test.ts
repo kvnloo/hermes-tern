@@ -177,10 +177,13 @@ describe('tool details', () => {
       files: undefined,
       filesOnly: false,
       matches: [{ line: 0, path: '', text: '' }],
+      matchesText: undefined,
       path: undefined,
       pattern: undefined,
       tool: 'search_files',
-      total: undefined
+      total: undefined,
+      totalLowerBound: false,
+      truncated: false
     })
   })
 })
