@@ -1050,7 +1050,7 @@
            "decor": [],
            "maxLines": 18,
            "placeholder": "Ask Hermes — / commands · @ files",
-           "sendable": true,
+           "sendable": false,
            "text": "",
            "key": "input"
           }
@@ -3014,7 +3014,7 @@
            "decor": [],
            "maxLines": 18,
            "placeholder": "Ask Hermes — / commands · @ files",
-           "sendable": true,
+           "sendable": false,
            "text": "",
            "key": "input"
           }
@@ -3759,7 +3759,7 @@
            "decor": [],
            "maxLines": 18,
            "placeholder": "Ask Hermes — / commands · @ files",
-           "sendable": true,
+           "sendable": false,
            "text": "",
            "key": "input"
           }
@@ -5668,7 +5668,7 @@
            "decor": [],
            "maxLines": 18,
            "placeholder": "Ask Hermes — / commands · @ files",
-           "sendable": true,
+           "sendable": false,
            "text": "",
            "key": "input"
           }
