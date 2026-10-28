@@ -5,6 +5,7 @@ import type { JSX } from '@stencil-hq/tern'
 import { clip, plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { FetchDetail, WebSearchDetail } from '../../../tools/web.js'
+import { hasRetainedWeb } from '../../../tool-results.js'
 import { compact } from '../../time.js'
 import type { Card, ToolView } from '../types.js'
 
@@ -63,6 +64,10 @@ function fetchCard(call: ToolCall, d: FetchDetail): Card {
     if (content) {
       body.push(<md key={`b${i}`}>{clip(content, { mark: 'line', max: 4000 })}</md>)
     }
+  }
+
+  if (hasRetainedWeb(call)) {
+    body.push(<text key="more" role="hermes.tool.retained-hint" text="/tool-results inspects retained long web pages." wrap="word" />)
   }
 
   const chars = pages.reduce((n, p) => n + (p.content?.length ?? 0), 0)
