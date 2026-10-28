@@ -110,6 +110,92 @@ afterEach(() => {
 })
 
 describe('WatchApp public SDK document and gesture recovery', () => {
+  it('consumes modified Ctrl+C/D before they can change the draft or send an intent', async () => {
+    await withWatch(async h => {
+      const draft = 'prefix !literal suffix'
+      h.watch.composer.set(draft, { cursor: 3, pasted: ['!literal'] })
+      const revision = h.watch.composer.revision
+      // CSI-u: all seven Ctrl+modifier combinations.
+      for (const code of [99, 100]) {
+        for (const modifier of [6, 7, 8, 13, 14, 15, 16]) {
+          await h.key(`\x1b[${code};${modifier}u`)
+          expect(h.watch.composer.text).toBe(draft)
+          expect(h.watch.composer.cursor).toBe(3)
+          expect(h.watch.composer.pasted).toEqual(['!literal'])
+          expect(h.watch.composer.revision).toBe(revision)
+        }
+      }
+      expect(h.gw.sent('subagent.steer')).toEqual([])
+      expect(h.gw.sent('subagent.interrupt')).toEqual([])
+    })
+  })
+
+  it('does not pass Ctrl+Shift+D into the nonempty composer', async () => {
+    await withWatch(async h => {
+      h.watch.composer.set('draft', { cursor: 1 })
+      await h.key('\x1b[100;6u')
+      expect(h.watch.composer.text).toBe('draft')
+      expect(h.watch.composer.cursor).toBe(1)
+    })
+  })
+
+  it('does not close or arm exit from modified Ctrl+C/D on an empty draft', async () => {
+    await withWatch(async h => {
+      let finished = false
+      void h.running.then(() => { finished = true })
+      await h.key('\x1b[100;7u')
+      expect(h.tern.surfaces).toHaveLength(1)
+      await h.key('\x1b[99;7u')
+      await h.key('\x1b[99;7u')
+      expect(h.tern.surfaces).toHaveLength(1)
+      expect(finished).toBe(false)
+      await h.key('\x03')
+      expect(h.tern.surfaces).toHaveLength(1)
+      expect(finished).toBe(false)
+      await h.key('\x03')
+      expect(await h.running).toBe(0)
+      expect(h.gw.sent('subagent.steer')).toEqual([])
+      expect(h.gw.sent('subagent.interrupt')).toEqual([])
+    })
+  })
+
+  it('preserves bare Ctrl+D delete-forward and bare Ctrl+C clear', async () => {
+    await withWatch(async h => {
+      h.watch.composer.set('draft', { cursor: 1 })
+      await h.key('\x1b[100;5u')
+      expect(h.watch.composer.text).toBe('daft')
+      expect(h.watch.composer.cursor).toBe(1)
+      await h.key('\x03')
+      expect(h.watch.composer.text).toBe('')
+      expect(h.gw.sent('subagent.steer')).toEqual([])
+      expect(h.gw.sent('subagent.interrupt')).toEqual([])
+    })
+  })
+
+  it('preserves bare Ctrl+D close on an empty watcher', async () => {
+    await withWatch(async h => {
+      await h.key('\x04')
+      expect(await h.running).toBe(0)
+    })
+  })
+
+  it('does not edit a hidden or disposed watcher via modified Ctrl+C/D', async () => {
+    await withWatch(async h => {
+      h.watch.composer.set('hidden', { cursor: 2 })
+      await h.event({ ev: 'visible', sf: h.surface().id, visible: false })
+      await h.key('\x1b[99;7u')
+      await h.key('\x1b[100;6u')
+      expect(h.watch.composer.text).toBe('hidden')
+      expect(h.watch.composer.cursor).toBe(2)
+      await h.tern.close()
+      expect(await h.running).toBe(0)
+      await h.key('\x1b[99;7u')
+      expect(h.watch.composer.text).toBe('hidden')
+      expect(h.gw.sent('subagent.steer')).toEqual([])
+      expect(h.gw.sent('subagent.interrupt')).toEqual([])
+    })
+  })
+
   it('routes native edit/send/action, rejects held old buttons and preserves unsent draft on whole replacement', async () => {
     await withWatch(async h => {
       const old = h.surface()
