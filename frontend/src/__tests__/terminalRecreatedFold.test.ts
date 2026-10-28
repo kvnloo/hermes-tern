@@ -170,7 +170,7 @@ describe('retained terminal recreation attention', () => {
     }
   })
 
-  it('shows V4A errors and bounded omissions with existing write, replace, terminal and web attention', () => {
+  it('shows V4A success, partial failure and bounded omissions with other retained attention', () => {
     const [result, partial] = v4aProducer()
     const { flagged } = producer()
     const args = { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }
@@ -189,7 +189,7 @@ describe('retained terminal recreation attention', () => {
       .toEqual(['noop', 'web', 'write', 'replace', 'v4a', 'omitted', 'warned', 'partial', 'eval', 'answer'])
     expect([web, write, replace, v4a, omitted, warned, failed, evalBlock].map(block => foldOf(t)?.hidden.has(block.id)))
       .toEqual([false, false, false, false, false, false, false, false])
-    expect(v4aLintNeedsAttention(failed.call)).toBe(false)
+    expect(v4aLintNeedsAttention(failed.call)).toBe(true)
     expect(actionOf(noop.call)).toBe('other')
     expect(stepLabel(noop.call)).toBe('Patch target appears present in old.py')
     const root = tree(entryNode(t, 'main.v4a-combined', cx))
@@ -199,10 +199,19 @@ describe('retained terminal recreation attention', () => {
     const warningCard = cards.find(node => node.p?.['name'] === 'bash' && JSON.stringify(node).includes(notice))
     const writeCard = cards.find(node => node.p?.['name'] === 'write')
     const replaceCard = cards.find(node => node.p?.['name'] === 'edit' && JSON.stringify(node).includes('SyntaxError') && node !== v4aCard)
+    const partialCard = cards.find(node => node.p?.['name'] === 'edit' && node.p?.['status'] === 'error')
     for (const card of [v4aCard, omittedCard, warningCard, writeCard, replaceCard]) expect(card?.p).toMatchObject({ status: 'done', collapsed: false })
+    expect(partialCard?.p).toMatchObject({ status: 'error', collapsed: false })
     if (!v4aCard) throw new Error('missing V4A card')
+    if (!partialCard) throw new Error('missing partial V4A card')
     expect(nodes(v4aCard).every(node => node.p?.['href'] === undefined)).toBe(true)
     expect(JSON.stringify(omittedCard)).not.toContain('Lint reported an error')
+    const rawError = record(partial)?.['error']
+    expect(typeof rawError).toBe('string')
+    expect(nodes(partialCard).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans']))
+      .toEqual([[{ s: 'error', t: rawError }]])
+    expect(JSON.stringify(partialCard)).toContain('Lint reported an error for x.py')
+    expect(JSON.stringify(partialCard)).toContain('def broken(:')
     expect(JSON.stringify(root)).toContain('Extraction failed: invalid URL')
     expect(JSON.stringify(root)).toContain('Hermes reports stdout was truncated')
     expect(JSON.stringify(root)).toContain('Target text appears present; no write performed')

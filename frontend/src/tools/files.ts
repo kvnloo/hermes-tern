@@ -134,8 +134,8 @@ interface EditFields {
   diagnosticsText?: string
   /** A retained syntax/lint error; it does not change the tool outcome. */
   lintError?: { output: string; message?: string }
-  /** V4A's retained per-path error reports and a bounded-scan disclosure. */
-  v4aLint?: { errors: { path: string; output: string; message?: string }[]; uninspected: boolean }
+  /** V4A's retained per-path reports, bounded-scan disclosure and optional apply error. */
+  v4aLint?: { errors: { path: string; output: string; message?: string }[]; uninspected: boolean; failure?: string }
 }
 
 /** A producer's own structured error report. */
@@ -152,17 +152,21 @@ function lintError(result: Raw['result']): EditFields['lintError'] {
   return result && Object.hasOwn(result, 'lint') ? lintEntry(result['lint']) : undefined
 }
 
-/** A bounded projection of successful V4A's retained map, not its operation history. */
+/** A bounded projection of V4A's retained map, not its operation history. */
 function v4aLint({ args, result }: Raw): EditFields['v4aLint'] {
   if (!Object.hasOwn(args, 'mode') || args['mode'] !== 'patch' || !Object.hasOwn(args, 'patch') ||
       typeof args['patch'] !== 'string' || !args['patch']) return undefined
-  if (!result || !Object.hasOwn(result, 'success') || result['success'] !== true ||
+  if (!result || !Object.hasOwn(result, 'success') ||
       (Object.hasOwn(result, 'no_change') && result['no_change'] !== false) ||
-      (result['error'] !== undefined && result['error'] !== null && result['error'] !== '') ||
       result['status'] !== undefined || (result['ok'] !== undefined && result['ok'] !== true) ||
       (result['exit_code'] !== undefined && result['exit_code'] !== 0) ||
       ['is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined && result[key] !== false) ||
       !Object.hasOwn(result, 'lint')) return undefined
+  const applyPrefix = 'Apply phase failed (state may be inconsistent — run `git diff` to assess):\n'
+  const failure = result['success'] === false && Object.hasOwn(result, 'error') && typeof result['error'] === 'string' &&
+    result['error'].startsWith(applyPrefix) && result['error'].slice(applyPrefix.length).trim() ? result['error'] : undefined
+  if (failure && ['ok', 'exit_code', 'is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined)) return undefined
+  if (!failure && (result['success'] !== true || (result['error'] !== undefined && result['error'] !== null && result['error'] !== ''))) return undefined
   const map = result['lint']
   if (!map || typeof map !== 'object' || Array.isArray(map)) return undefined
   const entries = record(map)
@@ -177,7 +181,7 @@ function v4aLint({ args, result }: Raw): EditFields['v4aLint'] {
     const error = path ? lintEntry(entries[path]) : undefined
     if (error) errors.push({ path, ...error })
   }
-  return errors.length || uninspected ? { errors, uninspected } : undefined
+  return errors.length || uninspected ? { errors, uninspected, ...optional('failure', failure) } : undefined
 }
 
 /** Only a proven replace-mode success, never a no-op, partial result or V4A map. */
