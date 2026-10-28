@@ -66,6 +66,21 @@ describe('patch context warning visibility in work', () => {
     expect(foldOf(turn([unrelated, text('answer')]))?.hidden.has(unrelated.id)).toBe(true)
   })
 
+  it('fails closed when retained warning or unrelated lint properties throw', () => {
+    const args = { mode: 'replace', path: 'x.py', old_string: 'before', new_string: 'after' }
+    for (const key of ['_warning', 'lint']) {
+      const result: Record<string, unknown> = { success: true }
+      Object.defineProperty(result, key, { enumerable: true, get: () => { throw new Error('bad retained property') } })
+      const malformed = tool('malformed', call('patch', args, { result, resultText: 'safe retained result' }))
+      expect(patchContextWarning(malformed.call)).toBe(false)
+      expect(foldOf(turn([malformed, text('answer')]))?.hidden.has(malformed.id)).toBe(true)
+      expect(pieces([malformed])).toEqual([{ kind: 'work', items: [malformed] }])
+    }
+    const hostile = new Proxy({ success: true }, { getOwnPropertyDescriptor: () => { throw new Error('bad descriptor') } })
+    const malformed = call('patch', args, { result: hostile, resultText: 'safe retained result' })
+    expect(patchContextWarning(malformed)).toBe(false)
+  })
+
   it('preserves neighboring attention and only discloses retained replay results', () => {
     const web = tool('web', call('web_extract', {}, { result: { results: [{ error: 'failed' }] } }))
     const task = tool('task', call('delegate_task', {}, { result: { results: [{ status: 'completed', exit_reason: 'max_iterations', truncated: true, summary: 'partial' }] } }))
