@@ -40,6 +40,34 @@ const DIAGNOSTIC_STYLES = {
 
 const SEVERITIES = ['error', 'warn', 'info', 'hint'] as const
 
+/** Bound untrusted lint text and escape controls without splitting UTF-16 pairs. */
+function lintText(text: string): { value: string; clipped: boolean; escaped: boolean } {
+  let end = Math.min(text.length, 2000)
+  if (end < text.length && end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1] ?? '') && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end--
+  const prefix = text.slice(0, end)
+  const value = Array.from(prefix, char => {
+    const n = char.codePointAt(0) ?? 0
+    return ((n < 32 && n !== 9 && n !== 10) || (n >= 0x7f && n <= 0x9f) || n === 0x061c || n === 0x200e || n === 0x200f ||
+      (n >= 0x2028 && n <= 0x202e) || (n >= 0x2066 && n <= 0x206f) || (n >= 0xd800 && n <= 0xdfff))
+      ? `\\u${n.toString(16).padStart(4, '0')}` : char
+  }).join('')
+  return { value, clipped: end < text.length, escaped: value !== prefix }
+}
+
+function lintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
+  if (!d.lintError || call.outcome.kind === 'running') return []
+  const { output, message } = d.lintError
+  const report = output ? lintText(output) : undefined
+  const summary = message ? lintText(message) : undefined
+  return [
+    <text key="lint-title" role="omp.tool.lint" spans={[{ s: 'error', t: 'Lint reported an error' }]} wrap="word" />,
+    ...(summary ? [<text key="lint-message" role="omp.tool.lint.message" text={summary.value} wrap="word" />] : []),
+    ...(report ? [<text key="lint-output" role="omp.tool.lint.output" text={report.value} wrap="word" />] : []),
+    ...(summary?.clipped || report?.clipped ? [<text key="lint-clipped" role="omp.tool.notice" text="Lint report clipped in view" />] : []),
+    ...(summary?.escaped || report?.escaped ? [<text key="lint-escaped" role="omp.tool.notice" text="Lint report control characters escaped in view" />] : [])
+  ]
+}
+
 /** The native diagnostic rows are added to every edit presentation (even without a diff). */
 function diagnosticNodes(d: EditDetail, context?: LspLinkContext): JSX.Element[] {
   const data = d.diagnostics
@@ -125,6 +153,7 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   const content = d.content
   const write = d.tool === 'write_file'
   const diagnostics = diagnosticNodes(d, context)
+  const lint = lintNodes(d, call)
 
   const head = {
     name: write ? 'write' : 'edit',
@@ -141,22 +170,23 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     return {
       ...head,
       badges: diff ? [{ text: 'new file', tone: 'success' }] : undefined,
-      body: [<code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
-      folded: true,
-      meta: [plural(lines, 'line')],
+      body: [...lint, <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
+      folded: lint.length ? false : true,
+      meta: [plural(lines, 'line'), ...(lint.length ? ['Lint reported an error'] : [])],
       preview: { lines: 8 }
     }
   }
 
   if (!diff) {
-    return { ...head, body: diagnostics }
+    return { ...head, body: [...lint, ...diagnostics], ...(lint.length ? { folded: false, meta: ['Lint reported an error'] } : {}) }
   }
 
   const { added, removed } = diffStats(diff)
 
   return {
     ...head,
-    body: [<diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
-    meta: [`+${added} −${removed}`]
+    body: [...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
+    ...(lint.length ? { folded: false } : {}),
+    meta: [`+${added} −${removed}`, ...(lint.length ? ['Lint reported an error'] : [])]
   }
 }
