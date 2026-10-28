@@ -14,6 +14,7 @@ import type { LaunchEnv } from '../config/env.js'
 import { errorText } from '../core/errors.js'
 import { durable, type DurableSessionId, isLive, type LiveSessionId, type StoredSessionId, storedSessionId } from '../core/ids.js'
 import { createParams } from '../hermes/create.js'
+import type { OperationalSheets } from '../operations.js'
 import type { PromptSheets } from '../prompts/sheets.js'
 import type { Transcript } from '../transcript/store.js'
 import type { SwitchGate } from '../turn/router.js'
@@ -28,6 +29,7 @@ import { type EndReason, SessionViews } from './views.js'
 export interface LifecycleHost {
   readonly gw: Pick<GatewayClient, 'holdAttach' | 'hydrateSharedPrompts' | 'isCanonical' | 'request' | 'settleAttach'>
   readonly state: SessionState
+  readonly operations: Pick<OperationalSheets, 'adopt'>
   readonly transcript: Pick<Transcript, 'notice'>
   readonly sheets: Pick<PromptSheets, 'dropShared'>
   /** The launcher's session to resume (the pane's own after a restart), and the folder a new session starts in. */
@@ -108,6 +110,7 @@ export class SessionLifecycle {
     const { state } = this.#host
     // Prompts queue until the next gateway.ready reattaches.
     state.ref = { live: null, stored: state.ref.stored }
+    this.#host.operations.adopt(null)
     this.#heldRequests = []
     this.#heldEvents = []
   }
