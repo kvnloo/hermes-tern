@@ -8,6 +8,7 @@ import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import { detailOf } from '../../../tools/detail.js'
+import { taskNeedsAttention } from '../../../tools/task-attention.js'
 import type { TaskDetail, TaskResult } from '../../../tools/task.js'
 import { namedStep } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -41,6 +42,7 @@ function taskCard(call: ToolCall, d: TaskDetail, now: number): Card {
   const working = agents.some(a => a.status === 'running' || a.status === 'queued') || (!agents.length && d.dispatched)
 
   const settled = agents.filter(a => a.status !== 'running' && a.status !== 'queued')
+  const limited = taskNeedsAttention(call)
   const count = goals.length || agents.length
   let meta: string | undefined
   let took: number | undefined
@@ -66,8 +68,12 @@ function taskCard(call: ToolCall, d: TaskDetail, now: number): Card {
   return {
     badges: d.background ? [{ text: 'background' }] : undefined,
     // The agents first; the brief they share stays folded.
-    body: [...rows, ...(context ? [briefNode('Shared brief', context)] : [])],
-    meta: meta ? [meta] : undefined,
+    body: [
+      ...(limited ? [<text key="iteration-limit" role="hermes.task.iteration-limit" text={ITERATION_LIMIT_NOTICE} wrap="word" />] : []),
+      ...rows, ...(context ? [briefNode('Shared brief', context)] : [])
+    ],
+    folded: limited ? false : undefined,
+    meta: [...(meta ? [meta] : []), ...(limited ? ['iteration limit reached'] : [])],
     name: 'task',
     status: working ? 'running' : undefined,
     target: count ? plural(count, 'agent') : undefined,
@@ -111,6 +117,11 @@ function outcome(r: TaskResult | undefined): { status: string; summary: string |
  * An active agent or a failed dispatch keeps the Task card.
  */
 function soloTask(call: ToolCall, d: TaskDetail, now: number): JSX.Element | undefined {
+  // The enclosing card keeps a result-level warning visible, without assigning it to a live agent.
+  if (taskNeedsAttention(call)) {
+    return undefined
+  }
+
   if (call.subagents?.some(a => a.status === 'running' || a.status === 'queued')) {
     return undefined
   }
@@ -145,6 +156,8 @@ function soloTask(call: ToolCall, d: TaskDetail, now: number): JSX.Element | und
     </agent>
   )
 }
+
+const ITERATION_LIMIT_NOTICE = 'At least one delegated task reached its iteration limit; its report may be incomplete.'
 
 /** The brief (`context`) delegation `call` gave its agent `index` beside the goal, if any. */
 export function briefOf(call: ToolCall, index: number): string | undefined {

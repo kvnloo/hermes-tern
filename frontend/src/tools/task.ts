@@ -1,6 +1,7 @@
 // The delegate_task tool's detail: the tasks asked for, and how the agents' run ended.
 
 import { objects, type Raw, records, text } from './fields.js'
+import { record } from '../wire/json.js'
 
 /** One task of a delegation: its goal and the brief (`context`) given with it. */
 export interface TaskArg {
@@ -13,6 +14,8 @@ export interface TaskResult {
   status: string | undefined
   summary: string | undefined
   error: string | undefined
+  /** A completed child explicitly reports reaching its iteration budget. */
+  iterationLimit: boolean
 }
 
 /** A `delegate_task` call, read once. */
@@ -35,7 +38,22 @@ export interface TaskDetail {
   results: (TaskResult | undefined)[]
 }
 
+/** Only actual object entries with their own explicit producer fields establish this signal. */
+function iterationLimit(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const r = record(value)
+  if (!r) return false
+  if (!['status', 'exit_reason', 'truncated', 'summary'].every(key => Object.hasOwn(r, key))) return false
+  return r['status'] === 'completed' && r['exit_reason'] === 'max_iterations' && r['truncated'] === true &&
+    (r['error'] === undefined || r['error'] === null || r['error'] === '') &&
+    typeof r['summary'] === 'string' && Boolean(r['summary'].trim()) && r['summary'].trim() !== '(empty)'
+}
+
 export function taskDetail({ args, result }: Raw): TaskDetail {
+  const rawResults = result && Object.hasOwn(result, 'results') && Array.isArray(result['results']) ? result['results'] : []
+  // The pinned foreground aggregate has no dispatch status, mode or success/error envelope.
+  // Preserve ordinary row parsing for legacy shapes, but do not assert a limit from them.
+  const finalResult = result !== undefined && !['status', 'mode', 'success', 'error'].some(key => key in result)
   return {
     background: result?.['mode'] === 'background',
     briefs: records(args['tasks']).map(t => text(t?.['context'])),
@@ -43,7 +61,12 @@ export function taskDetail({ args, result }: Raw): TaskDetail {
     dispatched: result?.['status'] === 'dispatched',
     failed: Boolean(result?.['error']),
     goal: text(args['goal']),
-    results: records(result?.['results']).map(r => r && { error: text(r['error']), status: text(r['status']), summary: text(r['summary']) }),
+    results: records(rawResults).map((r, i) => r && {
+      error: text(r['error']),
+      iterationLimit: finalResult && iterationLimit(rawResults[i]),
+      status: text(r['status']),
+      summary: text(r['summary'])
+    }),
     tasks: objects(args['tasks']).map(t => ({ context: text(t['context']), goal: text(t['goal']) })),
     tool: 'delegate_task'
   }
