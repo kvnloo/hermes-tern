@@ -52,6 +52,8 @@ export interface FrameCx extends DockSources {
   /** Local file paths are valid only if Tern and Hermes share the filesystem. */
   readonly hostLocal: boolean
   readonly nativeMedia: boolean
+  /** The host clock preference negotiated for this Tern session. */
+  readonly hour12?: () => boolean
   /** Only for session-scoped native browser-card Focus; never used by ordinary tool cards. */
   readonly browser: BrowserFocusHost
   /** Optional SDK image on the composer line, updated by its own lifecycle-safe animator. */
@@ -95,7 +97,7 @@ export function drawFrame(cx: FrameCx, now = Date.now()) {
 }
 
 /** What the transcript's entries draw with this frame. */
-export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser' | 'mediaDelivery' | 'hostLocal' | 'nativeMedia'>>, now: number): TranscriptContext {
+export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welcome' | 'gateway'> & Partial<Pick<FrameCx, 'charts' | 'browser' | 'mediaDelivery' | 'hostLocal' | 'nativeMedia' | 'hour12'>>, now: number): TranscriptContext {
   const info = cx.session.info
   const focusBrowser = cx.browser ? bindBrowserFocus(cx.browser, cx.session.ref) : undefined
   const backend = info?.version && info.version !== 'unknown' ? `v${info.version}` : ''
@@ -104,6 +106,7 @@ export function transcriptContext(cx: Pick<FrameCx, 'session' | 'copies' | 'welc
     ...(cx.charts ? { charts: cx.charts } : {}),
     copied: cx.copies.copied,
     copy: cx.copies.copy,
+    hour12: cx.hour12?.() ?? false,
     links: {
       cwd: info?.cwd ?? '',
       hostLocal: cx.hostLocal === true && info?.terminal_backend === 'local',

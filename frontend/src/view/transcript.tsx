@@ -32,6 +32,8 @@ export interface TranscriptContext {
   /** Presentation-only, session-scoped Markdown table charts. */
   charts?: TableCharts
   now: number
+  /** Negotiated Tern clock preference; older hosts default to 24-hour time. */
+  hour12?: boolean
   /** Supplied by live frames; omitted by historical consumers of the view helper. */
   links?: FileContext
   /** SDK actions bound to the session instance that rendered this entry. */
@@ -79,7 +81,7 @@ export function entryNode(e: Entry, id: string, cx: TranscriptContext): JSX.Elem
   const built: Built = holder
   // Authority is presentation state: a cached local href must not survive a host/cwd switch.
   const rev = JSON.stringify([e.kind === 'turn' || e.kind === 'compaction' ? e.rev : 0,
-    cx.copied === e.id, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? '', cx.links?.cwd ?? '', cx.links?.hostLocal ?? false, cx.links?.media ?? false])
+    cx.copied === e.id, e.kind === 'user' ? (cx.hour12 ?? false) : null, cx.lspContext?.hostLocal === true, cx.lspContext?.cwd ?? '', cx.charts?.revision ?? 0, cx.mediaRev ?? '', cx.links?.cwd ?? '', cx.links?.hostLocal ?? false, cx.links?.media ?? false])
   const cached = built[kNode]
 
   if (cached?.rev === rev && cached.browserSource === cx.browserSource) {
@@ -124,8 +126,8 @@ function userNode(e: UserEntry, cx: TranscriptContext): JSX.Element {
         <text
           key="time"
           role="omp.user.time"
-          spans={[{ s: 'dim mono', t: at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]}
-          title={at.toLocaleString()}
+          spans={[{ s: 'dim mono', t: at.toLocaleTimeString([], { hour: '2-digit', hour12: cx.hour12 ?? false, minute: '2-digit' }) }]}
+          title={at.toLocaleString([], { hour12: cx.hour12 ?? false })}
         />
         {copyButton(e.text, e.id, 'omp.user.tool', 'Copy message', cx)}
       </row>

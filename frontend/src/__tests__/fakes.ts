@@ -104,13 +104,14 @@ export type TernInput = { type: 'key'; key: Key } | { type: 'event'; event: Reco
 
 export interface FakeTernOptions {
   cols?: number
+  hour12?: boolean
   /** Whether the surface draws: it keeps each tree it is given (`frame`). A closed one draws nothing. */
   draws?: boolean
   features?: string[]
 }
 
 /** A Tern session on no terminal: `press` and `send` feed the app's input loop, `frame` is what it drew last. */
-export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOptions = {}) {
+export function fakeTern({ cols = 80, draws = false, features = [], hour12 = false }: FakeTernOptions = {}) {
   const inputs: TernInput[] = []
   const waiting: ((r: IteratorResult<TernInput>) => void)[] = []
   const opened: unknown[] = []
@@ -149,7 +150,7 @@ export function fakeTern({ cols = 80, draws = false, features = [] }: FakeTernOp
       return: async () => ({ done: true as const, value: undefined })
     }),
     blob: () => 'blob',
-    caps: { cols, features },
+    caps: { cols, features, hour12 },
     close: async () => undefined,
     open: (options: OpenOptions) => {
       opened.push(options)

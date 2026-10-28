@@ -72,6 +72,7 @@ export class Retention {
   #held = false
   #copied: string | undefined
   #copyHandler: TranscriptContext['copy'] | undefined
+  #hour12: boolean | undefined
   #welcomeVersion: string | undefined
   #welcomeTip: string | undefined
   #welcomeLogo: string | undefined
@@ -367,8 +368,9 @@ export class Retention {
     const welcomeChanged = this.#welcomeVersion !== cx.welcome.version ||
       this.#welcomeTip !== cx.welcome.tip || this.#welcomeLogo !== cx.welcome.logo
     const copyHandlerChanged = this.#copyHandler !== cx.copy
+    const clockChanged = this.#hour12 !== (cx.hour12 ?? false)
 
-    if (welcomeChanged || copyHandlerChanged) {
+    if (welcomeChanged || copyHandlerChanged || clockChanged) {
       for (const row of this.#ordered) {
         this.work.examined++
         if (!row.present || row.evicted) {
@@ -376,6 +378,7 @@ export class Retention {
         }
 
         if ((welcomeChanged && row.entry.kind === 'welcome') ||
+          (clockChanged && row.entry.kind === 'user') ||
           (copyHandlerChanged && (row.entry.kind === 'user' || row.entry.kind === 'turn'))) {
           if (copyHandlerChanged) {
             forgetEntryNode(row.entry)
@@ -389,6 +392,7 @@ export class Retention {
       this.#welcomeTip = cx.welcome.tip
       this.#welcomeLogo = cx.welcome.logo
       this.#copyHandler = cx.copy
+      this.#hour12 = cx.hour12 ?? false
     }
 
     if (this.#held !== hold) {
