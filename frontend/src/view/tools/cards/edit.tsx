@@ -10,6 +10,7 @@ import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
+import { writeRefusalNeedsAttention } from '../../../tools/write-refusal.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -29,7 +30,9 @@ export const writeView: ToolView<'write_file'> = {
   action: 'edit',
   card: editCard,
   hubIcon: 'write',
-  step: (_call, d) => (d.path ? `Wrote ${shortPath(d.path)}` : 'Wrote a file')
+  step: (call, d) => writeRefusalNeedsAttention(call)
+    ? (d.path ? `Write refused: ${shortPath(d.path)}` : 'Write refused')
+    : (d.path ? `Wrote ${shortPath(d.path)}` : 'Wrote a file')
 }
 
 const DIAGNOSTIC_STYLES = {
@@ -150,11 +153,17 @@ function diagnosticNodes(d: EditDetail, context?: LspLinkContext): JSX.Element[]
 function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLinkContext): Card {
   const path = d.path ?? call.context
   const lang = langOf(path)
-  const diff = hunks(d.diff) ?? (call.diff ? plainDiff(call.diff) : undefined)
   const content = d.content
   const write = d.tool === 'write_file'
   const diagnostics = diagnosticNodes(d, context)
   const lint = lintNodes(d, call)
+  const refusal = writeRefusalNeedsAttention(call) && d.writeRefusal ? lintText(d.writeRefusal) : undefined
+  const diff = refusal ? undefined : (hunks(d.diff) ?? (call.diff ? plainDiff(call.diff) : undefined))
+  const refusalNodes = refusal ? [
+    <text key="write-refusal" role="omp.tool.error" spans={[{ s: 'error', t: refusal.value }]} wrap="word" />,
+    ...(refusal.clipped ? [<text key="write-refusal-clipped" role="omp.tool.notice" text="Write error clipped in view" />] : []),
+    ...(refusal.escaped ? [<text key="write-refusal-escaped" role="omp.tool.notice" text="Write error control characters escaped in view" />] : [])
+  ] : []
 
   const head = {
     name: write ? 'write' : 'edit',
@@ -171,23 +180,23 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     return {
       ...head,
       badges: diff ? [{ text: 'new file', tone: 'success' }] : undefined,
-      body: [...lint, <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
-      folded: lint.length ? false : true,
-      meta: [plural(lines, 'line'), ...(lint.length ? ['Lint reported an error'] : [])],
+      body: [...refusalNodes, ...lint, ...(refusal ? [<text key="candidate" role="omp.tool.notice" text="Candidate content; write refused" />] : []), <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
+      folded: lint.length || refusal ? false : true,
+      meta: [plural(lines, 'line'), ...(refusal ? ['Write refused'] : []), ...(lint.length ? ['Lint reported an error'] : [])],
       preview: { lines: 8 }
     }
   }
 
   if (!diff) {
-    return { ...head, body: [...lint, ...diagnostics], ...(lint.length ? { folded: false, meta: ['Lint reported an error'] } : {}) }
+    return { ...head, body: [...refusalNodes, ...lint, ...diagnostics], ...(refusal || lint.length ? { folded: false, meta: [...(refusal ? ['Write refused'] : []), ...(lint.length ? ['Lint reported an error'] : [])] } : {}) }
   }
 
   const { added, removed } = diffStats(diff)
 
   return {
     ...head,
-    body: [...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
-    ...(lint.length ? { folded: false } : {}),
-    meta: [`+${added} −${removed}`, ...(lint.length ? ['Lint reported an error'] : [])]
+    body: [...refusalNodes, ...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
+    ...(lint.length || refusal ? { folded: false } : {}),
+    meta: [`+${added} −${removed}`, ...(refusal ? ['Write refused'] : []), ...(lint.length ? ['Lint reported an error'] : [])]
   }
 }
