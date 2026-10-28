@@ -15,7 +15,9 @@ import { detailOf } from '../tools/detail.js'
 import { evalNeedsAttention } from '../tools/eval-attention.js'
 import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
+import { terminalRecreationNeedsAttention } from '../tools/terminal.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
+import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -61,7 +63,18 @@ export function showsImage(call: ToolCall): boolean {
 }
 
 /** Consequential tool states stay visible independently of the surrounding work group. */
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call)
+function recreatedTerminalNeedsAttention(call: ToolCall): boolean {
+  if (call.name !== 'terminal') return false
+  try {
+    const detail = detailOf(call)
+    return detail.tool === 'terminal' && terminalRecreationNeedsAttention(call, detail)
+  } catch {
+    // A malformed tool payload must not break the turn's existing fallback view.
+    return false
+  }
+}
+
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || recreatedTerminalNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -80,7 +93,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || recreatedTerminalNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 

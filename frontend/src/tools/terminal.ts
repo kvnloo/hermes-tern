@@ -1,6 +1,8 @@
 // The terminal tool's detail: the command, how it ran, and what it printed; and a command without
 // the plugin's Tern pane prefix, as every view and store shows it.
 
+import type { ToolCall } from '../model.js'
+
 import { num, type Raw, text } from './fields.js'
 
 /** A `terminal` call, read once. */
@@ -17,6 +19,22 @@ export interface TerminalDetail {
   error: string | undefined
   /** The exit code, when the result has one. */
   exit: number | undefined
+  /** Exact pinned foreground recreation signal; it does not prove which state survived. */
+  environmentRecreated: boolean
+}
+
+// Pinned Hermes emits this exact fixed text, not a boolean or arbitrary warning.
+const RECREATED_SIGNAL = 'The execution environment was recreated while running this command ' +
+  '(the previous container/sandbox was gone). Persistent files were restored ' +
+  'where the backend supports it, but background processes and any files ' +
+  'outside persisted paths from earlier commands may be lost — verify state ' +
+  'before relying on prior work.'
+
+function recreation(result: Raw['result']): boolean {
+  if (!result || !Object.hasOwn(result, 'environment_recreated') || result['environment_recreated'] !== RECREATED_SIGNAL) return false
+  return Object.hasOwn(result, 'output') && typeof result['output'] === 'string' &&
+    Object.hasOwn(result, 'exit_code') && typeof result['exit_code'] === 'number' && Number.isSafeInteger(result['exit_code']) &&
+    Object.hasOwn(result, 'error') && result['error'] === null
 }
 
 export function terminalDetail({ args, result }: Raw): TerminalDetail {
@@ -24,10 +42,16 @@ export function terminalDetail({ args, result }: Raw): TerminalDetail {
     background: args['background'] === true || typeof result?.['session_id'] === 'string',
     command: text(args['command']),
     error: text(result?.['error']),
+    environmentRecreated: recreation(result),
     exit: num(result?.['exit_code']),
     output: text(result?.['output']),
     tool: 'terminal'
   }
+}
+
+/** A settled, foreground warning can be promoted without changing the call outcome. */
+export function terminalRecreationNeedsAttention(call: ToolCall, detail: TerminalDetail): boolean {
+  return call.outcome.kind !== 'running' && !detail.background && detail.environmentRecreated
 }
 
 /**
