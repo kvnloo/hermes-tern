@@ -29,7 +29,7 @@ jobs:
     env:
       PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       HERMES_SRC: ${{ github.workspace }}/.hermes-agent
-      BUNDLE_DIR: ${{ runner.temp }}/hermes-tern-bundle
+      BUNDLE_DIR: ${{ github.workspace }}/.bundle-candidate
       OPENUI_TELEMETRY_DISABLED: '1'
       DO_NOT_TRACK: '1'
     steps:
