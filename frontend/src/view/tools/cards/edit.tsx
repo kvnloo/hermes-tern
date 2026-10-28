@@ -12,6 +12,7 @@ import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js
 import { patchLintNeedsAttention } from '../../../tools/patch-lint-attention.js'
 import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-noop.js'
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
+import { v4aLintNeedsAttention } from '../../../tools/v4a-lint.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -47,17 +48,35 @@ const DIAGNOSTIC_STYLES = {
 const SEVERITIES = ['error', 'warn', 'info', 'hint'] as const
 
 /** Bound untrusted lint text and escape controls without splitting UTF-16 pairs. */
-function lintText(text: string): { value: string; clipped: boolean; escaped: boolean } {
-  let end = Math.min(text.length, 2000)
+function lintText(text: string, limit = 2000, singleLine = false): { value: string; clipped: boolean; escaped: boolean } {
+  let end = Math.min(text.length, limit)
   if (end < text.length && end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1] ?? '') && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end--
   const prefix = text.slice(0, end)
   const value = Array.from(prefix, char => {
     const n = char.codePointAt(0) ?? 0
-    return ((n < 32 && n !== 9 && n !== 10) || (n >= 0x7f && n <= 0x9f) || n === 0x061c || n === 0x200e || n === 0x200f ||
+    return ((n < 32 && (singleLine || (n !== 9 && n !== 10))) || (n >= 0x7f && n <= 0x9f) || n === 0x061c || n === 0x200e || n === 0x200f ||
       (n >= 0x2028 && n <= 0x202e) || (n >= 0x2066 && n <= 0x206f) || (n >= 0xd800 && n <= 0xdfff))
       ? `\\u${n.toString(16).padStart(4, '0')}` : char
   }).join('')
   return { value, clipped: end < text.length, escaped: value !== prefix }
+}
+
+/** V4A map keys are labels only: no link or inferred locality. */
+function v4aLintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
+  if (!v4aLintNeedsAttention(call) || !d.v4aLint) return []
+  const rows: JSX.Element[] = []
+  d.v4aLint.errors.forEach(({ path, output, message }, i) => {
+    const name = lintText(path, 256, true)
+    const report = output ? lintText(output, 1000) : undefined
+    const summary = message ? lintText(message, 1000) : undefined
+    rows.push(<text key={`v4a-title-${i}`} role="omp.tool.lint" text={`Lint reported an error for ${name.value}`} wrap="word" />)
+    if (summary) rows.push(<text key={`v4a-message-${i}`} role="omp.tool.lint.message" text={summary.value} wrap="word" />)
+    if (report) rows.push(<text key={`v4a-output-${i}`} role="omp.tool.lint.output" text={report.value} wrap="word" />)
+    if (name.clipped || summary?.clipped || report?.clipped) rows.push(<text key={`v4a-clipped-${i}`} role="omp.tool.notice" text="Lint report clipped in view" />)
+    if (name.escaped || summary?.escaped || report?.escaped) rows.push(<text key={`v4a-escaped-${i}`} role="omp.tool.notice" text="Lint report control characters escaped in view" />)
+  })
+  if (d.v4aLint.uninspected) rows.push(<text key="v4a-uninspected" role="omp.tool.notice" text="Additional lint entries were not inspected" />)
+  return rows
 }
 
 function lintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
@@ -159,7 +178,13 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   const content = d.content
   const write = d.tool === 'write_file'
   const diagnostics = diagnosticNodes(d, context)
-  const lint = lintNodes(d, call)
+  const singleLint = lintNodes(d, call)
+  const multiLint = v4aLintNodes(d, call)
+  const lint = [...singleLint, ...multiLint]
+  const lintMeta = [
+    ...(singleLint.length || (multiLint.length && d.v4aLint?.errors.length) ? ['Lint reported an error'] : []),
+    ...(multiLint.length && d.v4aLint?.uninspected ? ['Additional lint entries were not inspected'] : [])
+  ]
 
   const head = {
     name: write ? 'write' : 'edit',
@@ -187,13 +212,13 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
       badges: diff ? [{ text: 'new file', tone: 'success' }] : undefined,
       body: [...lint, <code key="code" lang={lang ?? 'text'} numbers text={text} />, ...diagnostics],
       folded: lint.length ? false : true,
-      meta: [plural(lines, 'line'), ...(lint.length ? ['Lint reported an error'] : [])],
+      meta: [plural(lines, 'line'), ...lintMeta],
       preview: { lines: 8 }
     }
   }
 
   if (!diff) {
-    return { ...head, body: [...lint, ...diagnostics], ...(lint.length ? { folded: false, meta: ['Lint reported an error'] } : {}) }
+    return { ...head, body: [...lint, ...diagnostics], ...(lint.length ? { folded: false, meta: lintMeta } : {}) }
   }
 
   const { added, removed } = diffStats(diff)
@@ -202,6 +227,6 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     ...head,
     body: [...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
     ...(lint.length ? { folded: false } : {}),
-    meta: [`+${added} −${removed}`, ...(lint.length ? ['Lint reported an error'] : [])]
+    meta: [`+${added} −${removed}`, ...lintMeta]
   }
 }
