@@ -98,7 +98,7 @@ describe('masked terminal success advisory', () => {
     expect(notice(tree(toolNode(validFalse, 5000)))).toBe(true)
   })
 
-  it('preserves retained replay and records the enclosing work fold', () => {
+  it('preserves retained replay and exposes the warning outside the work fold', () => {
     const pipeline = producer()[0]
     let n = 0
     const entries = history({ kept: [], compactions: [], id: p => entryId(`${p}${++n}`), messages: [
@@ -113,7 +113,10 @@ describe('masked terminal success advisory', () => {
     expect(notice(tree(toolNode(block.call, 0)))).toBe(true)
     const cx: TranscriptContext = { copy: () => undefined, now: 1000, welcome: { tip: '', version: '' } }
     const full = tree(entryNode(turn, 'main.masked', cx))
-    expect(nodes(full).some(n => n.p?.['role'] === 'hermes.turn.fold' && n.p?.['collapsed'] === true)).toBe(true)
-    expect(notice(full)).toBe(true) // Serialized folded descendants are not proof of visible content.
+    expect(nodes(full).some(n => n.p?.['role'] === 'hermes.turn.fold' && n.p?.['collapsed'] === true)).toBe(false)
+    const card = nodes(full).find(n => n.k === 'tool' && n.p?.['name'] === 'bash')
+    expect(card?.p?.['collapsed']).toBe(false)
+    if (!card) throw new Error('missing terminal card')
+    expect(notice(card)).toBe(true)
   })
 })
