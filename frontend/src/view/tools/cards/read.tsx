@@ -4,6 +4,7 @@ import { langOf } from '../../../code/lang.js'
 import { optional } from '../../../core/assert.js'
 import type { ToolCall } from '../../../model.js'
 import type { ReadDetail } from '../../../tools/files.js'
+import { readConflictCount, readConflictNotice } from '../../../tools/read-conflicts.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
 import { errorOf } from './generic.js'
@@ -32,6 +33,7 @@ export const readView: ToolView<'read_file'> = {
 
 /** The file's lines as read, numbered from where the read began; the range (or the whole count) as meta. */
 function readCard(call: ToolCall, d: ReadDetail): Card {
+  const conflicts = readConflictCount(call)
   const path = d.path ?? call.context
   const content = d.content
   const total = d.totalLines
@@ -41,6 +43,7 @@ function readCard(call: ToolCall, d: ReadDetail): Card {
   const whole = first === 1 && last !== undefined && last === total
   const meta = first !== undefined && last !== undefined ? [whole ? `${total} lines` : `:${first}-${last}`] : []
   const notices = [
+    ...(conflicts !== undefined ? [readConflictNotice(conflicts)] : []),
     ...(d.unchanged && call.outcome.kind === 'done' ? ['Unchanged; Hermes did not return file content'] : []),
     ...(d.truncated ? ['Hermes marked this read as truncated'] : []),
     ...(d.truncatedLines ? ['Some lines were clipped; their missing text may not be recoverable by offset'] : []),
@@ -57,7 +60,7 @@ function readCard(call: ToolCall, d: ReadDetail): Card {
       ...(failure?.clipped ? [<text key="read-error-clipped" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Read error text clipped in view' }]} />] : []),
       ...(failure?.escaped ? [<text key="read-error-controls" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Read error control characters escaped in view' }]} />] : [])
     ],
-    folded: true,
+    folded: conflicts === undefined,
     frame: 'inline',
     meta: [...meta, ...notices],
     name: 'read',
