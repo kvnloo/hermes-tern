@@ -245,7 +245,7 @@ export class AppActions {
       router: cx.router,
       setCompacting: (on, opts) => this.setCompacting(on, opts),
       state: cx.state,
-      submit: text => this.submit(text, true, 'queue'),
+      submit: (text, literal) => this.submit(text, true, 'queue', literal ? [text] : []),
       transcript
     }
   }
@@ -284,30 +284,24 @@ export class AppActions {
       return
     }
 
-    const pasted = [...this.#cx.composer.pasted]
+    const pasted = [...this.#cx.composer.shellPasted]
     this.submit(this.#cx.composer.take(), true, 'queue', pasted)
   }
 
   /** Tern native Send obeys the same busy intent as keyboard Enter. */
   submitNative(raw: string) {
-    if (isModal(this.#cx.chat.overlays)) {
-      return
-    }
+    if (isModal(this.#cx.chat.overlays)) return
     if (shouldSteer(this.#cx, raw, false)) {
       void this.#busyDraft.steer(raw)
       return
     }
 
-    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
+    const unknown = raw !== this.#cx.composer.text
+    this.submit(raw, true, 'queue', unknown || this.#cx.composer.literal ? [raw] : this.#cx.composer.pasted.filter(p => raw.includes(p)))
   }
 
-
-  /**
-   * Sends or queues a prompt, or runs a command; `draft`: the user entered it (it takes the draft's
-   * images). While a turn runs the prompt goes as `busy` says: the session's busy_input_mode for
-   * a typed one; a message the app writes (a connect result) waits behind the turn. `pasted`:
-   * the draft's pastes, whose `{!cmd}`s and leading `!` stay as written.
-   */
+  /** Sends or queues a prompt, or runs a command. A draft takes its images; `busy` controls
+   * routing during a turn. Shell syntax covered by `pasted` markers stays literal. */
   submit(raw: string, draft = true, busy: BusyMode = draft ? busyIntent(this.#cx.state.busyMode) : 'queue', pasted: readonly string[] = []) {
     const { attachments, composer, transcript } = this.#cx
     // Tern native Send and keyboard Enter never take the draft while voice owns input.
@@ -327,8 +321,12 @@ export class AppActions {
       return
     }
 
+    if (!text.startsWith('/') && pasted.length && (text.startsWith('!') || text.includes('{!'))) {
+      transcript.notice('Shell syntax is sent as text because its origin is unverified.', 'warning')
+    }
+
     if (text.startsWith('/')) {
-      void runSlash(text, this.slash)
+      void runSlash(text, this.slash, true, pasted.length > 0)
 
       return
     }
@@ -365,6 +363,7 @@ export class AppActions {
 
     // The draft keeps its own pastes, and the prompt's come with it.
     composer.set(text && composer.text ? `${text}\n${composer.text}` : text || composer.text, {
+      literal: composer.literal || prompt.kind !== 'typed',
       pasted: [...composer.pasted, ...(prompt.kind === 'typed' ? prompt.pasted : [])]
     })
     this.#cx.attachments.restore(prompt.images)

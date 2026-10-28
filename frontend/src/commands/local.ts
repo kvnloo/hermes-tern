@@ -86,7 +86,7 @@ export interface LocalCommand {
    * Runs `/name arg`. Returning false hands the command to `slash.exec`
    * instead (a form this frontend leaves to the backend).
    */
-  run(host: CommandHost, arg: string): boolean | void | Promise<boolean | void>
+  run(host: CommandHost, arg: string, literal?: boolean): boolean | void | Promise<boolean | void>
 }
 
 const COMMANDS: readonly LocalCommand[] = [
@@ -368,9 +368,9 @@ const COMMANDS: readonly LocalCommand[] = [
     }
   },
   ...CONTROL_COMMANDS.filter(c => c.name !== 'tools').map(c => ({
-    ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg)
+    ...c, run: (host: CommandHost, arg: string, literal?: boolean) => c.run(host.control(literal), arg)
   })),
-  ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string) => c.run(host.control(), arg) })),
+  ...SESSION_COMMANDS.map(c => ({ ...c, run: (host: CommandHost, arg: string, literal?: boolean) => c.run(host.control(literal), arg) })),
   ...REFUSED_COMMANDS
 ]
 

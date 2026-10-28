@@ -12,13 +12,22 @@ import { rpc } from '../wire/rpc.js'
 import { HIDDEN_COMMANDS, localCommands } from './local.js'
 
 export type Resolution = { name: string } | { ambiguous: string[] } | null
+const COMMAND_NAME = /^\/[^\s/]+$/u
+const commandName = (name: string) => COMMAND_NAME.test(name) &&
+  [...name].every(char => {
+    const code = char.codePointAt(0) ?? 0
+
+    return code >= 32 && code !== 127
+  })
 
 /** Lowercase `/alias` → `/canonical` for the catalog's commands and this frontend's own, minus the hidden ones. */
 function canonOf(catalog: Pick<CommandsCatalogResult, 'canon'> | undefined): Map<string, string> {
   const canon = new Map<string, string>()
 
   for (const [alias, target] of Object.entries(catalog?.canon ?? {})) {
-    if (!HIDDEN_COMMANDS.has(target.replace(/^\//, '').toLowerCase())) {
+    // Catalog entries are names, not command lines; an injected argument must never
+    // become a locally executed slash command during prefix/alias resolution.
+    if (commandName(alias) && commandName(target) && !HIDDEN_COMMANDS.has(target.slice(1).toLowerCase())) {
       canon.set(alias.toLowerCase(), target)
     }
   }

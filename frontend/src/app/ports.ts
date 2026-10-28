@@ -90,5 +90,5 @@ export interface ChatPorts extends OverlayHost {
   /** Attaches the image file at `raw` to the next prompt. */
   attachImagePath(raw: string): Promise<void>
   /** What the control and session commands reach of the app. */
-  control(): SessionHost
+  control(literal?: boolean): SessionHost
 }

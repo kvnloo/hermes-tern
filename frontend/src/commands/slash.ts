@@ -58,7 +58,7 @@ export function commandEnvelope(raw: unknown): CommandEnvelope {
 }
 
 /** Runs `/name arg`; `resolve`: expand a typed alias or prefix through the catalog first. */
-export async function runSlash(text: string, cx: SlashCx, resolve = true): Promise<void> {
+export async function runSlash(text: string, cx: SlashCx, resolve = true, literal = false): Promise<void> {
   const [typed = '', ...rest] = text.slice(1).split(/\s+/)
   const name = typed.toLowerCase()
   const arg = rest.join(' ')
@@ -66,7 +66,7 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
 
   if (local) {
     try {
-      const handled = await local.run(cx.host, arg)
+      const handled = await local.run(cx.host, arg, literal)
 
       if (local.name === 'reload-skills') {
         cx.catalog.reset()
@@ -105,7 +105,8 @@ export async function runSlash(text: string, cx: SlashCx, resolve = true): Promi
     }
 
     if (to) {
-      return runSlash(`/${to.name}${arg ? ` ${arg}` : ''}`, cx, false)
+      // A catalog resolution is not proof that its target was typed by the user.
+      return runSlash(`/${to.name}${arg ? ` ${arg}` : ''}`, cx, false, true)
     }
   }
 
@@ -217,7 +218,9 @@ export async function dispatched(raw: unknown, cx: SlashCx, { arg, report, title
       return
 
     case 'alias':
-      return runSlash(`/${d.target}${arg ? ` ${arg}` : ''}`, cx)
+      // A gateway-supplied alias target is not typed shell authority, even if the original
+      // invocation was typed. Any nested /queue must keep its argument literal.
+      return runSlash(`/${d.target}${arg ? ` ${arg}` : ''}`, cx, true, true)
 
     case 'skill':
       // `message` is the expanded skill body for the model; the transcript shows the invocation.
@@ -237,6 +240,6 @@ export async function dispatched(raw: unknown, cx: SlashCx, { arg, report, title
         cx.transcript.notice(d.notice)
       }
 
-      cx.composer.set(d.message)
+      cx.composer.set(d.message, { literal: true })
   }
 }

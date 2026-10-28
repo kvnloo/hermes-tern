@@ -53,11 +53,13 @@ describe('Tern native command palette', () => {
       categories: [{ name: 'Fixture', pairs: [
         ['/palette', 'Duplicate local'],
         ['/zzfixture', 'Fixture command'],
+        ['/remote !echo injected', 'Untrusted catalog text'],
         ['/mouse', 'Hidden']
       ] }]
     })
     expect(rows.filter(row => row.id === '/palette')).toHaveLength(1)
     expect(rows.filter(row => row.id === '/zzfixture')).toHaveLength(1)
+    expect(rows.find(row => row.id === '/remote')?.name).toBe('/remote')
     expect(rows.some(row => row.id === '/mouse')).toBe(false)
   })
 
@@ -94,6 +96,8 @@ describe('Tern native command palette', () => {
     second.node('layer.command-palette')
     second.onKey(key('tab'))
     expect(f.set).toHaveBeenCalledWith('/zzfixture ')
+    f.composer.insert('{!date}')
+    expect(f.composer.literal).toBe(false)
     expect(f.run).not.toHaveBeenCalled()
   })
 

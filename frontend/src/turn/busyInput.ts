@@ -22,7 +22,7 @@ export function busyHint(mode: BusyMode): string {
 export interface BusyDraftHost {
   readonly gw: Requester
   readonly session: Pick<SessionState, 'ticket'>
-  readonly composer: Pick<Composer, 'text' | 'cursor' | 'revision' | 'pasted' | 'set' | 'take'>
+  readonly composer: Pick<Composer, 'text' | 'cursor' | 'revision' | 'pasted' | 'shellPasted' | 'literal' | 'set' | 'take'>
   readonly activity: Pick<Activity, 'busy'>
   readonly router: Pick<PromptRouter, 'expanded'>
   readonly transcript: Pick<Transcript, 'live' | 'generation' | 'steerAccepted' | 'notice'>
@@ -51,12 +51,15 @@ export class BusyDraft {
 
     // Native Send can precede its edit callback. Keep the last caret and applicable paste markers.
     if (raw !== composer.text) {
-      composer.set(raw, { cursor: Math.min(composer.cursor, raw.length), pasted: composer.pasted.filter(p => raw.includes(p)) })
+      composer.set(raw, { cursor: Math.min(composer.cursor, raw.length), literal: true, pasted: composer.pasted.filter(p => raw.includes(p)) })
     }
 
     const revision = composer.revision
     const cursor = composer.cursor
-    const pasted = [...composer.pasted]
+    const pasted = [...composer.shellPasted]
+    if (composer.literal && (text.startsWith('!') || text.includes('{!'))) {
+      transcript.notice('Shell syntax is sent as text because its origin is unverified.', 'warning')
+    }
     const owningTurn = transcript.live
     const generation = transcript.generation
     const busySince = activity.busy?.since
