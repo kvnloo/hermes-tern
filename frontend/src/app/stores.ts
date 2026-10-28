@@ -251,6 +251,7 @@ export function chatStores(chat: ChatPorts, { act, gw, launch, settings, surface
       drain: () => queue.drain(),
       gw,
       launch,
+      operations,
       rename: (sid, text) => title.rename(sid, text),
       request: req => act().onRequest(req),
       sheets,

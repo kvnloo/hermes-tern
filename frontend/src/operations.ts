@@ -11,6 +11,7 @@ type Host = Pick<ChatPorts, 'changed' | 'close' | 'gw' | 'open' | 'overlays' | '
 
 export interface ReportTicket {
   readonly sid: string | null
+  readonly owner: Host['session']['ref']
   readonly epoch: number
   readonly sheet: Overlay
   readonly report: Report
@@ -19,6 +20,7 @@ export interface ReportTicket {
 export class OperationalSheets {
   readonly host: Host
   #sid: string | null = null
+  #owner: Host['session']['ref'] | undefined
   #epoch = 0
   #sheet: Overlay | undefined
 
@@ -27,11 +29,14 @@ export class OperationalSheets {
   }
 
   adopt(sid: string | null) {
-    if (this.#sid === sid) {
+    const owner = this.host.session.ref
+
+    if (this.#sid === sid && this.#owner === owner) {
       return
     }
 
     this.#sid = sid
+    this.#owner = owner
     this.#epoch++
 
     if (this.#sheet) {
@@ -45,6 +50,7 @@ export class OperationalSheets {
     return this.#sheet === sheet &&
       this.host.overlays.includes(sheet) &&
       this.host.overlays.at(-1) === sheet &&
+      this.host.session.ref === this.#owner &&
       this.host.session.ref.live === this.#sid
   }
 
@@ -57,6 +63,10 @@ export class OperationalSheets {
 
   /** Claim the sheet before asynchronous work: a close fences its reply. */
   begin(title: string, sid: string | null): ReportTicket | undefined {
+    if (this.host.session.ref.live !== sid) {
+      return undefined
+    }
+
     this.adopt(sid)
     const top = this.host.overlays.at(-1)
 
@@ -70,13 +80,15 @@ export class OperationalSheets {
     const sheet = openOperationalOverlay(this, report)
     this.#sheet = sheet
 
-    return { epoch: ++this.#epoch, report, sheet, sid }
+    return { epoch: ++this.#epoch, owner: this.host.session.ref, report, sheet, sid }
   }
 
   #valid(ticket: ReportTicket): boolean {
     return ticket.epoch === this.#epoch &&
       ticket.sheet === this.#sheet &&
       this.host.overlays.includes(ticket.sheet) &&
+      this.host.session.ref === ticket.owner &&
+      this.#owner === ticket.owner &&
       this.host.session.ref.live === ticket.sid &&
       this.#sid === ticket.sid
   }
