@@ -1,8 +1,8 @@
-// User-invoked inspection of text already retained in generic tool cards.
+// User-invoked inspection of text already retained in tool cards.
 import type { JSX, Key, PickerItem } from '@stencil-hq/tern'
 
 import type { ChatPorts } from '../app/ports.js'
-import { RESULT_PAGE_LIMIT, retainedGenericText, retainedResults, resultPage, safeResultText } from '../tool-results.js'
+import { RESULT_PAGE_LIMIT, retainedResultText, retainedResults, resultPage, safeResultText } from '../tool-results.js'
 import { nativeOverlayKey } from './identity.js'
 import type { Overlay } from './overlay.js'
 
@@ -36,7 +36,7 @@ export function openToolResults(host: ToolResultsHost): void {
   }
   const present = (candidate: (typeof results)[number], members?: ReadonlySet<(typeof results)[number]['call']>) => candidate.call.outcome === candidate.outcome &&
     candidate.turn.rev === candidate.rev &&
-    retainedGenericText(candidate.call) === candidate.text &&
+    retainedResultText(candidate) === candidate.text &&
     (members ? members.has(candidate.call) : host.transcript.entries.some(entry => entry === candidate.turn &&
       entry.blocks.some(block => block.kind === 'tool' && block.call === candidate.call)))
   const valid = () => {
@@ -86,7 +86,7 @@ export function openToolResults(host: ToolResultsHost): void {
       const page = candidate && resultPage(candidate.text, starts.at(-1) ?? 0)
       const items: PickerItem[] = (owns() ? results : []).flatMap((result, index) => present(result, members) ? [{
         id: String(index),
-        label: safeResultText(result.call.name.slice(0, 100).replace(/[\ud800-\udbff]$/u, '�')),
+        label: result.web ? `web_extract #${result.web.ordinal} · entry ${result.web.index + 1}` : safeResultText(result.call.name.slice(0, 100).replace(/[\ud800-\udbff]$/u, '�')),
         detail: `${result.text.length.toLocaleString()} retained characters`
       }] : [])
       return (
@@ -97,7 +97,7 @@ export function openToolResults(host: ToolResultsHost): void {
               { ...(!page || !candidate || page.end >= candidate.text.length ? { disabled: 'Last page' } : starts.length >= RESULT_PAGE_LIMIT ? { disabled: 'Page limit reached' } : {}), id: 'next', keys: ['n'], label: 'Next' },
               { end: true, id: 'close', keys: ['esc'], label: 'Close' }
             ]}
-            empty={!source.live ? 'A live session is required.' : results.length ? 'This result is no longer available.' : 'No long generic text results in this session.'}
+            empty={!source.live ? 'A live session is required.' : results.length ? 'This result is no longer available.' : 'No long retained text results in this session.'}
             items={items}
             key={`view-${stamp}`}
             noun="results"
@@ -108,7 +108,7 @@ export function openToolResults(host: ToolResultsHost): void {
             preview="side"
             {...(candidate ? { selected: String(selected) } : {})}
             size="lg"
-            title="80 most recent long generic results"
+            title="80 most recent long retained results"
             total={items.length}
           >
             {candidate ? (

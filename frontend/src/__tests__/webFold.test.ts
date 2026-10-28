@@ -1,15 +1,17 @@
 import type { NodeJson } from '@stencil-hq/tern'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { entryId } from '../core/ids.js'
+import { localCommand, type CommandHost } from '../commands/local.js'
+import { entryId, liveSessionId, type SessionIds } from '../core/ids.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
+import { OverlayStack } from '../overlays/overlay.js'
 import { retainedResults } from '../tool-results.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { history } from '../transcript/history.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import { foldOf, parts, pieces } from '../view/workLogModel.js'
 
-import { tree } from './fakes.js'
+import { key, must, stub, tree } from './fakes.js'
 import { call } from './toolFixtures.js'
 
 const extract = (result: unknown, more: Partial<ToolCall> = {}) => call('web_extract', {}, { result, ...more })
@@ -53,6 +55,54 @@ describe('web extraction attention in work folds', () => {
     expect(JSON.stringify(children[1])).toContain('Extraction failed: failed')
     expect(JSON.stringify(children[2])).toContain('failed command')
     expect(JSON.stringify(children[3])).toContain('answer')
+  })
+
+  it('keeps partial web failures visible while paging the exact retained pages and generic output', async () => {
+    const generic = 'g'.repeat(4000) + 'GENERIC_TAIL'
+    const success = 's'.repeat(4000) + 'SUCCESS_TAIL'
+    const partial = 'p'.repeat(4000) + 'PARTIAL_TAIL\n[TRUNCATED: upstream middle omitted]'
+    const rows = [{ content: success, url: 'https://a.example' }, { content: partial, error: 'failed', url: 'https://b.example' }]
+    const before = tool('generic', call('custom_result', {}, { result: generic }))
+    const fetch = tool('fetch', extract({ results: rows }))
+    const t = turn([before, fetch, tool('after', call('terminal')), text('answer')])
+    const root = tree(entryNode(t, 'main.retained', cx))
+    const children = root.c ?? []
+    expect(children.map(n => n.p?.['role'])).toEqual(['hermes.turn.fold', undefined, 'hermes.turn.fold', undefined, 'omp.turn.usage'])
+    const card = nodes(root).find(n => n.k === 'tool' && n.p?.['name'] === 'fetch')
+    expect(card?.p).toMatchObject({ status: 'done', collapsed: false })
+    const cardNodes = nodes(must(card))
+    expect(cardNodes.filter(n => n.p?.['role'] === 'omp.tool.error')).toHaveLength(1)
+    expect(JSON.stringify(card)).toContain('Extraction failed: failed')
+    expect(JSON.stringify(card)).toContain('/tool-results')
+    expect(retainedResults([t]).map(result => result.text)).toEqual([generic, success, partial])
+
+    const stack = new OverlayStack({ changed: vi.fn(), closed: vi.fn(), opened: vi.fn() })
+    const session: { ref: SessionIds } = { ref: { live: liveSessionId('a'), stored: null } }
+    const transcript = { entries: [t], lifetime: 0 }
+    const draft = { text: 'draft preserved', cursor: 4 }
+    const host = stub<CommandHost>({ session, transcript, composer: draft, get overlays() { return stack.items },
+      changed: vi.fn(), open: stack.open.bind(stack), close: stack.close.bind(stack) })
+    await must(localCommand('tool-results')).run(host, '')
+    const sheet = must(stack.items.at(-1))
+    const draw = () => JSON.stringify(tree(sheet.node(stack.rootOf(sheet))))
+    expect(draw()).toContain('web_extract #1 · entry 2')
+    expect(draw()).not.toContain('PARTIAL_TAIL')
+    sheet.onKey(key('n'))
+    expect(draw()).toContain('PARTIAL_TAIL')
+    expect(draw()).toContain('upstream middle omitted')
+    sheet.onKey(key('up'))
+    expect(draw()).toContain('s'.repeat(4000))
+    sheet.onKey(key('n'))
+    expect(draw()).toContain('SUCCESS_TAIL')
+    sheet.onKey(key('up'))
+    sheet.onKey(key('n'))
+    expect(draw()).toContain('GENERIC_TAIL')
+    expect(draft).toEqual({ text: 'draft preserved', cursor: 4 })
+    rows[0] = { content: success, url: 'https://a.example' }
+    expect(draw()).not.toContain('web_extract #1 · entry 1')
+    session.ref = { live: liveSessionId('b'), stored: null }
+    expect(draw()).not.toContain('GENERIC_TAIL')
+    expect(draw()).not.toContain('web_extract #1')
   })
 
   it('keeps a failure after an answer out of the fold without reordering', () => {

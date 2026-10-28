@@ -5,6 +5,7 @@ import type { JSX } from '@stencil-hq/tern'
 import { clip, plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { FetchDetail, WebSearchDetail } from '../../../tools/web.js'
+import { hasRetainedWeb } from '../../../tool-results.js'
 import { compact } from '../../time.js'
 import type { Card, ToolView } from '../types.js'
 import { errorOf } from './generic.js'
@@ -95,6 +96,10 @@ function fetchCard(call: ToolCall, d: FetchDetail): Card {
 
   const error = call.outcome.kind === 'error' && body.length ? errorOf(call) : undefined
   if (error && !pages.some(p => p.error === error)) body.push(...failure('call-error', error, ''))
+
+  if (hasRetainedWeb(call)) {
+    body.push(<text key="more" role="hermes.tool.retained-hint" text="/tool-results inspects retained long web pages." wrap="word" />)
+  }
 
   const chars = pages.reduce((n, p) => n + (p.content?.length ?? 0), 0)
 

@@ -99,7 +99,7 @@ const COMMANDS: readonly LocalCommand[] = [
   },
   {
     name: 'tool-results',
-    help: 'Inspect pages of retained generic tool text',
+    help: 'Inspect retained generic and web page text',
     run: host => openToolResults(host)
   },
   {
