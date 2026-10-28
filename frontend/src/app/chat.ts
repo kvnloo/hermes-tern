@@ -500,8 +500,8 @@ export class App implements ChatPorts {
     this.#done.resolve(code)
   }
 
-  control(): SessionHost {
-    return sessionHost(this.#act.host)
+  control(literal = false): SessionHost {
+    return sessionHost(this.#act.host, literal)
   }
 
   newSession(title?: string): Promise<void> {

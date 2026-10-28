@@ -30,11 +30,11 @@ export interface SessionHostCx {
   /** A compaction started (`manual`: /compress's) or ended. */
   setCompacting(on: boolean, opts: { manual: boolean }): void
   /** Submits `text` as the draft would, behind the turn whatever busy_input_mode says. */
-  submit(text: string): void
+  submit(text: string, literal?: boolean): void
 }
 
 /** The control and session commands' view of the shown session, made now. */
-export function sessionHost(cx: SessionHostCx): SessionHost {
+export function sessionHost(cx: SessionHostCx, literal = false): SessionHost {
   const ticket = cx.state.ticket()
   const { sid } = ticket
   /** The compaction /compress opened: the one its 'none' takes back. */
@@ -93,6 +93,6 @@ export function sessionHost(cx: SessionHostCx): SessionHost {
       cx.changed()
     },
     // /queue: behind the turn whatever busy_input_mode says.
-    submit: text => cx.submit(text)
+    submit: text => cx.submit(text, literal)
   }
 }
