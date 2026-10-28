@@ -15,6 +15,7 @@ import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { v4aLintNeedsAttention } from '../../../tools/v4a-lint.js'
 import { writeRefusalNeedsAttention } from '../../../tools/write-refusal.js'
 import { v4aValidationFailure, v4aValidationMarker } from '../../../tools/v4a-validation.js'
+import { staleWriteMarker, staleWriteRefusal } from '../../../tools/stale-write.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -41,6 +42,7 @@ export const writeView: ToolView<'write_file'> = {
   hubIcon: 'write',
   step: (call, d) => writeRefusalNeedsAttention(call)
     ? (d.path ? `Write refused: ${shortPath(d.path)}` : 'Write refused')
+    : staleWriteMarker(call) ? 'Write failed'
     : (d.path ? `Wrote ${shortPath(d.path)}` : 'Wrote a file')
 }
 
@@ -197,7 +199,9 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     ...(singleLint.length || (multiLint.length && d.v4aLint?.errors.length) ? ['Lint reported an error'] : []),
     ...(multiLint.length && d.v4aLint?.uninspected ? ['Additional lint entries were not inspected'] : [])
   ]
-  const refusal = writeRefusalNeedsAttention(call) && d.writeRefusal ? lintText(d.writeRefusal) : undefined
+  const stale = staleWriteRefusal(call)
+  const refusalText = stale ? 'Hermes refused this overwrite. This write did not modify the file. Read the current contents before merging the change or use a targeted patch.' : d.writeRefusal
+  const refusal = writeRefusalNeedsAttention(call) && refusalText ? lintText(refusalText) : undefined
   const diff = refusal ? undefined : (hunks(d.diff) ?? (call.diff ? plainDiff(call.diff) : undefined))
   const refusalNodes = refusal ? [
     <text key="write-refusal" role="omp.tool.error" spans={[{ s: 'error', t: refusal.value }]} wrap="word" />,
