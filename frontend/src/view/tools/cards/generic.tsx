@@ -13,6 +13,7 @@ import type { ToolCall } from '../../../model.js'
 import { tilesNode } from '../../../processes/widgets/view.js'
 import { appOf } from '../../../tools/bridge.js'
 import { resultOf } from '../../../tools/detail.js'
+import { retainedGenericText } from '../../../tool-results.js'
 import type { GenericFields, PullRequestDetail } from '../../../tools/misc.js'
 import { isWatchCall } from '../../../transcript/calls.js'
 import { record } from '../../../wire/json.js'
@@ -157,7 +158,10 @@ export function genericBody(call: ToolCall): JSX.Element[] {
     return []
   }
 
-  return [<code key="out" lang={/^\s*[[{]/.test(text) ? 'json' : 'text'} text={clip(text, { mark: 'line', max: 4000 })} />]
+  return [
+    <code key="out" lang={/^\s*[[{]/.test(text) ? 'json' : 'text'} text={clip(text, { mark: 'line', max: 4000 })} />,
+    ...(retainedGenericText(call) ? [<text key="more" role="hermes.tool.retained-hint" text="/tool-results inspects the 80 most recent long generic results." wrap="word" />] : [])
+  ]
 }
 
 /**

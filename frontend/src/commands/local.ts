@@ -21,6 +21,7 @@ import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
 import { openSettings } from '../overlays/settings.js'
+import { openToolResults } from '../overlays/toolResults.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
 import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
 import { LEVELS } from '../session/effort.js'
@@ -90,6 +91,11 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    name: 'tool-results',
+    help: 'Inspect pages of retained generic tool text',
+    run: host => openToolResults(host)
+  },
   {
     help: 'Opt-in live conversation (Alt+Shift+V), separate from /voice dictation',
     name: 'live',
