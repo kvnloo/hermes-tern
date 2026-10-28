@@ -3,6 +3,7 @@
 
 import type { ValueResult } from '@hermes/shared/gateway-events'
 
+import { unmodified } from '../core/keys.js'
 import { Composer } from '../draft/composer.js'
 import { nativeOverlayKey } from '../overlays/identity.js'
 import type { Overlay, OverlayHost } from '../overlays/overlay.js'
@@ -128,14 +129,15 @@ export function maskedOverlay(host: OverlayHost, prompt: MaskedPrompt): Overlay 
       </overlay>
     ),
     onKey: k => {
-      if (k.name === 'escape' || isCtrlC(k)) {
+      if ((k.name === 'escape' && unmodified(k)) || isCtrlC(k)) {
         finish(true)
       } else if (k.name === 'tab' && fields.length > 1) {
         at = (at + 1) % fields.length
-      } else if (k.name === 'enter' && at < fields.length - 1) {
-        at += 1
       } else if (k.name === 'enter') {
-        finish(false)
+        if (unmodified(k)) {
+          if (at < fields.length - 1) { at += 1 }
+          else { finish(false) }
+        }
       } else if (k.name !== 'up' && k.name !== 'down') {
         fields[at]?.value.key(k)
       }

@@ -6,6 +6,7 @@
 
 import type { Key } from '@stencil-hq/tern'
 
+import { affirmative, negative } from '../core/keys.js'
 import type { Subagent } from '../model.js'
 import { editQuery, moveSelection } from '../overlays/search.js'
 
@@ -127,7 +128,9 @@ export function reduceHub(state: HubState, action: HubAction, agents: readonly S
     }
 
     case 'listed':
-      return action.ids.some(id => id === state.selected) ? { state } : { state: { ...state, selected: action.ids[0] } }
+      return action.ids.some(id => id === state.selected) ? { state } : {
+        state: { ...state, selected: action.ids[0], ask: state.ask.kind === 'confirmStop' ? NONE : state.ask }
+      }
 
     case 'watch': {
       const picked = agents.find(x => x.id === state.selected)
@@ -171,7 +174,7 @@ export function reduceHub(state: HubState, action: HubAction, agents: readonly S
     case 'stopConfirm': {
       const next = state.ask.kind === 'confirmStop' ? { ...state, ask: NONE } : state
 
-      return running(a) ? { effect: { agent: a, kind: 'stop' }, state: next } : { state: next }
+      return state.ask.kind === 'confirmStop' && running(a) ? { effect: { agent: a, kind: 'stop' }, state: next } : { state: next }
     }
   }
 }
@@ -195,9 +198,9 @@ export function hubKey(state: HubState, k: Key, agents: readonly Subagent[]): Hu
   }
 
   if (ask.kind === 'confirmStop') {
-    return k.name === 'enter' || k.name === 'y'
+    return affirmative(k)
       ? { type: 'stopConfirm' }
-      : k.name === 'escape' || k.name === 'n'
+      : negative(k)
         ? { type: 'stopCancel' }
         : undefined
   }

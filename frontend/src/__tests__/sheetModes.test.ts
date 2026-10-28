@@ -114,6 +114,24 @@ describe('the agents hub reducer', () => {
   it('a row pick ends the stop question', () => {
     expect(hub({ ...start, ask: { kind: 'confirmStop' } }, { id: 'a3', type: 'select' }).state).toEqual({ ...start, selected: 'a3' })
   })
+
+  it('requires bare confirmation and ignores duplicate native confirm after cancellation', () => {
+    const asking = { ...start, ask: { kind: 'confirmStop' as const } }
+    for (const name of ['y', 'enter', 'n', 'escape']) {
+      for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+        expect(hubKey(asking, key(name, mods), AGENTS)).toBeUndefined()
+      }
+    }
+    expect(hub(asking, hubKey(asking, key('y'), AGENTS)).effect).toBe('stop')
+    const canceled = hub(asking, hubKey(asking, key('n'), AGENTS)).state
+    expect(hub(canceled, HUB_CLICKS.confirm()).effect).toBeUndefined()
+    const clicked = hub(asking, HUB_CLICKS.confirm())
+    expect(clicked.effect).toBe('stop')
+    expect(hub(clicked.state, HUB_CLICKS.confirm()).effect).toBeUndefined()
+    const refreshed = hub(asking, { ids: ['a3'], type: 'listed' }).state
+    expect(refreshed.ask.kind).toBe('none')
+    expect(hub(refreshed, HUB_CLICKS.confirm()).effect).toBeUndefined()
+  })
 })
 
 function process(id: string, status: 'done' | 'running'): BackgroundProcess {
@@ -181,6 +199,31 @@ describe('the Background sheet reducer', () => {
     expect(sheet({ ...start, selected: 'p2' }, { type: 'ask', what: 'one' }).state.confirm).toBeUndefined()
     expect(sheet({ ...start, confirm: 'one' }, { type: 'confirm' })).toEqual({ effect: 'stopOne', state: start })
     expect(sheet({ ...start, confirm: 'all' }, { type: 'confirm' })).toEqual({ effect: 'stopAll', state: start })
+  })
+
+  it('requires bare confirmation and ignores duplicate native confirm after cancellation', () => {
+    const asking = { ...start, confirm: 'one' as const }
+    for (const name of ['y', 'enter', 'n', 'escape']) {
+      for (const mods of [{ ctrl: true }, { alt: true }, { meta: true }, { shift: true }, { ctrl: true, alt: true }]) {
+        expect(sheetKey(asking, key(name, mods), FACTS)).toBeUndefined()
+      }
+    }
+    expect(sheet(asking, sheetKey(asking, key('y'), FACTS)).effect).toBe('stopOne')
+    const canceled = sheet(asking, sheetKey(asking, key('n'), FACTS)).state
+    expect(sheet(canceled, SHEET_CLICKS.confirm()).effect).toBeUndefined()
+    const clicked = sheet(asking, SHEET_CLICKS.confirm())
+    expect(clicked.effect).toBe('stopOne')
+    expect(sheet(clicked.state, SHEET_CLICKS.confirm()).effect).toBeUndefined()
+    const refreshed = sheet(asking, { ids: ['p2'], type: 'listed' }).state
+    expect(refreshed.confirm).toBeUndefined()
+    expect(sheet(refreshed, SHEET_CLICKS.confirm()).effect).toBeUndefined()
+    const activated = sheet(asking, { id: 'p2', type: 'activate' }).state
+    expect(activated.confirm).toBeUndefined()
+    expect(sheet(activated, SHEET_CLICKS.confirm()).effect).toBeUndefined()
+    const job = { ...cron, confirm: 'job' as const }
+    const refreshedJob = sheet(job, { ids: ['j2'], type: 'jobsListed' }).state
+    expect(refreshedJob.confirm).toBeUndefined()
+    expect(sheet(refreshedJob, SHEET_CLICKS.confirm()).effect).toBeUndefined()
   })
 
   it('pauses a job unless an action on it is in flight, and removes it after the question', () => {
