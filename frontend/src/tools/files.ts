@@ -160,17 +160,17 @@ function v4aLint({ args, result }: Raw): EditFields['v4aLint'] {
       (Object.hasOwn(result, 'no_change') && result['no_change'] !== false) ||
       result['status'] !== undefined || (result['ok'] !== undefined && result['ok'] !== true) ||
       (result['exit_code'] !== undefined && result['exit_code'] !== 0) ||
-      ['is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined && result[key] !== false) ||
-      !Object.hasOwn(result, 'lint')) return undefined
+      ['is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined && result[key] !== false)) return undefined
   const applyPrefix = 'Apply phase failed (state may be inconsistent — run `git diff` to assess):\n'
   const failure = result['success'] === false && Object.hasOwn(result, 'error') && typeof result['error'] === 'string' &&
     result['error'].startsWith(applyPrefix) && result['error'].slice(applyPrefix.length).trim() ? result['error'] : undefined
   if (failure && ['ok', 'exit_code', 'is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined)) return undefined
   if (!failure && (result['success'] !== true || (result['error'] !== undefined && result['error'] !== null && result['error'] !== ''))) return undefined
-  const map = result['lint']
-  if (!map || typeof map !== 'object' || Array.isArray(map)) return undefined
+  const map = Object.hasOwn(result, 'lint') ? result['lint'] : undefined
+  // Failure is an independent producer field; absent or malformed lint cannot hide it.
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return failure ? { errors: [], uninspected: false, failure } : undefined
   const entries = record(map)
-  if (!entries) return undefined
+  if (!entries) return failure ? { errors: [], uninspected: false, failure } : undefined
   const errors: NonNullable<EditFields['v4aLint']>['errors'] = []
   let inspected = 0
   let uninspected = false
@@ -181,7 +181,7 @@ function v4aLint({ args, result }: Raw): EditFields['v4aLint'] {
     const error = path ? lintEntry(entries[path]) : undefined
     if (error) errors.push({ path, ...error })
   }
-  return errors.length || uninspected ? { errors, uninspected, ...optional('failure', failure) } : undefined
+  return failure || errors.length || uninspected ? { errors, uninspected, ...optional('failure', failure) } : undefined
 }
 
 /** Only a proven replace-mode success, never a no-op, partial result or V4A map. */

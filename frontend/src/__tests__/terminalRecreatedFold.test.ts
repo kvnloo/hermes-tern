@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import type { NodeJson } from '@stencil-hq/tern'
 import { describe, expect, it } from 'vitest'
 
-import { entryId } from '../core/ids.js'
+import { entryId, toolCallId } from '../core/ids.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
 import { v4aLintNeedsAttention } from '../tools/v4a-lint.js'
@@ -12,7 +12,7 @@ import { Transcript } from '../transcript/store.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import { actionOf, foldOf, parts, pieces, stepLabel, summarize } from '../view/workLogModel.js'
 import { parseJson, record } from '../wire/json.js'
-import { tree } from './fakes.js'
+import { stub, tree } from './fakes.js'
 import { call } from './toolFixtures.js'
 
 const label = 'Environment recreated; state may be lost'
@@ -67,6 +67,15 @@ function v4aProducer(): Record<string, unknown>[] {
   const data = parseJson(raw)
   if (!Array.isArray(data)) throw new Error('expected V4A producer results')
   return data.map(value => { const result = record(value); if (!result) throw new Error('invalid V4A result'); return result })
+}
+
+function noLintGateway(): Record<string, unknown>[] {
+  const raw = execFileSync('python3', [resolve('src/__tests__/fixtures/v4a-failure-no-lint.py')], {
+    cwd: resolve('.hermes-src'), encoding: 'utf8', env: { ...process.env, PYTHONPATH: resolve('.hermes-src') }
+  })
+  const data = parseJson(raw)
+  if (!Array.isArray(data)) throw new Error('expected gateway payloads')
+  return data.map(value => { const result = record(value); if (!result) throw new Error('invalid gateway payload'); return result })
 }
 
 describe('retained terminal recreation attention', () => {
@@ -184,11 +193,20 @@ describe('retained terminal recreation attention', () => {
     const warned = tool('warned', make(flagged))
     const failed = tool('partial', call('patch', args, { result: partial, outcome: { kind: 'error', duration: 1 } }))
     const evalBlock = tool('eval', call('execute_code', {}, { result: { stdout_truncated: true, output: 'partial' } }))
-    const t = turn([noop, web, write, replace, v4a, omitted, warned, failed, evalBlock, text('answer')])
+    const transcript = new Transcript()
+    const noLintCalls = noLintGateway().map(payload => {
+      transcript.toolComplete(stub(payload), 10)
+      const c = transcript.call(toolCallId(String(payload['tool_id'])))
+      if (!c) throw new Error('missing gateway call')
+      expect(c.outcome.kind).toBe('error')
+      return c
+    })
+    const noLint = noLintCalls.map((c, index) => tool(index ? 'clean-lint' : 'absent-lint', c))
+    const t = turn([noop, web, write, replace, v4a, omitted, warned, failed, ...noLint, evalBlock, text('answer')])
     expect(parts(t).flatMap(part => part.blocks.map(block => block.id)))
-      .toEqual(['noop', 'web', 'write', 'replace', 'v4a', 'omitted', 'warned', 'partial', 'eval', 'answer'])
-    expect([web, write, replace, v4a, omitted, warned, failed, evalBlock].map(block => foldOf(t)?.hidden.has(block.id)))
-      .toEqual([false, false, false, false, false, false, false, false])
+      .toEqual(['noop', 'web', 'write', 'replace', 'v4a', 'omitted', 'warned', 'partial', 'absent-lint', 'clean-lint', 'eval', 'answer'])
+    expect([web, write, replace, v4a, omitted, warned, failed, ...noLint, evalBlock].map(block => foldOf(t)?.hidden.has(block.id)))
+      .toEqual([false, false, false, false, false, false, false, false, false, false])
     expect(v4aLintNeedsAttention(failed.call)).toBe(true)
     expect(actionOf(noop.call)).toBe('other')
     expect(stepLabel(noop.call)).toBe('Patch target appears present in old.py')
@@ -212,6 +230,16 @@ describe('retained terminal recreation attention', () => {
       .toEqual([[{ s: 'error', t: rawError }]])
     expect(JSON.stringify(partialCard)).toContain('Lint reported an error for x.py')
     expect(JSON.stringify(partialCard)).toContain('def broken(:')
+    for (const c of noLintCalls) {
+      const card = cards.find(node => node.p?.['key'] === c.id)
+      if (!card) throw new Error('missing absent/clean lint card')
+      expect(card.p).toMatchObject({ status: 'error', collapsed: false })
+      const raw = record(c.result)?.['error']
+      expect(nodes(card).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans']))
+        .toEqual([[{ s: 'error', t: raw }]])
+      expect(JSON.stringify(card)).toContain('+x = 42')
+      expect(JSON.stringify(card)).not.toContain('Lint reported an error')
+    }
     expect(JSON.stringify(root)).toContain('Extraction failed: invalid URL')
     expect(JSON.stringify(root)).toContain('Hermes reports stdout was truncated')
     expect(JSON.stringify(root)).toContain('Target text appears present; no write performed')
