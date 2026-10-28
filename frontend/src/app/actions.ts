@@ -119,13 +119,12 @@ export class AppActions {
   /** What the key rules (draft/keys.ts) reach. */
   readonly keys: KeyCx
   readonly bindings: BindingPreferences
-  /** What the Tern actions (surface/actions.ts) reach. */
+  /** Tern actions. */
   readonly events: ActionCx
   /** What a slash command reaches (commands/slash.ts). */
   readonly slash: SlashCx
   /** What the control and session commands' host is made from (commands/host.ts). */
   readonly host: SessionHostCx
-
   constructor(cx: ActionsCx) {
     this.#cx = cx
     const { attachments, chat, composer, gw, life, queue, transcript } = cx
@@ -143,6 +142,7 @@ export class AppActions {
       onBtwView: notice => cx.btw.viewNotice(notice),
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
+      onNotices: () => chat.openNotices(),
       onEdit: ev => {
         if (composer.vim.enabled) return
         composer.edit(ev)

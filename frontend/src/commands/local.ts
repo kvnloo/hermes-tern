@@ -49,6 +49,7 @@ export type CommandHost = Pick<
   | 'newSession'
   | 'open'
   | 'openHelp'
+  | 'openNotices'
   | 'openPalette'
   | 'overlays'
   | 'quit'
@@ -90,6 +91,11 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    name: 'notices',
+    help: 'Inspect retained gateway notices',
+    run: host => host.openNotices()
+  },
   {
     help: 'Opt-in live conversation (Alt+Shift+V), separate from /voice dictation',
     name: 'live',

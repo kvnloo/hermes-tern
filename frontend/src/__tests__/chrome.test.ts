@@ -1,8 +1,10 @@
 // The chrome stores on fake hosts, with no App: the status strip's notices and their expiry
 // render, and the connection's one line per outage and its redial line.
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
 
-import { isLoginNotice, Notices, NoticeStrip } from '../chrome/notices.js'
+import { isLoginNotice, noticeReport, Notices, NoticeStrip } from '../chrome/notices.js'
 import { Reconnect } from '../chrome/reconnect.js'
 
 /** A host that counts the renders it was asked for. */
@@ -15,6 +17,32 @@ afterEach(() => {
 })
 
 describe('Notices', () => {
+  it('keeps the newest error available alongside later notices and handles clear, replacement and expiry', () => {
+    const n = new Notices()
+    n.show({ key: 'first', kind: 'sticky', level: 'error', text: 'First error' }, 0)
+    n.show({ key: 'second', kind: 'sticky', level: 'error', text: 'Second error' }, 1)
+    n.show({ key: 'latest', kind: 'ttl', text: 'Other update', ttl_ms: 100 }, 2)
+    expect(n.current(3)?.text).toBe('Other update')
+    expect(n.otherError(3)?.text).toBe('Second error')
+    expect(n.active(3).map(item => item.text)).toEqual(['First error', 'Second error', 'Other update'])
+    n.clear('second')
+    expect(n.otherError(4)?.text).toBe('First error')
+    n.show({ key: 'first', kind: 'sticky', level: 'info', text: 'Recovered' }, 5)
+    expect(n.otherError(5)).toBeUndefined()
+    expect(n.active(102).map(item => item.text)).toEqual(['Recovered'])
+    n.reset()
+    expect(n.active(103)).toEqual([])
+  })
+
+  it('formats a bounded snapshot without interpreting gateway Markdown', () => {
+    const report = noticeReport([{ key: 'a', tone: 'error', text: 'failure\n[link](https://example.com)\r<script>' }])
+    expect(report).toContain('Snapshot at open time')
+    expect(report).toContain('    [link](https://example.com)\n    <script>')
+    const parsed = unified().use(remarkParse).parse(report)
+    expect(JSON.stringify(parsed)).not.toContain('"type":"link"')
+    expect(JSON.stringify(parsed)).not.toContain('"type":"html"')
+    expect(noticeReport([])).toContain('No retained notices')
+  })
   it('replaces by key and shows the newest', () => {
     const n = new Notices()
 

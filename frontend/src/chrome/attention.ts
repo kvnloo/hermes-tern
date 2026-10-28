@@ -22,6 +22,20 @@ const DEFAULT_TTL_MS = 6_000
 const MAX_TTL_MS = 60_000
 const MAX_DISPATCHES = 8
 
+/** Retain the newest sticky error and newest notice when the bounded projection overflows. */
+function trim<T>(items: Map<string, T>, isStickyError: (item: T) => boolean) {
+  while (items.size > MAX_DISPATCHES) {
+    const entries = [...items.entries()]
+    const newest = entries.at(-1)?.[0]
+    const error = entries.toReversed().find(([, item]) => isStickyError(item))?.[0]
+    const victim = entries.find(([key]) => key !== newest && key !== error)?.[0]
+    if (victim === undefined) {
+      break
+    }
+    items.delete(victim)
+  }
+}
+
 /** A bounded dock projection: keyed replacements, sticky/TTL notices and hidden-pane catch-up. */
 export class Dispatches {
   readonly #items = new Map<string, Dispatch>()
@@ -43,13 +57,7 @@ export class Dispatches {
       this.#held.delete(key)
       this.#held.set(key, { ...payload, key })
 
-      while (this.#held.size > MAX_DISPATCHES) {
-        const oldest = this.#held.keys().next().value
-        if (oldest === undefined) {
-          break
-        }
-        this.#held.delete(oldest)
-      }
+      trim(this.#held, item => item.kind === 'sticky' && item.level === 'error')
 
       return
     }
@@ -72,13 +80,7 @@ export class Dispatches {
     this.#items.set(key, note)
     this.#prune(now)
 
-    while (this.#items.size > MAX_DISPATCHES) {
-      const oldest = this.#items.keys().next().value
-      if (oldest === undefined) {
-        break
-      }
-      this.#items.delete(oldest)
-    }
+    trim(this.#items, item => item.expiresAt === null && item.level === 'error')
   }
 
   /** A notification.clear removes both a shown key and one waiting for pane visibility. */

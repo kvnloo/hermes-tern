@@ -75,6 +75,8 @@ export interface ChatPorts extends OverlayHost {
   openHelp(): Promise<void>
   /** Opens the native command palette without changing the draft. */
   openPalette(): void
+  /** Inspect a snapshot of this session's retained gateway notices. */
+  openNotices(): void
   /** Docks PR `key` at the pane's right edge, in place of the session sidebar. */
   openPrAside(key: PrKey | undefined): void
   /** Shows or hides the session sidebar. */

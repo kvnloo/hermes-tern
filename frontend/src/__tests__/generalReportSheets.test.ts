@@ -35,6 +35,21 @@ async function command(f: ReturnType<typeof setup>, text: string) {
 }
 
 describe('native general report sheets', () => {
+  it('opens notice snapshots on demand and removes them on session adoption', () => {
+    const f = setup()
+    f.app.stores.composer.set('unfinished', { cursor: 3 })
+    f.app.stores.notices.show({ key: 'error', kind: 'sticky', level: 'error', text: 'credit access paused' })
+    f.app.openNotices()
+    const sheet = must(f.app.overlays.at(-1))
+    expect(sheetView(f.app).body).toContain('credit access paused')
+    given.session(f.app, 's2')
+    f.app.operations.adopt('s2')
+    expect(f.app.overlays).toEqual([])
+    sheet.onKey(key('c'))
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    expect(f.app.stores.composer.text).toBe('unfinished')
+    expect(f.app.stores.composer.cursor).toBe(3)
+  })
   it.each(['/usage', '/context', '/status', '/help usage'])('%s shows exact Markdown without main transcript churn', async name => {
     const text = '# Report\n\nUnicode 🦉 **literal**\n'
     const f = setup({ 'slash.exec': () => ({ output: text }) })

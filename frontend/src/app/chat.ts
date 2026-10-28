@@ -15,6 +15,7 @@ import { ternSharesFrontendHost } from '../artifacts/links.js'
 import type { BtwThreads } from '../btw.js'
 import type { Agents } from '../agents/store.js'
 import { OrbActivity, ThinkingOrb } from '../chrome/orb.js'
+import { noticeReport } from '../chrome/notices.js'
 import type { Sidebar } from '../chrome/sidebar.js'
 import { sessionHost } from '../commands/host.js'
 import type { SessionHost } from '../commands/session.js'
@@ -142,6 +143,10 @@ export class App implements ChatPorts {
   /** Whose colors the surface wears (`/theme`). */
   get theme(): ThemeMode {
     return this.stores.theme.mode
+  }
+
+  openNotices() {
+    this.operations.showText('Notices · snapshot', noticeReport(this.stores.notices.active()))
   }
 
   async run(): Promise<number> {
