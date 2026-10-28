@@ -240,7 +240,14 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff --name-only "$BASE"...HEAD | grep -qx 'frontend/dist/entry.js'; then
+          git diff --name-only "$BASE"...HEAD > "$RUNNER_TEMP/changed-files"
+          if grep -Fxq 'frontend/dist/entry.js' "$RUNNER_TEMP/changed-files"; then
             echo "::error file=frontend/dist/entry.js::main builds the bundle: drop it with 'git checkout origin/main -- frontend/dist/entry.js' and commit"
             exit 1
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              echo "::error::could not inspect changed files"
+              exit "$status"
+            fi
           fi
