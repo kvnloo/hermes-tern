@@ -6,9 +6,11 @@ import type { Todo } from '../model.js'
 import { Transcript } from '../transcript/store.js'
 import { durationCompact } from '../view/format.js'
 import { planStep } from '../view/tools/cards/inline.js'
+import { safeToSettle } from '../view/retention-policy.js'
+import { entryNode, type TranscriptContext } from '../view/transcript.js'
 import { busyLabel, foldOf, liveLabel, parts, pieces, preparingLabel, presentTense, stepLabel, summarize, thoughtLine, thoughtTitle, type WorkItem } from '../view/workLogModel.js'
 
-import { must } from './fakes.js'
+import { must, tree } from './fakes.js'
 
 const call = (name: string, args: Record<string, unknown> = {}, more: Partial<ToolCall> = {}): ToolCall => ({
   args,
@@ -69,6 +71,18 @@ describe('summarize (t3code summarizeToolGroup)', () => {
 })
 
 describe('pieces', () => {
+  it('keeps failed and active tools visible among settled work, in order', () => {
+    const blocks = [
+      tool('before', call('terminal')),
+      tool('error', call('read_file', {}, { outcome: { duration: 1, kind: 'error' } })),
+      tool('between', call('terminal')),
+      tool('active', call('terminal', {}, { outcome: { kind: 'running' } })),
+      tool('after', call('terminal'))
+    ]
+
+    expect(pieces(blocks).map(p => p.kind === 'work' ? p.items.map(i => i.id) : p.block.id))
+      .toEqual([['before'], ['error'], ['between'], ['active'], ['after']])
+  })
   it('groups calls with the thoughts between them; text and Task cards break groups', () => {
     const blocks = [
       think('k0'),
@@ -103,10 +117,15 @@ describe('todo lists in a turn', () => {
     const t = new Transcript()
     t.messageStart(0)
     t.toolStart({ args: { todos: [{ content: 'Plan', id: '1', status: 'in_progress' }, { content: 'Build', id: '2', status: 'pending' }] }, name: 'todo_list', tool_id: 'c1' }, 1)
+    t.toolComplete({ name: 'todo_list', tool_id: 'c1' }, 1)
     t.toolStart({ args: { command: 'ls' }, name: 'terminal', tool_id: 'c2' }, 2)
+    t.toolComplete({ name: 'terminal', tool_id: 'c2' }, 2)
     t.toolStart({ args: { merge: true, todos: [{ id: '1', status: 'completed' }, { id: '2', status: 'in_progress' }] }, name: 'todo_list', tool_id: 'c3' }, 3)
+    t.toolComplete({ name: 'todo_list', tool_id: 'c3' }, 3)
     t.toolStart({ args: { command: 'pwd' }, name: 'terminal', tool_id: 'c4' }, 4)
+    t.toolComplete({ name: 'terminal', tool_id: 'c4' }, 4)
     t.toolStart({ args: { merge: true, todos: [{ id: '2', status: 'completed' }, { content: 'Ship', id: '3', status: 'pending' }] }, name: 'todo_list', tool_id: 'c5' }, 5)
+    t.toolComplete({ name: 'todo_list', tool_id: 'c5' }, 5)
 
     const turn = must(t.entries.find((e): e is TurnEntry => e.kind === 'turn'))
     const ps = pieces(turn.blocks)
@@ -176,6 +195,34 @@ describe('foldOf', () => {
 describe('parts', () => {
   const steer = (id: string, at: number): Block => ({ at, id: entryId(id), kind: 'steer', text: 'also check the tests' })
 
+  it('keeps failures and active work visible before an answer without reordering surrounding work', () => {
+    const failed = (id: string) => tool(id, call('terminal', {}, { outcome: { duration: 1, kind: 'error' } }))
+    const active = tool('active', call('read_file', {}, { outcome: { kind: 'running' } }))
+    const blocks = [tool('a', call('terminal')), failed('err1'), tool('b', call('terminal')),
+      active, tool('c', call('terminal')), failed('err2'), text('answer')]
+    const t = turn(blocks)
+
+    expect([...(foldOf(t)?.hidden ?? [])]).toEqual(['a', 'b', 'c'])
+    expect(parts(t).map(p => `${p.kind}:${p.blocks.map(b => b.id).join(',')}`))
+      .toEqual(['fold:a', 'shown:err1', 'fold:b', 'shown:active', 'fold:c', 'shown:err2,answer'])
+  })
+
+  it('keeps a failure visible when a completed turn has no answer', () => {
+    const failed = tool('error', call('terminal', {}, { outcome: { duration: 1, kind: 'error' } }))
+    const t = turn([tool('ok', call('terminal')), failed])
+    expect(parts(t).map(p => `${p.kind}:${p.blocks.map(b => b.id).join(',')}`))
+      .toEqual(['fold:ok', 'shown:error'])
+    expect(safeToSettle(t)).toBe(false)
+  })
+
+  it('keeps other visible cards in place around a failure', () => {
+    const bg = tool('bg', call('terminal', { background: true, command: 'sleep 9' }))
+    const failed = tool('error', call('terminal', {}, { outcome: { duration: 1, kind: 'error' } }))
+    const t = turn([tool('a', call('terminal')), bg, tool('b', call('terminal')), failed, text('answer')])
+    expect(parts(t).map(p => `${p.kind}:${p.blocks.map(b => b.id).join(',')}`))
+      .toEqual(['fold:a', 'shown:bg', 'fold:b', 'shown:error,answer'])
+  })
+
   it('keeps a steer in view and folds each stretch around it by its own time', () => {
     const t = turn([tool('a', call('terminal')), steer('s', 20_000), tool('b', call('terminal')), text('answer')])
 
@@ -196,6 +243,53 @@ describe('parts', () => {
 
   it('is one shown part when the turn does not fold', () => {
     expect(parts(turn([text('answer')]))).toEqual([{ blocks: [text('answer')], kind: 'shown' }])
+  })
+})
+
+describe('visible failure rendering', () => {
+  const cx: TranscriptContext = { copy: () => undefined, now: 54_000, welcome: { tip: '', version: '' } }
+
+  it('renders an error row outside collapsed work groups, before the answer', () => {
+    const failed = tool('error', call('terminal', { command: 'false' }, { outcome: { duration: 1, kind: 'error', summary: 'failed' } }))
+    const node = tree(entryNode(turn([tool('before', call('terminal')), failed, tool('after', call('terminal')), text('answer')]), 'main.t', cx))
+    const children = node.c ?? []
+    const roles = children.map(c => c.p?.['role'])
+
+    expect(roles).toEqual(['hermes.turn.fold', 'hermes.work.row', 'hermes.turn.fold', undefined, 'omp.turn.usage'])
+    expect(JSON.stringify(children[1])).toContain('"name":"x"')
+    expect(JSON.stringify(children[3])).toContain('answer')
+  })
+
+  it('keeps a failed solo card visible before the answer', () => {
+    const failed = tool('failed-plan', call('todo_list', {}, { outcome: { duration: 1, kind: 'error' } }))
+    const t = turn([tool('before', call('terminal')), failed, text('answer')])
+    expect(foldOf(t)?.hidden.has(failed.id)).toBe(false)
+    expect(pieces([failed], t.blocks)).toEqual([{ block: failed, kind: 'block' }])
+    const children = tree(entryNode(t, 'main.solo', cx)).c ?? []
+    expect(children[1]?.k).toBe('tool')
+    expect(children[1]?.p?.['status']).toBe('error')
+  })
+
+  it('keeps an earlier failure visible when another tool is still running', () => {
+    const failed = tool('error', call('terminal', { command: 'false' }, { outcome: { duration: 1, kind: 'error' } }))
+    const active = tool('active', call('terminal', { command: 'sleep 1' }, { outcome: { kind: 'running' } }))
+    const t = turn([failed, active], { end: { status: 'live' } })
+    const children = tree(entryNode(t, 'main.live', cx)).c ?? []
+    expect(children.map(c => c.p?.['role'])).toEqual(['hermes.turn.working', 'hermes.work.row', 'hermes.work.group'])
+    expect(JSON.stringify(children[1])).toContain('"name":"x"')
+    expect(JSON.stringify(children[2])).toContain('Running sleep')
+  })
+
+  it('rebuilds the changed turn without leaking failure state into another session', () => {
+    const failed = tool('error', call('terminal', {}, { outcome: { duration: 1, kind: 'error' } }))
+    const t = turn([failed, text('answer')])
+    const first = tree(entryNode(t, 'main.t', cx))
+    expect(JSON.stringify(first)).toContain('"name":"x"')
+    t.blocks = [tool('ok', call('terminal')), text('answer')]
+    t.rev++
+    expect(JSON.stringify(tree(entryNode(t, 'main.t', cx)))).not.toContain('"name":"x"')
+    const next = turn([tool('ok', call('terminal')), text('answer')])
+    expect(JSON.stringify(tree(entryNode(next, 'main.t', cx)))).not.toContain('"name":"x"')
   })
 })
 
