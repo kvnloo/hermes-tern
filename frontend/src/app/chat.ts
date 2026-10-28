@@ -185,6 +185,7 @@ export class App implements ChatPorts {
       aside: () => this.#tern.caps.features.includes('aside'),
       copies: this.#act,
       hostLocal: ternSharesFrontendHost() && !this.#gw.attached,
+      hour12: () => this.#tern.caps.hour12,
       nativeMedia: this.#tern.caps.kinds?.includes('media') ?? false,
       charts: this.tableCharts,
       ...(this.#orb ? { orb: this.#orb } : {}),
@@ -522,3 +523,4 @@ export class App implements ChatPorts {
     return applyEffort(this, value, scope)
   }
 }
+

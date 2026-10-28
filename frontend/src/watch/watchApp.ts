@@ -408,7 +408,7 @@ export class WatchApp {
     const now = Date.now()
     const a = this.#agent
     const running = isRunning(a)
-    const cx = { copy: () => undefined, now, welcome: { tip: '', version: '' } }
+    const cx = { copy: () => undefined, hour12: this.#tern.caps.hour12, now, welcome: { tip: '', version: '' } }
 
     this.#surface.render({
       dock: dockNodes(
