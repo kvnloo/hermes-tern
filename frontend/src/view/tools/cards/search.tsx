@@ -13,6 +13,7 @@ import { errorOf } from './generic.js'
 
 const DENSE_LIMIT = 4000
 const FILE_LIMIT = 200
+const COUNT_PATH_LIMIT = 256
 
 /** Cut without splitting a UTF-16 surrogate pair. */
 function densePrefix(text: string): string {
@@ -32,6 +33,53 @@ function safeDense(text: string): string {
       n === 0x061c || n === 0x200e || n === 0x200f || (n >= 0xd800 && n <= 0xdfff))
       ? `\\u${n.toString(16).padStart(4, '0')}` : c
   }).join('')
+}
+
+/** Count paths are single-line labels, not terminal output or navigable links. */
+function countPathPrefix(path: string): string {
+  let end = Math.min(path.length, COUNT_PATH_LIMIT)
+  if (end < path.length && end > 0 && /[\uD800-\uDBFF]/.test(path[end - 1] ?? '') && /[\uDC00-\uDFFF]/.test(path[end] ?? '')) end--
+  return path.slice(0, end)
+}
+
+function countPath(path: string): string {
+  return Array.from(countPathPrefix(path), c => {
+    const n = c.codePointAt(0) ?? 0
+    return (n < 32 || (n >= 0x7f && n <= 0x9f) || n === 0x061c || n === 0x200e || n === 0x200f || n === 0x2028 || n === 0x2029 ||
+      (n >= 0x202a && n <= 0x202e) || (n >= 0x2066 && n <= 0x206f) || (n >= 0xd800 && n <= 0xdfff))
+      ? `\\u${n.toString(16).padStart(4, '0')}` : c
+  }).join('')
+}
+
+function countCard(call: ToolCall, d: SearchDetail, pattern: string): Card {
+  const rows = d.counts?.rows ?? []
+  const rendered = rows.map(row => ({ ...row, display: countPath(row.path) }))
+  const notices = [
+    ...(d.total !== undefined ? [`Hermes total count: ${d.totalLowerBound || d.truncated ? 'at least ' : ''}${d.total}`] : []),
+    ...(d.omitted ? ['Hermes omitted some search results'] : []),
+    ...(d.truncated ? ['Search results truncated upstream'] : []),
+    ...(d.counts?.clipped ? ['Count entries clipped in view'] : []),
+    ...(rows.some(row => row.path.length > COUNT_PATH_LIMIT) ? ['Count paths clipped in view'] : []),
+    ...(rendered.some(row => row.display !== countPathPrefix(row.path)) ? ['Control characters escaped in view'] : []),
+    ...(d.counts?.invalid ? ['Invalid count entries omitted'] : []),
+    ...(!d.counts && d.resultPresent && call.outcome.kind !== 'running'
+      ? [d.total === 0 && !d.omitted && !d.countsMalformed ? 'No per-file counts returned' : 'Per-file counts unavailable'] : []),
+    ...(d.counts && !rows.length && !d.counts.invalid && !d.counts.clipped ? ['No per-file counts returned'] : [])
+  ]
+  return {
+    body: [
+      ...rendered.map((row, i) => <text key={`count-${i}`} role="omp.tool.search.count" spans={[{ s: 'path', t: row.display }, { t: `  ${row.count}` }]} />),
+      ...disclosures(notices),
+      ...errorNotice(call)
+    ],
+    folded: rows.length > 20,
+    frame: 'inline',
+    meta: [...(d.counts ? [`${plural(rows.length, 'retained count')} shown`] : []), ...notices],
+    name: 'grep',
+    target: pattern,
+    targetKind: 'pattern',
+    title: 'Grep'
+  }
 }
 
 function count(n: number, lower: boolean, one: string, many?: string): string {
@@ -99,6 +147,10 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
       title: 'Glob'
     }
   }
+
+  // A count result has neither match text nor line numbers. Retain other modes if a
+  // nonstandard response contains them, rather than reinterpreting their contents.
+  if (d.countMode && !d.matches?.length && !d.matchesText) return countCard(call, d, pattern)
 
   const matches = d.matches?.length ? d.matches : undefined
   const byFile = new Map<string, { line: number; text: string }[]>()
