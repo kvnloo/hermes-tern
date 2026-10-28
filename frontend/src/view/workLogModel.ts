@@ -56,6 +56,9 @@ export function showsImage(call: ToolCall): boolean {
   return shownImage(call) !== undefined
 }
 
+/** Consequential tool states stay visible independently of the surrounding work group. */
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running'
+
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
  * groups between them. Only the turn's newest todo list keeps its checklist card; the ones before
@@ -67,6 +70,16 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
   const plan = turn.findLast(b => b.kind === 'tool' && isTodoName(b.call.name) && b.call.todos?.length)
 
   for (const b of blocks) {
+    if (b.kind === 'tool' && needsAttention(b.call)) {
+      if (items.length) {
+        out.push({ items, kind: 'work' })
+        items = []
+      }
+
+      out.push(ownsCard(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      continue
+    }
+
     if (b.kind === 'thinking' || (b.kind === 'tool' && (!ownsCard(b.call) || (isTodoName(b.call.name) && b !== plan)))) {
       items.push(b)
       continue
@@ -102,7 +115,7 @@ export interface Fold {
 /**
  * The fold of a finished turn: everything but the answer (its last text) hides behind
  * "Worked for 54s". A background process and a delegation whose agents still run keep their
- * cards in view; so does a call after the answer that failed or still runs. A turn that failed
+ * cards in view; failed and running calls remain visible anywhere in the turn. A turn that failed
  * or was interrupted does not fold, and neither does one with nothing to hide.
  */
 export function foldOf(turn: TurnEntry): Fold | undefined {
@@ -124,6 +137,7 @@ export function foldOf(turn: TurnEntry): Fold | undefined {
     if (
       b.kind === 'tool' &&
       (isBackgroundCall(b.call) ||
+        needsAttention(b.call) ||
         waiting(b.call) ||
         isConnectCall(b.call) ||
         showsImage(b.call) ||
@@ -180,6 +194,7 @@ export function parts(turn: TurnEntry): Part[] {
 
   let stretch: Block[] = []
   let from = turn.startedAt
+  const ordered = turn.blocks.some(b => b.kind === 'tool' && needsAttention(b.call))
 
   const flush = (to: number) => {
     const hidden = stretch.filter(b => fold.hidden.has(b.id))
@@ -193,10 +208,13 @@ export function parts(turn: TurnEntry): Part[] {
   }
 
   for (const b of turn.blocks) {
-    if (b.kind === 'steer' || b.kind === 'compaction') {
-      flush(b.at)
+    if (b.kind === 'steer' || b.kind === 'compaction' || (ordered && !fold.hidden.has(b.id))) {
+      const at = b.kind === 'tool' ? Math.max(from, b.call.startedAt)
+        : b.kind === 'steer' || b.kind === 'compaction' ? b.at : (turnEndedAt(turn) ?? from)
+      flush(at)
       show(b)
-      from = b.kind === 'compaction' ? (compactionEndedAt(b.compaction) ?? b.at) : b.at
+      from = b.kind === 'compaction' ? (compactionEndedAt(b.compaction) ?? b.at)
+        : b.kind === 'tool' && b.call.outcome.kind !== 'running' ? at + b.call.outcome.duration : at
     } else {
       stretch.push(b)
     }
