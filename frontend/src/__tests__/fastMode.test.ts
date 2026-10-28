@@ -12,12 +12,12 @@ function setup() {
     live: liveSessionId('s1'),
     stored: null
   }
-  const session = {
+  const session: FastHost['session'] = {
     get ref() {
       return ref
     },
     info: null
-  } as unknown as FastHost['session']
+  }
   const host: FastHost = {
     changed: vi.fn(),
     gw: gw.client,
