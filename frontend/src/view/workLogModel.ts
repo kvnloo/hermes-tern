@@ -16,6 +16,7 @@ import { evalNeedsAttention } from '../tools/eval-attention.js'
 import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
 import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
+import { v4aLintNeedsAttention } from '../tools/v4a-lint.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
@@ -63,7 +64,7 @@ export function showsImage(call: ToolCall): boolean {
 }
 
 /** Consequential tool states stay visible independently of the surrounding work group. */
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || v4aLintNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -82,7 +83,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || v4aLintNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 
