@@ -17,6 +17,7 @@ import { taskNeedsAttention } from '../tools/task-attention.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { writeRefusalNeedsAttention } from '../tools/write-refusal.js'
+import { staleWriteMarker } from '../tools/stale-write.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -232,6 +233,7 @@ export function parts(turn: TurnEntry): Part[] {
 
 /** What a call counts as in a summary: its view's action (an app's while it acted in apps only); `other` when its view throws. */
 export function actionOf(call: ToolCall): Action {
+  if (staleWriteMarker(call)) return 'other'
   return withView(call, view => view.action())
 }
 
