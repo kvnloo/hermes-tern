@@ -48,7 +48,7 @@ describe('Tern app action registry', () => {
     expect(action('app.help', { 'app.help': null }).keys).toEqual(['f1', 'alt+/'])
     expect(() => effectiveShortcuts({ 'app.help': ['alt+h', 'option+h'] })).toThrow(/Duplicate/)
     expect(() => effectiveShortcuts({ 'app.help': ['alt+a'] })).toThrow(/Overlapping/)
-    expect(() => effectiveShortcuts({ 'app.help': ['ctrl+shift+tab'] })).toThrow(/Overlapping/)
+    expect(() => effectiveShortcuts({ 'app.help': ['ctrl+shift+tab'] })).toThrow(/Composer-owned/)
     expect(() => effectiveShortcuts({ 'app.help': 'alt+h', 'unknown.action': 'alt+y' })).toThrow(/Unknown/)
     expect(() => effectiveShortcuts({ 'app.palette': 'ctrl+shift+k' })).toThrow(/Host-reserved/)
     expect(() => effectiveShortcuts({ 'app.model.cycleBackward': 'ctrl+shift+p' })).toThrow(/Host-reserved/)

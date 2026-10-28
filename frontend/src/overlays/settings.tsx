@@ -6,6 +6,7 @@ import type { ChangeEvent, JSX, Key, PrefsControl, PrefsProps, PrefsRow } from '
 import type { ChatPorts } from '../app/ports.js'
 import { errorText } from '../core/errors.js'
 import { Composer } from '../draft/composer.js'
+import { KEYS, matches } from '../draft/keys.js'
 import { type Preference, preference, preferenceValue, PROFILE_PREFERENCES, type ProfileRow } from '../preferences/contracts.js'
 import { readProfile, writeProfile } from '../preferences/transactions.js'
 import { button } from '../view/ui/button.js'
@@ -416,7 +417,7 @@ class SettingsSheet implements Overlay {
 
   onKey(key: Key): boolean {
     if (this.#confirmation) {
-      if (key.name === 'enter' || key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+      if (key.name === 'enter' || key.name === 'escape' || matches(key, KEYS.cancel)) {
         this.#confirmation = undefined
         this.#host.changed()
       }
