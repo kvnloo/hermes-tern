@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { entryId } from '../core/ids.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
+import { v4aLintNeedsAttention } from '../tools/v4a-lint.js'
 import { history } from '../transcript/history.js'
 import { Transcript } from '../transcript/store.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -59,6 +60,15 @@ function patchProducer(): Record<string, unknown> {
   return result
 }
 
+function v4aProducer(): Record<string, unknown>[] {
+  const raw = execFileSync('python3', [resolve('src/__tests__/fixtures/v4a-lint-core.py')], {
+    cwd: resolve('.hermes-src'), encoding: 'utf8', env: { ...process.env, PYTHONPATH: resolve('.hermes-src') }
+  })
+  const data = parseJson(raw)
+  if (!Array.isArray(data)) throw new Error('expected V4A producer results')
+  return data.map(value => { const result = record(value); if (!result) throw new Error('invalid V4A result'); return result })
+}
+
 describe('retained terminal recreation attention', () => {
   it('shows the real finalizer warning on an unfolded card before the answer without changing the result', () => {
     const { flagged } = producer()
@@ -109,7 +119,8 @@ describe('retained terminal recreation attention', () => {
     const evalBlock = tool('eval', call('execute_code', {}, { result: { stdout_truncated: true, output: 'partial' } }))
     const write = tool('write', call('write_file', { path: 'x.py', content: 'def broken(:\n    pass\n' }, { result: writeProducer() }))
     const patch = tool('patch', call('patch', { path: 'x.py', old_string: 'x = 1', new_string: 'def broken(:' }, { result: patchProducer() }))
-    const v4a = tool('v4a', call('patch', { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }, { result: { success: true, lint: { 'x.py': { status: 'error', output: 'not a replace report' } } } }))
+    // A partial V4A failure is outside the successful-result diagnostic slice.
+    const v4a = tool('v4a', call('patch', { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }, { result: { success: false, lint: { 'x.py': { status: 'error', output: 'not a replace report' } } } }))
     const error = tool('error', failedCall)
     const cancel = tool('cancel', cancelledCall)
     const changed = tool('changed', call('patch', { path: 'new.py' }, { result: { success: true, diff: '@@ -1 +1 @@\n-old\n+new' } }))
@@ -157,6 +168,45 @@ describe('retained terminal recreation attention', () => {
       expect(JSON.stringify(card)).toContain(notice)
       expect(warned.call.outcome).toEqual(outcome)
     }
+  })
+
+  it('shows V4A errors and bounded omissions with existing write, replace, terminal and web attention', () => {
+    const [result, partial] = v4aProducer()
+    const { flagged } = producer()
+    const args = { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }
+    const noop = tool('noop', call('patch', { path: 'old.py' }, { result: { success: true, no_change: true } }))
+    const web = tool('web', call('web_extract', {}, { result: { results: [{ error: 'invalid URL' }] } }))
+    const write = tool('write', call('write_file', { path: 'w.py', content: 'def broken(:\n    pass\n' }, { result: writeProducer() }))
+    const replace = tool('replace', call('patch', { path: 'x.py', old_string: 'x = 1', new_string: 'def broken(:' }, { result: patchProducer() }))
+    const v4a = tool('v4a', call('patch', args, { result }))
+    const lint = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`file${i}.py`, { status: 'ok', output: '' }]))
+    const omitted = tool('omitted', call('patch', args, { result: { success: true, lint } }))
+    const warned = tool('warned', make(flagged))
+    const failed = tool('partial', call('patch', args, { result: partial, outcome: { kind: 'error', duration: 1 } }))
+    const evalBlock = tool('eval', call('execute_code', {}, { result: { stdout_truncated: true, output: 'partial' } }))
+    const t = turn([noop, web, write, replace, v4a, omitted, warned, failed, evalBlock, text('answer')])
+    expect(parts(t).flatMap(part => part.blocks.map(block => block.id)))
+      .toEqual(['noop', 'web', 'write', 'replace', 'v4a', 'omitted', 'warned', 'partial', 'eval', 'answer'])
+    expect([web, write, replace, v4a, omitted, warned, failed, evalBlock].map(block => foldOf(t)?.hidden.has(block.id)))
+      .toEqual([false, false, false, false, false, false, false, false])
+    expect(v4aLintNeedsAttention(failed.call)).toBe(false)
+    expect(actionOf(noop.call)).toBe('other')
+    expect(stepLabel(noop.call)).toBe('Patch target appears present in old.py')
+    const root = tree(entryNode(t, 'main.v4a-combined', cx))
+    const cards = nodes(root).filter(node => node.k === 'tool')
+    const v4aCard = cards.find(node => node.p?.['name'] === 'edit' && JSON.stringify(node).includes('Lint reported an error for x.py'))
+    const omittedCard = cards.find(node => node.p?.['name'] === 'edit' && JSON.stringify(node).includes('Additional lint entries were not inspected'))
+    const warningCard = cards.find(node => node.p?.['name'] === 'bash' && JSON.stringify(node).includes(notice))
+    const writeCard = cards.find(node => node.p?.['name'] === 'write')
+    const replaceCard = cards.find(node => node.p?.['name'] === 'edit' && JSON.stringify(node).includes('SyntaxError') && node !== v4aCard)
+    for (const card of [v4aCard, omittedCard, warningCard, writeCard, replaceCard]) expect(card?.p).toMatchObject({ status: 'done', collapsed: false })
+    if (!v4aCard) throw new Error('missing V4A card')
+    expect(nodes(v4aCard).every(node => node.p?.['href'] === undefined)).toBe(true)
+    expect(JSON.stringify(omittedCard)).not.toContain('Lint reported an error')
+    expect(JSON.stringify(root)).toContain('Extraction failed: invalid URL')
+    expect(JSON.stringify(root)).toContain('Hermes reports stdout was truncated')
+    expect(JSON.stringify(root)).toContain('Target text appears present; no write performed')
+    expect(failed.call.outcome.kind).toBe('error')
   })
 
   it('does not promote clean, malformed, running, or background results', () => {

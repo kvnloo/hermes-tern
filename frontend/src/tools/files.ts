@@ -134,18 +134,50 @@ interface EditFields {
   diagnosticsText?: string
   /** A retained syntax/lint error; it does not change the tool outcome. */
   lintError?: { output: string; message?: string }
+  /** V4A's retained per-path error reports and a bounded-scan disclosure. */
+  v4aLint?: { errors: { path: string; output: string; message?: string }[]; uninspected: boolean }
 }
 
-/** A producer's own structured error report. V4A's per-path map is not this shape. */
-function lintError(result: Raw['result']): EditFields['lintError'] {
-  if (!result || !Object.hasOwn(result, 'lint')) return undefined
-  const lint = result['lint']
+/** A producer's own structured error report. */
+function lintEntry(lint: unknown): EditFields['lintError'] {
   if (!lint || typeof lint !== 'object' || Array.isArray(lint)) return undefined
   const data = record(lint)
   if (!data || !Object.hasOwn(data, 'status') || data['status'] !== 'error' ||
       !Object.hasOwn(data, 'output') || typeof data['output'] !== 'string' ||
       (Object.hasOwn(data, 'message') && typeof data['message'] !== 'string')) return undefined
   return { output: data['output'], ...optional('message', Object.hasOwn(data, 'message') ? text(data['message']) : undefined) }
+}
+
+function lintError(result: Raw['result']): EditFields['lintError'] {
+  return result && Object.hasOwn(result, 'lint') ? lintEntry(result['lint']) : undefined
+}
+
+/** A bounded projection of successful V4A's retained map, not its operation history. */
+function v4aLint({ args, result }: Raw): EditFields['v4aLint'] {
+  if (!Object.hasOwn(args, 'mode') || args['mode'] !== 'patch' || !Object.hasOwn(args, 'patch') ||
+      typeof args['patch'] !== 'string' || !args['patch']) return undefined
+  if (!result || !Object.hasOwn(result, 'success') || result['success'] !== true ||
+      (Object.hasOwn(result, 'no_change') && result['no_change'] !== false) ||
+      (result['error'] !== undefined && result['error'] !== null && result['error'] !== '') ||
+      result['status'] !== undefined || (result['ok'] !== undefined && result['ok'] !== true) ||
+      (result['exit_code'] !== undefined && result['exit_code'] !== 0) ||
+      ['is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined && result[key] !== false) ||
+      !Object.hasOwn(result, 'lint')) return undefined
+  const map = result['lint']
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return undefined
+  const entries = record(map)
+  if (!entries) return undefined
+  const errors: NonNullable<EditFields['v4aLint']>['errors'] = []
+  let inspected = 0
+  let uninspected = false
+  for (const path in entries) {
+    if (!Object.hasOwn(entries, path)) continue
+    if (inspected === 8) { uninspected = true; break }
+    inspected++
+    const error = path ? lintEntry(entries[path]) : undefined
+    if (error) errors.push({ path, ...error })
+  }
+  return errors.length || uninspected ? { errors, uninspected } : undefined
 }
 
 /** Only a proven replace-mode success, never a no-op, partial result or V4A map. */
@@ -196,6 +228,7 @@ export function editDetail<T extends EditDetail['tool']>(tool: T): (raw: Raw) =>
     ...optional('diagnostics', diagnosticsOf(result?.['lsp_diagnostics_data'])),
     ...optional('diagnosticsText', text(result?.['lsp_diagnostics'])),
     ...optional('lintError', tool === 'write_file' ? lintError(result) : replaceLintError({ args, result })),
+    ...optional('v4aLint', tool === 'patch' ? v4aLint({ args, result }) : undefined),
     diff: text(result?.['diff']),
     path: text(args['path']),
     tool
