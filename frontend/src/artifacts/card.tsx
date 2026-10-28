@@ -2,6 +2,7 @@
 // The registry, tool parsers, diffs and source code remain the plugin's source of truth.
 
 import type { ToolCall } from '../model.js'
+import { staleWriteMarker } from '../tools/stale-write.js'
 import type { Card } from '../view/tools/types.js'
 import { record } from '../wire/json.js'
 
@@ -12,7 +13,7 @@ const fileTools = new Set(['read_file', 'patch', 'write_file'])
 
 /** Decorate only file cards; never point a remote gateway path at a local editor. */
 export function artifactCard(call: ToolCall, card: Card, context: FileContext): Card {
-  if (!fileTools.has(call.name)) {
+  if (!fileTools.has(call.name) || staleWriteMarker(call)) {
     return card
   }
 
