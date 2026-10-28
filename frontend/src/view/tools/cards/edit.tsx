@@ -11,6 +11,7 @@ import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
 import { patchLintNeedsAttention } from '../../../tools/patch-lint-attention.js'
 import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-noop.js'
+import { PATCH_CONTEXT_WARNING, patchContextWarning } from '../../../tools/patch-warning.js'
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { v4aLintNeedsAttention } from '../../../tools/v4a-lint.js'
 import { writeRefusalNeedsAttention } from '../../../tools/write-refusal.js'
@@ -20,6 +21,7 @@ import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
 
+import { errorOf } from './generic.js'
 import { visible } from './lsp.js'
 
 /** The patch tool's view. */
@@ -186,7 +188,8 @@ function diagnosticNodes(d: EditDetail, context?: LspLinkContext): JSX.Element[]
 
 /** An edit's diff with its +/− counts; a new file as the file itself, numbered. */
 function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLinkContext): Card {
-  const path = d.path ?? call.context
+  const patchWarning = patchContextWarning(call)
+  const path = d.path ?? (patchWarning ? undefined : call.context)
   const lang = langOf(path)
   const content = d.content
   const write = d.tool === 'write_file'
@@ -199,6 +202,7 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     ...(singleLint.length || (multiLint.length && d.v4aLint?.errors.length) ? ['Lint reported an error'] : []),
     ...(multiLint.length && d.v4aLint?.uninspected ? ['Additional lint entries were not inspected'] : [])
   ]
+  const warning = patchWarning ? [<text key="patch-context-warning" role="omp.tool.notice" spans={[{ s: 'warning', t: PATCH_CONTEXT_WARNING }]} wrap="word" />] : []
   const stale = staleWriteRefusal(call)
   const refusalText = stale ? 'Hermes refused this overwrite. This write did not modify the file. Read the current contents before merging the change or use a targeted patch.' : d.writeRefusal
   const refusal = writeRefusalNeedsAttention(call) && refusalText ? lintText(refusalText) : undefined
@@ -224,10 +228,11 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
       body: [
         <text key="validation" role="omp.tool.error" spans={[{ s: 'error', t: reason.value }]} wrap="word" />,
         ...(reason.clipped ? [<text key="validation-clipped" role="omp.tool.notice" text="Patch error clipped in view" />] : []),
-        ...(reason.escaped ? [<text key="validation-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />] : [])
+        ...(reason.escaped ? [<text key="validation-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />] : []),
+        ...warning
       ],
       folded: false,
-      meta: ['Patch validation failed']
+      meta: ['Patch validation failed', ...(warning.length ? ['Patch context warning'] : [])]
     }
   }
 
@@ -235,8 +240,9 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     const notice = 'Target text appears present; no write performed'
     return {
       ...head,
-      body: [<text key="no-change" role="omp.tool.notice" spans={[{ s: 'muted', t: notice }]} />, ...diagnostics],
-      meta: [notice]
+      body: [<text key="no-change" role="omp.tool.notice" spans={[{ s: 'muted', t: notice }]} />, ...warning, ...diagnostics],
+      ...(warning.length ? { folded: false } : {}),
+      meta: [notice, ...(warning.length ? ['Patch context warning'] : [])]
     }
   }
 
@@ -256,15 +262,25 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
   }
 
   if (!diff) {
-    return { ...head, body: [...refusalNodes, ...lint, ...diagnostics], ...(refusal || lint.length ? { folded: false, meta: [...(refusal ? ['Write refused'] : []), ...lintMeta] } : {}) }
+    // The shell would otherwise show this failure as a note when the card was empty.
+    // A warning row makes the card nonempty, so retain that existing error here.
+    const previousError = patchWarning && call.outcome.kind === 'error' && !refusalNodes.length && !lint.length && !diagnostics.length
+      ? errorOf(call) : undefined
+    const reason = previousError ? lintText(previousError) : undefined
+    const failure = reason ? [
+      <text key="patch-error" role="omp.tool.error" spans={[{ s: 'error', t: reason.value }]} wrap="word" />,
+      ...(reason.clipped ? [<text key="patch-error-clipped" role="omp.tool.notice" text="Patch error clipped in view" />] : []),
+      ...(reason.escaped ? [<text key="patch-error-escaped" role="omp.tool.notice" text="Patch error control characters escaped in view" />] : [])
+    ] : []
+    return { ...head, body: [...refusalNodes, ...failure, ...warning, ...lint, ...diagnostics], ...(refusal || lint.length || warning.length ? { folded: false, meta: [...(refusal ? ['Write refused'] : []), ...(warning.length ? ['Patch context warning'] : []), ...lintMeta] } : {}) }
   }
 
   const { added, removed } = diffStats(diff)
 
   return {
     ...head,
-    body: [...refusalNodes, ...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
-    ...(lint.length || refusal ? { folded: false } : {}),
-    meta: [`+${added} −${removed}`, ...(refusal ? ['Write refused'] : []), ...lintMeta]
+    body: [...refusalNodes, ...warning, ...lint, <diff key="diff" {...optional('lang', lang)} text={diff} />, ...diagnostics],
+    ...(lint.length || refusal || warning.length ? { folded: false } : {}),
+    meta: [`+${added} −${removed}`, ...(refusal ? ['Write refused'] : []), ...(warning.length ? ['Patch context warning'] : []), ...lintMeta]
   }
 }

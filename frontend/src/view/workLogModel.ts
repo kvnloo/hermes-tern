@@ -16,6 +16,7 @@ import { evalNeedsAttention } from '../tools/eval-attention.js'
 import { memoryStagingReported } from '../tools/memory-staged.js'
 import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
 import { patchNoChangeSignal } from '../tools/patch-noop.js'
+import { patchContextWarning } from '../tools/patch-warning.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { terminalMaskedNeedsAttention, terminalRecreationNeedsAttention } from '../tools/terminal.js'
 import { v4aLintNeedsAttention } from '../tools/v4a-lint.js'
@@ -80,7 +81,7 @@ function terminalNeedsAttention(call: ToolCall): boolean {
   }
 }
 
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || v4aLintNeedsAttention(call) || terminalNeedsAttention(call) || memoryStagingReported(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || v4aLintNeedsAttention(call) || terminalNeedsAttention(call) || memoryStagingReported(call) || patchContextWarning(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -99,7 +100,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || v4aLintNeedsAttention(b.call) || terminalNeedsAttention(b.call) || writeRefusalNeedsAttention(b.call) || memoryStagingReported(b.call) || v4aValidationFailure(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || v4aLintNeedsAttention(b.call) || terminalNeedsAttention(b.call) || writeRefusalNeedsAttention(b.call) || memoryStagingReported(b.call) || v4aValidationFailure(b.call) || patchContextWarning(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 
