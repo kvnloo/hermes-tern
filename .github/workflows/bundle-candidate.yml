@@ -1,0 +1,71 @@
+# Produce a reviewable artifact from one immutable source revision. Publishing it
+# into a plugin installation or a repository is a separate, human-controlled step.
+name: bundle candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '!frontend/dist/**'
+      - '.github/workflows/bundle-candidate.yml'
+      - 'scripts/bundle_provenance.py'
+      - 'tests/test_bundle_provenance.py'
+  pull_request:
+    paths:
+      - '.github/workflows/bundle-candidate.yml'
+      - 'scripts/bundle_provenance.py'
+      - 'tests/test_bundle_provenance.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: build candidate bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLUGIN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      HERMES_SRC: ${{ github.workspace }}/.hermes-agent
+      BUNDLE_DIR: ${{ runner.temp }}/hermes-tern-bundle
+      OPENUI_TELEMETRY_DISABLED: '1'
+      DO_NOT_TRACK: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PLUGIN_SHA }}
+          persist-credentials: false
+      - name: Test bundle provenance checks
+        run: python3 -m unittest discover -s tests -p 'test_bundle_provenance.py' -v
+      - id: lock
+        run: |
+          sha=$(python3 scripts/bundle_provenance.py pin frontend/hermes-src.lock)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ steps.lock.outputs.sha }}
+          path: .hermes-agent
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --workspace ui-tui --no-audit --no-fund
+        working-directory: .hermes-agent
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - run: node scripts/hermes-src.mjs && bun install --frozen-lockfile
+        working-directory: frontend
+      - name: Verify source and build
+        run: |
+          python3 scripts/bundle_provenance.py verify --plugin . --hermes "$HERMES_SRC" --expected "$PLUGIN_SHA"
+          mkdir -p "$BUNDLE_DIR"
+          TSP_OUT="$BUNDLE_DIR/entry.js" node frontend/scripts/build.mjs
+          python3 scripts/bundle_provenance.py receipt --plugin . --hermes "$HERMES_SRC" --expected "$PLUGIN_SHA" --bundle "$BUNDLE_DIR/entry.js" --output "$BUNDLE_DIR/provenance.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hermes-tern-bundle-${{ env.PLUGIN_SHA }}
+          path: ${{ env.BUNDLE_DIR }}
+          if-no-files-found: error
+          retention-days: 7
