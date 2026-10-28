@@ -26,5 +26,5 @@ const LANGS: Record<string, string> = {
 export function langOf(path: string | undefined): string | undefined {
   const ext = path?.split('.').pop()?.toLowerCase()
 
-  return ext ? LANGS[ext] : undefined
+  return ext && Object.hasOwn(LANGS, ext) ? LANGS[ext] : undefined
 }
