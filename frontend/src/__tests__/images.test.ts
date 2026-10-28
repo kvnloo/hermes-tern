@@ -251,9 +251,9 @@ describe('image cards', () => {
     expect(pieces(blocks).map(p => p.kind)).toEqual(['work', 'block', 'block'])
     expect([...(foldOf(turn)?.hidden ?? [])]).toEqual(['b1'])
 
-    // A failed one has no image to keep in view.
+    // A failed image call stays visible even when it has no image to show.
     const failed: ToolCall = { ...img, outcome: { duration: 0, kind: 'error' } }
-    expect(foldOf({ ...turn, blocks: [{ call: failed, id: entryId('b2'), kind: 'tool' }, must(blocks[2])] })?.hidden.has('b2')).toBe(true)
+    expect(foldOf({ ...turn, blocks: [{ call: failed, id: entryId('b2'), kind: 'tool' }, must(blocks[2])] })?.hidden.has('b2')).not.toBe(true)
   })
 })
 
