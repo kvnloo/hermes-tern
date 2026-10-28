@@ -12,6 +12,7 @@ import { shownImage } from '../media.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
+import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -209,6 +210,7 @@ export function parts(turn: TurnEntry): Part[] {
 
 /** What a call counts as in a summary: its view's action (an app's while it acted in apps only); `other` when its view throws. */
 export function actionOf(call: ToolCall): Action {
+  if (patchNoChangeSignal(call)) return 'other'
   return withView(call, view => view.action())
 }
 

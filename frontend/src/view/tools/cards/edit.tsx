@@ -9,6 +9,7 @@ import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
+import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-noop.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
 import { shortPath } from '../steps.js'
 import type { Card, ToolView } from '../types.js'
@@ -20,7 +21,10 @@ export const patchView: ToolView<'patch'> = {
   action: 'edit',
   card: editCard,
   hubIcon: 'edit',
-  step: (_call, d) => (d.path ? `Edited ${shortPath(d.path)}` : 'Edited a file')
+  step: (call, d) => patchNoWriteReported(call)
+    ? (d.path ? `Patch target appears present in ${shortPath(d.path)}` : 'Patch target appears present')
+    : patchNoChangeSignal(call) ? (d.path ? `Patch ${shortPath(d.path)}` : 'Patch')
+    : (d.path ? `Edited ${shortPath(d.path)}` : 'Edited a file')
 }
 
 /** The write_file tool's view. */
@@ -161,6 +165,15 @@ function editCard(call: ToolCall, d: EditDetail, _now: number, context?: LspLink
     targetKind: 'path',
     title: write ? 'Write' : 'Edit'
   } satisfies Partial<Card>
+
+  if (patchNoWriteReported(call)) {
+    const notice = 'Target text appears present; no write performed'
+    return {
+      ...head,
+      body: [<text key="no-change" role="omp.tool.notice" spans={[{ s: 'muted', t: notice }]} />, ...diagnostics],
+      meta: [notice]
+    }
+  }
 
   // A new file is all additions: omp shows it as the file, numbered, with a badge.
   if (write && content && (!diff || diff.startsWith('@@ -0,0 '))) {
