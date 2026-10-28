@@ -127,12 +127,12 @@ interface EditFields {
   diagnostics?: EditDiagnostics
   /** Original result string used only if the structured companion is missing/invalid. */
   diagnosticsText?: string
-  /** A write's explicitly reported syntax/lint error; it does not change the write outcome. */
+  /** A retained syntax/lint error; it does not change the tool outcome. */
   lintError?: { output: string; message?: string }
 }
 
-/** Only the write producer's own structured error report; patch uses a different shape. */
-function writeLintError(result: Raw['result']): EditFields['lintError'] {
+/** A producer's own structured error report. V4A's per-path map is not this shape. */
+function lintError(result: Raw['result']): EditFields['lintError'] {
   if (!result || !Object.hasOwn(result, 'lint')) return undefined
   const lint = result['lint']
   if (!lint || typeof lint !== 'object' || Array.isArray(lint)) return undefined
@@ -141,6 +141,22 @@ function writeLintError(result: Raw['result']): EditFields['lintError'] {
       !Object.hasOwn(data, 'output') || typeof data['output'] !== 'string' ||
       (Object.hasOwn(data, 'message') && typeof data['message'] !== 'string')) return undefined
   return { output: data['output'], ...optional('message', Object.hasOwn(data, 'message') ? text(data['message']) : undefined) }
+}
+
+/** Only a proven replace-mode success, never a no-op, partial result or V4A map. */
+function replaceLintError({ args, result }: Raw): EditFields['lintError'] {
+  if (!Object.hasOwn(args, 'path') || typeof args['path'] !== 'string' || !args['path'] ||
+      !Object.hasOwn(args, 'old_string') || typeof args['old_string'] !== 'string' ||
+      !Object.hasOwn(args, 'new_string') || typeof args['new_string'] !== 'string' ||
+      Object.hasOwn(args, 'patch') || (Object.hasOwn(args, 'mode') && args['mode'] !== 'replace')) return undefined
+  if (!result || !Object.hasOwn(result, 'success') || result['success'] !== true ||
+      (Object.hasOwn(result, 'no_change') && result['no_change'] !== false) ||
+      (result['error'] !== undefined && result['error'] !== null && result['error'] !== '') ||
+      result['status'] !== undefined || (result['ok'] !== undefined && result['ok'] !== true) ||
+      (result['exit_code'] !== undefined && result['exit_code'] !== 0) ||
+      ['is_error', 'failed', 'cancelled', 'partial', 'truncated'].some(key => result[key] !== undefined && result[key] !== false) ||
+      ['files_created', 'files_deleted'].some(key => result[key] !== undefined && (!Array.isArray(result[key]) || result[key].length !== 0))) return undefined
+  return lintError(result)
 }
 
 /** A `patch` or `write_file` call, read once. */
@@ -161,7 +177,7 @@ export function editDetail<T extends EditDetail['tool']>(tool: T): (raw: Raw) =>
     content: text(args['content']),
     ...optional('diagnostics', diagnosticsOf(result?.['lsp_diagnostics_data'])),
     ...optional('diagnosticsText', text(result?.['lsp_diagnostics'])),
-    ...optional('lintError', tool === 'write_file' ? writeLintError(result) : undefined),
+    ...optional('lintError', tool === 'write_file' ? lintError(result) : replaceLintError({ args, result })),
     diff: text(result?.['diff']),
     path: text(args['path']),
     tool
