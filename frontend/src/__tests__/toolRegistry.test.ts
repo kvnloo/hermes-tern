@@ -174,12 +174,17 @@ describe('tool details', () => {
 
   it('reads past fields of the wrong type', () => {
     expect(detailOf(call('search_files', { path: 3, pattern: ['x'] }, { result: { files: 'no', matches: [7, { line: 'two' }] } }))).toEqual({
+      countMode: false,
+      counts: undefined,
+      countsMalformed: false,
       files: undefined,
       filesOnly: false,
       matches: [{ line: 0, path: '', text: '' }],
       matchesText: undefined,
+      omitted: false,
       path: undefined,
       pattern: undefined,
+      resultPresent: true,
       tool: 'search_files',
       total: undefined,
       totalLowerBound: false,
