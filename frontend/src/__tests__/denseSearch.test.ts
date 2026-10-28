@@ -24,9 +24,9 @@ describe('Hermes dense search cards', () => {
     let n = 0
     const entries = history({ kept: [], compactions: [], id: prefix => entryId(`${prefix}${++n}`), messages: [
       { role: 'user', text: 'inspect results' },
-      { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: denseText, total_count: 5, truncated: true, _omitted: 'filtered' }) },
-      { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 2, _omitted: 'filtered' }) },
-      { role: 'tool', name: 'search_files', tool_call_id: 'count', args: { pattern: 'hit', output_mode: 'count' }, content: JSON.stringify({ counts: { 'file.py': 2 }, total_count: 8, truncated: true, _omitted: 'filtered' }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: denseText, total_count: 5, truncated: true, _omitted: 'filtered', error: 'dense failed' }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 2, _omitted: 'filtered', error: 'structured failed' }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'count', args: { pattern: 'hit', output_mode: 'count' }, content: JSON.stringify({ counts: { 'file.py': 2 }, total_count: 8, truncated: true, _omitted: 'filtered', error: 'count failed' }) },
       { role: 'tool', name: 'custom_result', tool_call_id: 'generic', args: {}, content: generic },
       { role: 'tool', name: 'terminal', tool_call_id: 'terminal', args: { command: 'curl https://user:secret@[' }, content: JSON.stringify({ exit_code: 2, output: 'curl failed' }) }
     ] })
@@ -47,6 +47,11 @@ describe('Hermes dense search cards', () => {
     const countCard = tree(toolNode(counted, 0))
     expect(nodes(countCard).find(node => node.p?.['role'] === 'omp.tool.search.count')?.p?.['spans']).toEqual([{ s: 'path', t: 'file.py' }, { t: '  2' }])
     expect(countCard.p?.['meta']).toEqual(['1 retained count shown', 'Hermes total count: at least 8', 'Hermes omitted some search results', 'Search results truncated upstream'])
+    for (const [call, rendered, reason] of [[dense, denseCard, 'dense failed'], [structured, structuredCard, 'structured failed'], [counted, countCard, 'count failed']] as const) {
+      expect(rendered.p?.['status']).toBe('error')
+      expect(nodes(rendered).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans'])).toEqual([[{ s: 'error', t: reason }]])
+      expect(toolDetail(call, 0).map(tree).flatMap(nodes).filter(node => node.p?.['role'] === 'omp.tool.error').map(node => node.p?.['spans'])).toEqual([[{ s: 'error', t: reason }]])
+    }
     const shell = tree(toolNode(terminal, 0))
     expect(shell.p).toMatchObject({ name: 'bash', title: 'Fetch a URL' })
     expect(nodes(shell).find(node => node.k === 'ansi')?.p?.['text']).toBe('curl failed')

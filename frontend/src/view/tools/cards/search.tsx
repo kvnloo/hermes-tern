@@ -92,7 +92,14 @@ function disclosures(labels: string[]): JSX.Element[] {
 
 function errorNotice(call: ToolCall): JSX.Element[] {
   const error = call.outcome.kind === 'error' ? errorOf(call) : undefined
-  return error ? [<text key="search-error" role="omp.tool.error" spans={[{ s: 'error', t: safeDense(densePrefix(error)) }]} />] : []
+  if (!error) return []
+  const prefix = densePrefix(error)
+  const safe = safeDense(prefix).replace(/[\u2028\u2029\u206a-\u206f]/g, c => `\\u${(c.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`)
+  return [
+    <text key="search-error" role="omp.tool.error" spans={[{ s: 'error', t: safe }]} />,
+    ...(error.length > DENSE_LIMIT ? [<text key="search-error-clipped" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Search error text clipped in view' }]} />] : []),
+    ...(safe !== prefix ? [<text key="search-error-controls" role="omp.tool.notice" spans={[{ s: 'muted', t: 'Search error control characters escaped in view' }]} />] : [])
+  ]
 }
 
 /** The search_files tool's view: "Searched pattern in folder". */
@@ -134,7 +141,7 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
             <text key="p" spans={[{ s: 'path', t: slash > 0 ? f.slice(slash + 1) : f }]} />
           </row>
         )
-      }), ...disclosures(notices), ...(notices.length ? errorNotice(call) : [])],
+      }), ...disclosures(notices), ...errorNotice(call)],
       folded: list.length > 20,
       frame: 'inline',
       meta: files ? [
@@ -232,7 +239,7 @@ function searchCard(call: ToolCall, d: SearchDetail): Card {
     ...(prefix !== safe ? ['Control characters escaped in view'] : [])
   ]
   body.push(...disclosures(notices))
-  if (dense || notices.length) body.push(...errorNotice(call))
+  body.push(...errorNotice(call))
 
   return {
     body,
