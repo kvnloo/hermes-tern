@@ -25,18 +25,23 @@ describe('Hermes dense search cards', () => {
       { role: 'user', text: 'inspect results' },
       { role: 'tool', name: 'search_files', tool_call_id: 'dense', args: { pattern: 'hit' }, content: JSON.stringify({ matches_text: 'dense result', total_count: 5 }) },
       { role: 'tool', name: 'search_files', tool_call_id: 'structured', args: { pattern: 'hit' }, content: JSON.stringify({ matches: [{ path: 'file.constructor', line: 1, content: 'hit' }], total_count: 1 }) },
+      { role: 'tool', name: 'search_files', tool_call_id: 'count', args: { pattern: 'hit', output_mode: 'count' }, content: JSON.stringify({ counts: { 'file.py': 2 }, total_count: 8, truncated: true, _omitted: 'filtered' }) },
       { role: 'tool', name: 'custom_result', tool_call_id: 'generic', args: {}, content: generic },
       { role: 'tool', name: 'terminal', tool_call_id: 'terminal', args: { command: 'curl https://user:secret@[' }, content: JSON.stringify({ exit_code: 2, output: 'curl failed' }) }
     ] })
     const calls = entries.flatMap(e => e.kind === 'turn' ? e.blocks.flatMap(b => b.kind === 'tool' ? [b.call] : []) : [])
     const dense = calls.find(c => c.id === 'dense')
     const structured = calls.find(c => c.id === 'structured')
+    const counted = calls.find(c => c.id === 'count')
     const terminal = calls.find(c => c.id === 'terminal')
-    if (!dense || !structured || !terminal) throw new Error('missing replay tool')
+    if (!dense || !structured || !counted || !terminal) throw new Error('missing replay tool')
     expect(codes(tree(toolNode(dense, 0)))[0]?.p?.['text']).toBe('dense result')
     const code = codes(tree(toolNode(structured, 0)))[0]
     expect(code?.p?.['text']).toBe('hit')
     expect(code?.p?.['lang']).toBeUndefined()
+    const countCard = tree(toolNode(counted, 0))
+    expect(nodes(countCard).find(node => node.p?.['role'] === 'omp.tool.search.count')?.p?.['spans']).toEqual([{ s: 'path', t: 'file.py' }, { t: '  2' }])
+    expect(countCard.p?.['meta']).toEqual(['1 retained count shown', 'Hermes total count: at least 8', 'Hermes omitted some search results', 'Search results truncated upstream'])
     const shell = tree(toolNode(terminal, 0))
     expect(shell.p).toMatchObject({ name: 'bash', title: 'Fetch a URL' })
     expect(nodes(shell).find(node => node.k === 'ansi')?.p?.['text']).toBe('curl failed')
