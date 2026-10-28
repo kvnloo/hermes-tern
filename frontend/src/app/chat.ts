@@ -366,7 +366,9 @@ export class App implements ChatPorts {
 
   /** Tern owns visibility, theme and motion; stop animation and expiry work while hidden. */
   #onSurfaceEvent(ev: TspEvent) {
-    if ('sf' in ev && ev.sf && ev.sf !== 'hermes') {
+    if (this.#surface.state === 'failed' || this.#surface.state === 'disposed') return
+    // Check the owner before lifecycle can replace it on a valid show event.
+    if ('sf' in ev && ev.sf && ev.sf !== this.#surface.raw.id) {
       return
     }
 
