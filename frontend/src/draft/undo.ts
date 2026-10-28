@@ -9,6 +9,8 @@ export interface Snapshot {
   readonly text: string
   readonly cursor: number
   readonly pasted: readonly string[]
+  /** Shell syntax from pasted or origin-unknown history remains literal after edits. */
+  readonly literal?: boolean
 }
 
 /** Typing within this window joins one undo step. */

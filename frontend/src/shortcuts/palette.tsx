@@ -95,7 +95,7 @@ export function openCommandPalette(host: PaletteHost): void {
     if (execute) {
       host.run(command)
     } else {
-      host.composer.set(`${command} `)
+      host.composer.set(`${command} `, { literal: true })
       host.changed()
     }
   }

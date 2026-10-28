@@ -29,10 +29,11 @@ export class Composer {
   #kill = ''
   /** Index into history while browsing it; history.length means the draft. */
   #browse = -1
-  #draft = ''
+  #draft: (Snapshot & { anchor?: number | undefined }) | undefined
   #decor: { text: string; decor: Decor[] } = { decor: [], text: '' }
   /** Pasted text that holds `{!…}` or starts with `!`: what it says is not the user's command. */
   #pasted: string[] = []
+  #literal = false
 
   /** The draft; only the composer's own edits change it. */
   get text(): string {
@@ -72,7 +73,12 @@ export class Composer {
 
   /** The draft's pastes that hold `{!…}` or start with `!`; `take()` and `set()` forget them. */
   get pasted(): readonly string[] {
-    return this.#pasted
+    return this.literal && !this.#pasted.includes(this.text) ? [...this.#pasted, this.text] : this.#pasted
+  }
+
+  /** Pasted, native-edited or recalled text keeps shell syntax literal until cleared. */
+  get literal(): boolean {
+    return this.#literal && this.text.length > 0
   }
 
   /** Up/Down are walking the prompt history (Down still has somewhere to go). */
@@ -85,11 +91,12 @@ export class Composer {
    * last draft held go with it: `pasted` names the ones `text` holds (a prompt back in the
    * composer, with the draft it went in front of).
    */
-  set(text: string, { cursor = text.length, pasted = [] }: { cursor?: number; pasted?: readonly string[] } = {}) {
+  set(text: string, { cursor = text.length, pasted = [], literal = false }: { cursor?: number; pasted?: readonly string[]; literal?: boolean } = {}) {
     this.#record({ merge: false })
     this.#text = text
     this.#cursor = clamp(cursor, text.length)
     this.#pasted = [...pasted]
+    this.#literal = Boolean(text) && (literal || pasted.length > 0)
   }
 
   /** Modal transitions end a typing burst without changing the text or cursor. */
@@ -107,6 +114,7 @@ export class Composer {
     const s = raw.replace(/\r\n?/g, '\n')
     this.splice(from, to, s)
     if (pastedCommand(s)) this.#pasted.push(s)
+    if (s) this.#literal = true
   }
 
   /** Clears the draft after a submit, remembering it in the prompt history. */
@@ -115,6 +123,7 @@ export class Composer {
     this.#revision++
     appendHistory(text)
     this.#pasted = []
+    this.#literal = false
     this.#steps.clear()
     this.vim.reset()
     this.rev++
@@ -180,6 +189,8 @@ export class Composer {
     // Native typing arrives one character per edit: those join the typing burst like keys do.
     const typed = ev.from === ev.to && [...ev.text].length === 1 && ev.text !== '\n'
     this.#replace({ cursor: ev.cursor, from: ev.from, merge: typed, s: ev.text, to: ev.to })
+    // TSP edit events do not identify typing versus paste; do not infer shell authority.
+    if (ev.text) this.#literal = true
   }
 
   undo() {
@@ -192,7 +203,7 @@ export class Composer {
 
   /** The draft as an undo step holds it: its text, caret and pastes. */
   #snapshot(): Snapshot {
-    return { cursor: this.cursor, pasted: [...this.#pasted], text: this.text }
+    return { cursor: this.cursor, pasted: [...this.#pasted], text: this.text, ...(this.literal ? { literal: true } : {}) }
   }
 
   /** Puts back the draft an undo or redo step held, if there was one, with the pastes it held. */
@@ -203,6 +214,7 @@ export class Composer {
       this.#text = step.text
       this.#cursor = step.cursor
       this.#pasted = [...step.pasted]
+      this.#literal = step.literal === true
       this.#anchor = undefined
       this.#browse = -1
     }
@@ -458,7 +470,7 @@ export class Composer {
         return true
       }
 
-      this.#draft = this.text
+      this.#draft = { ...this.#snapshot(), anchor: this.anchor }
       this.#browse = items.length
     }
 
@@ -470,7 +482,8 @@ export class Composer {
 
     this.#browse = at
     this.#revision++
-    const text = at === items.length ? this.#draft : (items[at] ?? '')
+    const draft = at === items.length ? this.#draft : undefined
+    const text = draft?.text ?? items[at] ?? ''
 
     if (at === items.length) {
       this.#browse = -1
@@ -478,8 +491,10 @@ export class Composer {
 
     ++this.#revision
     this.#text = text
-    this.#cursor = text.length
-    this.#anchor = undefined
+    this.#cursor = draft?.cursor ?? text.length
+    this.#anchor = draft?.anchor
+    this.#pasted = draft ? [...draft.pasted] : []
+    this.#literal = draft ? draft.literal === true : true
     this.rev++
 
     return true
@@ -521,6 +536,7 @@ export class Composer {
 
   /** Saves an undo step; typing bursts merge into one. Every edit runs it, so it also ends a history walk. */
   #record({ merge }: { merge: boolean }) {
+    if (!this.text) this.#literal = false
     this.rev++
     this.#revision++
     // An edited history entry is the draft now: the next Up saves it and starts from the newest entry.

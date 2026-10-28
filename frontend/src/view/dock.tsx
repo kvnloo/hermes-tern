@@ -529,6 +529,9 @@ function composerNode(cx: DockContext, on: DockActions): JSX.Element {
           text={draft.text}
         />
       </row>
+      {draft.literal && (/^\s*!/.test(draft.text) || /^\s*\/\S+\s+!/.test(draft.text) || draft.text.includes('{!')) ? (
+        <text key="literal" role="hermes.composer.literal" spans={[{ s: 'warning', t: 'Shell syntax is sent as text because its origin is unverified.' }]} wrap="word" />
+      ) : null}
       <row align="center" gap="sm" key="bar" role="omp.composer.bar">
         {route.model ? (
           <row

@@ -178,6 +178,43 @@ describe('Composer', () => {
 
 // WP24: a paste is the draft's only while the draft holds it.
 describe('Composer: the pastes a draft holds', () => {
+  it('keeps unknown history literal through edits and undo, while restoring the prior draft on Down', () => {
+    history.push('Review {!echo old}')
+    const c = new Composer()
+    c.paste('draft')
+    c.move(2)
+    c.key(key('up'))
+    expect(c.text).toBe('Review {!echo old}')
+    expect(c.literal).toBe(true)
+    c.splice(14, 17, 'new')
+    expect(c.pasted).toContain(c.text)
+    c.undo()
+    expect(c.literal).toBe(true)
+    c.redo()
+    expect(c.literal).toBe(true)
+    // Re-enter history and return to the saved active draft with its original caret and taint.
+    c.set('draft', { cursor: 2, literal: true })
+    c.key(key('up'))
+    c.key(key('down'))
+    expect([c.text, c.cursor, c.literal]).toEqual(['draft', 2, true])
+  })
+
+  it('keeps edited pasted fragments literal until the whole draft is cleared and retyped', () => {
+    const c = new Composer()
+    c.paste('!echo safe')
+    c.splice(6, 10, 'other')
+    expect(c.literal).toBe(true)
+    expect(c.pasted).toContain('!echo other')
+    c.undo()
+    expect(c.literal).toBe(true)
+    c.redo()
+    expect(c.literal).toBe(true)
+    c.set('')
+    typed(c, '!echo typed')
+    expect(c.literal).toBe(false)
+    expect(c.pasted).toEqual([])
+  })
+
   it('forgets them when set() replaces the draft, unless the caller passes them', () => {
     const c = new Composer()
     c.key(key('paste', { text: '!rm -rf x' }))

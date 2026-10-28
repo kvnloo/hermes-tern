@@ -245,7 +245,7 @@ export class AppActions {
       router: cx.router,
       setCompacting: (on, opts) => this.setCompacting(on, opts),
       state: cx.state,
-      submit: text => this.submit(text, true, 'queue'),
+      submit: (text, literal) => this.submit(text, true, 'queue', literal ? [text] : []),
       transcript
     }
   }
@@ -298,7 +298,8 @@ export class AppActions {
       return
     }
 
-    this.submit(raw, true, 'queue', this.#cx.composer.pasted.filter(p => raw.includes(p)))
+    const unknown = raw !== this.#cx.composer.text
+    this.submit(raw, true, 'queue', unknown || this.#cx.composer.literal ? [raw] : this.#cx.composer.pasted.filter(p => raw.includes(p)))
   }
 
 
@@ -327,8 +328,12 @@ export class AppActions {
       return
     }
 
+    if (!text.startsWith('/') && pasted.length && (text.startsWith('!') || text.includes('{!'))) {
+      transcript.notice('Shell syntax is sent as text because its origin is unverified.', 'warning')
+    }
+
     if (text.startsWith('/')) {
-      void runSlash(text, this.slash)
+      void runSlash(text, this.slash, true, pasted.length > 0)
 
       return
     }
@@ -365,6 +370,7 @@ export class AppActions {
 
     // The draft keeps its own pastes, and the prompt's come with it.
     composer.set(text && composer.text ? `${text}\n${composer.text}` : text || composer.text, {
+      literal: composer.literal || prompt.kind !== 'typed',
       pasted: [...composer.pasted, ...(prompt.kind === 'typed' ? prompt.pasted : [])]
     })
     this.#cx.attachments.restore(prompt.images)
