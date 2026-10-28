@@ -15,6 +15,7 @@ import { detailOf } from '../tools/detail.js'
 import { evalNeedsAttention } from '../tools/eval-attention.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
+import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
 import { isBackgroundCall, isTodoName, isWatchCall } from '../transcript/calls.js'
 import { compactionEndedAt } from '../transcript/compactions.js'
 import { turnEndedAt } from '../transcript/turns.js'
@@ -60,7 +61,7 @@ export function showsImage(call: ToolCall): boolean {
 }
 
 /** Consequential tool states stay visible independently of the surrounding work group. */
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -79,7 +80,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 

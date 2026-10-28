@@ -127,6 +127,20 @@ interface EditFields {
   diagnostics?: EditDiagnostics
   /** Original result string used only if the structured companion is missing/invalid. */
   diagnosticsText?: string
+  /** A write's explicitly reported syntax/lint error; it does not change the write outcome. */
+  lintError?: { output: string; message?: string }
+}
+
+/** Only the write producer's own structured error report; patch uses a different shape. */
+function writeLintError(result: Raw['result']): EditFields['lintError'] {
+  if (!result || !Object.hasOwn(result, 'lint')) return undefined
+  const lint = result['lint']
+  if (!lint || typeof lint !== 'object' || Array.isArray(lint)) return undefined
+  const data = record(lint)
+  if (!data || !Object.hasOwn(data, 'status') || data['status'] !== 'error' ||
+      !Object.hasOwn(data, 'output') || typeof data['output'] !== 'string' ||
+      (Object.hasOwn(data, 'message') && typeof data['message'] !== 'string')) return undefined
+  return { output: data['output'], ...optional('message', Object.hasOwn(data, 'message') ? text(data['message']) : undefined) }
 }
 
 /** A `patch` or `write_file` call, read once. */
@@ -147,6 +161,7 @@ export function editDetail<T extends EditDetail['tool']>(tool: T): (raw: Raw) =>
     content: text(args['content']),
     ...optional('diagnostics', diagnosticsOf(result?.['lsp_diagnostics_data'])),
     ...optional('diagnosticsText', text(result?.['lsp_diagnostics'])),
+    ...optional('lintError', tool === 'write_file' ? writeLintError(result) : undefined),
     diff: text(result?.['diff']),
     path: text(args['path']),
     tool
