@@ -13,6 +13,8 @@ import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
 import { evalNeedsAttention } from '../tools/eval-attention.js'
+import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
+import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { webExtractNeedsAttention } from '../tools/web-attention.js'
 import { writeLintNeedsAttention } from '../tools/write-lint-attention.js'
@@ -61,7 +63,7 @@ export function showsImage(call: ToolCall): boolean {
 }
 
 /** Consequential tool states stay visible independently of the surrounding work group. */
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -80,7 +82,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 
@@ -231,6 +233,7 @@ export function parts(turn: TurnEntry): Part[] {
 
 /** What a call counts as in a summary: its view's action (an app's while it acted in apps only); `other` when its view throws. */
 export function actionOf(call: ToolCall): Action {
+  if (patchNoChangeSignal(call)) return 'other'
   return withView(call, view => view.action())
 }
 
