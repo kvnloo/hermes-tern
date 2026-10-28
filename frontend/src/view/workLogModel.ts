@@ -13,6 +13,7 @@ import type { Block, ToolCall, TurnEntry } from '../model.js'
 import { appOf, appsOf, batchOf } from '../tools/bridge.js'
 import { detailOf } from '../tools/detail.js'
 import { evalNeedsAttention } from '../tools/eval-attention.js'
+import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
 import { patchNoChangeSignal } from '../tools/patch-noop.js'
 import { taskNeedsAttention } from '../tools/task-attention.js'
 import { terminalRecreationNeedsAttention } from '../tools/terminal.js'
@@ -74,7 +75,7 @@ function recreatedTerminalNeedsAttention(call: ToolCall): boolean {
   }
 }
 
-const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || recreatedTerminalNeedsAttention(call)
+const needsAttention = (call: ToolCall): boolean => call.outcome.kind === 'error' || call.outcome.kind === 'running' || webExtractNeedsAttention(call) || taskNeedsAttention(call) || evalNeedsAttention(call) || writeLintNeedsAttention(call) || patchLintNeedsAttention(call) || recreatedTerminalNeedsAttention(call)
 
 /**
  * Splits blocks (some of the turn's `turn`) into text, steers and card-owning calls, and the work
@@ -93,7 +94,7 @@ export function pieces(blocks: readonly Block[], turn: readonly Block[] = blocks
         items = []
       }
 
-      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || recreatedTerminalNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
+      out.push(ownsCard(b.call) || webExtractNeedsAttention(b.call) || evalNeedsAttention(b.call) || writeLintNeedsAttention(b.call) || patchLintNeedsAttention(b.call) || recreatedTerminalNeedsAttention(b.call) ? { block: b, kind: 'block' } : { items: [b], kind: 'work' })
       continue
     }
 

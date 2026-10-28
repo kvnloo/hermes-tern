@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { entryId } from '../core/ids.js'
 import type { Block, ToolCall, TurnEntry } from '../model.js'
+import { patchLintNeedsAttention } from '../tools/patch-lint-attention.js'
 import { history } from '../transcript/history.js'
 import { Transcript } from '../transcript/store.js'
 import { entryNode, type TranscriptContext } from '../view/transcript.js'
@@ -47,6 +48,17 @@ print(json.dumps(WriteResult(bytes_written=23,verified=True,lint=lint).to_dict()
   return result
 }
 
+function patchProducer(): Record<string, unknown> {
+  const raw = execFileSync('python3', [resolve('src/__tests__/fixtures/patch-lint-core.py')], {
+    cwd: resolve('.hermes-src'), encoding: 'utf8', env: { ...process.env, PYTHONPATH: resolve('.hermes-src') }
+  })
+  const data = parseJson(raw)
+  if (!Array.isArray(data)) throw new Error('expected replace producer results')
+  const result = record(data[0])
+  if (!result) throw new Error('expected replace patch object')
+  return result
+}
+
 describe('retained terminal recreation attention', () => {
   it('shows the real finalizer warning on an unfolded card before the answer without changing the result', () => {
     const { flagged } = producer()
@@ -79,7 +91,7 @@ describe('retained terminal recreation attention', () => {
     for (const value of ['Hermes reports stdout was truncated', 'At least one delegated task reached its iteration limit', notice]) expect(JSON.stringify(root)).toContain(value)
   })
 
-  it('keeps producer-backed terminal and write warnings visible with web, delegate, eval and patch states', () => {
+  it('keeps producer-backed terminal, write and replace-patch warnings visible with web, delegate and eval', () => {
     const { failed, cancelled } = producer()
     const transcript = new Transcript()
     transcript.messageStart()
@@ -96,14 +108,18 @@ describe('retained terminal recreation attention', () => {
     const task = tool('task', call('delegate_task', {}, { result: { results: [{ status: 'completed', exit_reason: 'max_iterations', truncated: true, summary: 'partial' }] } }))
     const evalBlock = tool('eval', call('execute_code', {}, { result: { stdout_truncated: true, output: 'partial' } }))
     const write = tool('write', call('write_file', { path: 'x.py', content: 'def broken(:\n    pass\n' }, { result: writeProducer() }))
+    const patch = tool('patch', call('patch', { path: 'x.py', old_string: 'x = 1', new_string: 'def broken(:' }, { result: patchProducer() }))
+    const v4a = tool('v4a', call('patch', { mode: 'patch', patch: '*** Begin Patch\n*** End Patch' }, { result: { success: true, lint: { 'x.py': { status: 'error', output: 'not a replace report' } } } }))
     const error = tool('error', failedCall)
     const cancel = tool('cancel', cancelledCall)
     const changed = tool('changed', call('patch', { path: 'new.py' }, { result: { success: true, diff: '@@ -1 +1 @@\n-old\n+new' } }))
-    const t = turn([noop, web, task, evalBlock, write, error, cancel, changed, text('answer')])
+    const t = turn([noop, web, task, evalBlock, write, patch, error, cancel, v4a, changed, text('answer')])
     expect(parts(t).flatMap(part => part.blocks.map(block => block.id)))
-      .toEqual(['noop', 'web', 'task', 'eval', 'write', 'error', 'cancel', 'changed', 'answer'])
-    expect([web, task, evalBlock, write, error, cancel].map(block => foldOf(t)?.hidden.has(block.id)))
-      .toEqual([false, false, false, false, false, false])
+      .toEqual(['noop', 'web', 'task', 'eval', 'write', 'patch', 'error', 'cancel', 'v4a', 'changed', 'answer'])
+    expect([web, task, evalBlock, write, patch, error, cancel].map(block => foldOf(t)?.hidden.has(block.id)))
+      .toEqual([false, false, false, false, false, false, false])
+    expect(foldOf(t)?.hidden.has(v4a.id)).toBe(true)
+    expect(patchLintNeedsAttention(v4a.call)).toBe(false)
     expect(actionOf(noop.call)).toBe('other')
     expect(stepLabel(noop.call)).toBe('Patch target appears present in old.py')
     expect(summarize([noop, changed])).toBe('Used 1 tool and changed 1 file')
@@ -113,14 +129,18 @@ describe('retained terminal recreation attention', () => {
     const taskCard = cards.find(node => node.p?.['name'] === 'task')
     const evalCard = cards.find(node => node.p?.['name'] === 'eval')
     const writeCard = cards.find(node => node.p?.['name'] === 'write')
+    const patchCard = cards.find(node => node.p?.['name'] === 'edit' && JSON.stringify(node).includes('SyntaxError'))
     const terminals = cards.filter(node => node.p?.['name'] === 'bash' && Array.isArray(node.p['meta']) && node.p['meta'].includes(label))
-    for (const card of [webCard, taskCard, evalCard, writeCard]) expect(card?.p).toMatchObject({ status: 'done', collapsed: false })
+    for (const card of [webCard, taskCard, evalCard, writeCard, patchCard]) expect(card?.p).toMatchObject({ status: 'done', collapsed: false })
     expect(terminals.map(card => card.p?.['status'])).toEqual(['error', 'cancelled'])
     for (const card of terminals) expect(JSON.stringify(card)).toContain(notice)
     expect(JSON.stringify(webCard)).toContain('Extraction failed: invalid URL')
     expect(JSON.stringify(taskCard)).toContain('At least one delegated task reached its iteration limit')
     expect(JSON.stringify(evalCard)).toContain('Hermes reports stdout was truncated')
     expect(JSON.stringify(writeCard)).toContain('SyntaxError')
+    expect(JSON.stringify(patchCard)).toContain('Lint reported an error')
+    expect(JSON.stringify(patchCard)).toContain('def broken(:')
+    expect(JSON.stringify(root)).not.toContain('not a replace report')
     expect(JSON.stringify(root)).toContain('Target text appears present; no write performed')
     expect(JSON.stringify(root)).not.toContain('changed 2 files')
   })

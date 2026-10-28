@@ -9,6 +9,7 @@ import { optional } from '../../../core/assert.js'
 import { plural } from '../../../core/text.js'
 import type { ToolCall } from '../../../model.js'
 import type { EditDetail, EditDiagnosticSeverity } from '../../../tools/files.js'
+import { patchLintNeedsAttention } from '../../../tools/patch-lint-attention.js'
 import { patchNoWriteReported, patchNoChangeSignal } from '../../../tools/patch-noop.js'
 import { writeLintNeedsAttention } from '../../../tools/write-lint-attention.js'
 import { lspFileHref, type LspLinkContext } from '../lsp-links.js'
@@ -60,7 +61,7 @@ function lintText(text: string): { value: string; clipped: boolean; escaped: boo
 }
 
 function lintNodes(d: EditDetail, call: ToolCall): JSX.Element[] {
-  if (!writeLintNeedsAttention(call) || !d.lintError) return []
+  if ((!writeLintNeedsAttention(call) && !patchLintNeedsAttention(call)) || !d.lintError) return []
   const { output, message } = d.lintError
   const report = output ? lintText(output) : undefined
   const summary = message ? lintText(message) : undefined
