@@ -18,6 +18,8 @@ from pathlib import Path
 from . import browser_backend, channels, connections, panes, plan_gateway, pull_requests, tern_env
 
 FRONTEND = Path(__file__).resolve().parent / "frontend"
+# How much of a channel's commit `hermes tern channels` shows.
+SHORT_SHA = 12
 
 # frontend/src/entry.ts NO_TSP: the terminal never answered the TSP handshake.
 NO_TSP_EXIT = 75
@@ -95,11 +97,11 @@ def _subcommand(flags: list[str]) -> bool:
         print(f"registry: {reg}")
         for name, chan in sorted(chans.items()):
             alias = f"  (hermes --tui {chan['alias']})" if chan.get("alias") else ""
-            print(f"  {name:10} {chan.get('repo', '')}@{str(chan.get('sha', ''))[:12]}  {chan['dir']}{alias}")
+            print(f"  {name:10} {chan.get('repo', '')}@{str(chan.get('sha', ''))[:SHORT_SHA]}  {chan['dir']}{alias}")
         return True
     if flags[:1] == ["switch"]:
         rest = flags[1:]
-        pane = os.environ.get("TERN_PANE", "")
+        pane = channels.current_pane()
         if "--pane" in rest:
             i = rest.index("--pane")
             pane = rest[i + 1] if i + 1 < len(rest) else ""
@@ -117,7 +119,7 @@ def _run(args: argparse.Namespace, channel: str | None = None) -> None:
     force_ink = os.environ.get("HERMES_TERN", "").strip().lower() in {"0", "false", "off", "no"}
     flags = [a for a in args.tui_args if a != "--"]
     if _subcommand(flags):
-        sys.exit(0)
+        return
     flags, chosen = channels.take_channel(flags)
     channel = chosen or channel or channels.default_channel()
     front = channels.frontend_dir(channel) if channel and not force_ink else FRONTEND

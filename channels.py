@@ -24,6 +24,7 @@ import contextlib
 import json
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -33,23 +34,28 @@ ENV = "HERMES_TERN_CHANNELS"
 SWITCH_TTL_S = 60.0
 
 
+def current_pane(env: Optional[Mapping[str, str]] = None) -> str:
+    """The Tern pane this process runs in (Tern sets ``TERN_PANE`` in every pane's shell), or ''."""
+    env = os.environ if env is None else env
+    return (env.get("TERN_PANE") or "").strip()
+
+
 def registry_path(env: Optional[Mapping[str, str]] = None) -> Path:
     env = os.environ if env is None else env
     if env.get(ENV):
         return Path(env[ENV]).expanduser()
     try:
         from hermes_constants import get_default_hermes_root
-
-        root = get_default_hermes_root()
-    except Exception:  # noqa: BLE001 - older Hermes
-        root = Path.home() / ".hermes"
+    except ImportError:  # Hermes before the shared-root helper: profiles live under ~/.hermes
+        return Path.home() / ".hermes" / "tern-channels" / "channels.json"
+    root = get_default_hermes_root()
     return Path(root) / "tern-channels" / "channels.json"
 
 
 def load(path: Optional[Path] = None) -> dict[str, dict[str, Any]]:
     with contextlib.suppress(OSError, ValueError):
-        data = json.loads((path or registry_path()).read_text())
-        chans = data.get("channels") if isinstance(data, dict) else None
+        registry = json.loads((path or registry_path()).read_text())
+        chans = registry.get("channels") if isinstance(registry, dict) else None
         if isinstance(chans, dict):
             return {k: v for k, v in chans.items() if isinstance(v, dict) and isinstance(v.get("dir"), str)}
     return {}
@@ -123,25 +129,28 @@ def request_switch(name: str, pane: str, folder: Optional[Path] = None, *, kill=
     if _pane_of(pid) != pane:
         raise SystemExit(f"hermes tern: pane {pane}'s frontend (pid {pid}) is not running")
     request = {"channel": name, "session_id": sid, "pid": pid, "at": time.time()}
-    tmp = _switch_file(pane, folder).with_suffix(".tmp")
-    tmp.write_text(json.dumps(request))
-    os.replace(tmp, _switch_file(pane, folder))
+    staging = _switch_file(pane, folder).with_suffix(".tmp")
+    staging.write_text(json.dumps(request))
+    os.replace(staging, _switch_file(pane, folder))
     kill(pid, signal.SIGTERM)
     return request
 
 
 def pending_switch(env: Optional[Mapping[str, str]] = None, folder: Optional[Path] = None) -> Optional[dict[str, Any]]:
     """The switch request for this launcher's pane, consumed; None when there is none (or it is stale)."""
-    env = os.environ if env is None else env
-    pane = (env.get("TERN_PANE") or "").strip()
+    pane = current_pane(env)
     if not pane.isdigit():
         return None
+    path = _switch_file(pane, folder)
     try:
-        path = _switch_file(pane, folder)
         request = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None  # the ordinary case: the user quit
+    except (OSError, ValueError) as exc:
+        print(f"hermes tern: ignoring unreadable switch request {path}: {exc}", file=sys.stderr)
         path.unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001 - no request (or no plugin storage): the launch just ends
         return None
+    path.unlink(missing_ok=True)
     if not isinstance(request, dict) or time.time() - float(request.get("at") or 0) > SWITCH_TTL_S:
         return None
     if not request.get("channel") or not request.get("session_id"):

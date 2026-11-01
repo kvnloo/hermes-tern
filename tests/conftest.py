@@ -42,6 +42,7 @@ def _hermes_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     (tmp_path / "hermes").mkdir()
     # Frontend channels: an empty registry unless a test writes one, never the real shared one.
+    monkeypatch.delenv("TERN_PANE", raising=False)  # the suite may run inside a real Tern pane
     monkeypatch.setenv("HERMES_TERN_CHANNELS", str(tmp_path / "tern-channels" / "channels.json"))
 
 
