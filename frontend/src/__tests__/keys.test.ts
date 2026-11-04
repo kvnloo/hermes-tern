@@ -542,7 +542,7 @@ describe('sessionHost', () => {
           return busy
         }
       },
-      changed: () => {},
+      changed: () => {}, draft: () => {},
       gw: gw.client,
       life: {
         reload: async () => undefined,

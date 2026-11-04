@@ -35,6 +35,7 @@ import { openAutomation } from '../overlays/automation.js'
 import { openBackground } from '../overlays/background.js'
 import { openBrowserBlocks } from '../overlays/browser.js'
 import type { Completion } from '../overlays/completion.js'
+import { openContext } from '../overlays/context.js'
 import { openEffortPicker } from '../overlays/effort.js'
 import { openModelPicker } from '../overlays/models.js'
 import { openPlanReview } from '../overlays/plan.js'
@@ -132,17 +133,13 @@ export class AppActions {
     const admit = () => !isModal(chat.overlays) && !life.switching && !attachments.any && !attachments.uploading
     this.#busyDraft = new BusyDraft({ activity: cx.activity, admit, composer, gw, router: cx.router, session: cx.state, transcript, changed })
 
-    this.bindings = new BindingPreferences({
-      gw,
-      session: cx.state,
-      changed,
-      notice: text => chat.notice(text, 'warning')
-    })
+    this.bindings = new BindingPreferences({ gw, session: cx.state, changed, notice: text => chat.notice(text, 'warning') })
     this.dock = {
       onBtwView: notice => cx.btw.viewNotice(notice),
       onBtwDismiss: notice => cx.btw.dismissNotice(notice),
       onAgents: () => openAgents(chat),
       onNotices: () => chat.openNotices(),
+      onContext: () => openContext({ changed, close: o => chat.close(o), gw, open: o => chat.open(o), session: cx.state }),
       onEdit: ev => {
         if (composer.vim.enabled) return
         composer.edit(ev)
@@ -239,6 +236,7 @@ export class AppActions {
     this.host = {
       activity: cx.activity,
       changed,
+      draft: text => composer.set(composer.text ? `${text}\n${composer.text}` : text, { pasted: composer.pasted }),
       gw,
       life,
       queue,

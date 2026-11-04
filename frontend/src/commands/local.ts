@@ -19,11 +19,13 @@ import { openModelHub } from '../overlays/modelHub.js'
 import { type PlanReviewHost, openPlanReview } from '../overlays/plan.js'
 import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
+import { openRewind } from '../overlays/rewind.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
 import { openSettings } from '../overlays/settings.js'
 import { openToolResults } from '../overlays/toolResults.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
 import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
+import { openBranchTree } from '../overlays/tree.js'
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
@@ -348,6 +350,16 @@ const COMMANDS: readonly LocalCommand[] = [
     help: 'Pull requests Hermes linked, beside the chat (/prs 22 opens #22)',
     name: 'prs',
     run: (host, arg) => prsCommand(host, arg)
+  },
+  {
+    help: 'Go back to an earlier prompt: rewind to it, or branch from it',
+    name: 'rewind',
+    run: host => openRewind(host)
+  },
+  {
+    help: "This conversation's branches as a tree: open one",
+    name: 'tree',
+    run: host => openBranchTree(host)
   },
   {
     // The gateway refuses its own /copy and /history (cli_only); Ink runs them on its transcript, as these do.
