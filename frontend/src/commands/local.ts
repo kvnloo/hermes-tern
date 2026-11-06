@@ -19,11 +19,14 @@ import { openModelHub } from '../overlays/modelHub.js'
 import { type PlanReviewHost, openPlanReview } from '../overlays/plan.js'
 import { confirmOverlay } from '../overlays/prompts.js'
 import { prsCommand, type PullRequestsSheetHost } from '../overlays/pullRequests.js'
+import { openRewind } from '../overlays/rewind.js'
+import { openSessionInfo } from '../overlays/sessionInfo.js'
 import { openSessionPicker, type SessionsHost } from '../overlays/sessions.js'
 import { openSettings } from '../overlays/settings.js'
 import { openToolResults } from '../overlays/toolResults.js'
 import { isThemeMode, openThemePicker, type ThemeHost } from '../overlays/theme.js'
 import { type VisualPickerHost, openVisualPicker } from '../overlays/visualPicker.js'
+import { openBranchTree } from '../overlays/tree.js'
 import { LEVELS } from '../session/effort.js'
 import { fastCommand, type FastHost } from '../session/fast.js'
 import { answerText } from '../transcript/turns.js'
@@ -33,6 +36,7 @@ import { rpc } from '../wire/rpc.js'
 import { CONTROL_COMMANDS } from './control.js'
 import { REFUSED_COMMANDS, type RefusedHost } from './refused.js'
 import { SESSION_COMMANDS } from './session.js'
+import { voiceCommand, type VoiceHost } from './voice.js'
 
 /** What the commands reach of the app. */
 export type CommandHost = Pick<
@@ -73,6 +77,7 @@ export type CommandHost = Pick<
   RefusedHost &
   SessionsHost &
   ThemeHost &
+  VoiceHost &
   VisualPickerHost
 
 /** A client-side slash command. */
@@ -92,6 +97,11 @@ export interface LocalCommand {
 }
 
 const COMMANDS: readonly LocalCommand[] = [
+  {
+    // Dictation into the composer, distinct from /live conversation mode.
+    name: 'voice',
+    run: (host, arg) => voiceCommand(host, arg)
+  },
   {
     name: 'notices',
     help: 'Inspect retained gateway notices',
@@ -312,7 +322,7 @@ const COMMANDS: readonly LocalCommand[] = [
     }
   },
   {
-    help: 'Inspect a prepared OpenUI preview [/absolute/path/to/file.hvisual.json]',
+    help: 'Inspect a prepared OpenUI preview or ephemeral-ui card [/absolute/path/to/file.hvisual.json]',
     name: 'visual',
     run: (host, arg) => openVisualPicker(host, arg.trim())
   },
@@ -348,6 +358,21 @@ const COMMANDS: readonly LocalCommand[] = [
     help: 'Pull requests Hermes linked, beside the chat (/prs 22 opens #22)',
     name: 'prs',
     run: (host, arg) => prsCommand(host, arg)
+  },
+  {
+    help: 'Go back to an earlier prompt: rewind to it, or branch from it',
+    name: 'rewind',
+    run: host => openRewind(host)
+  },
+  {
+    help: "This conversation's branches as a tree: open one",
+    name: 'tree',
+    run: host => openBranchTree(host)
+  },
+  {
+    help: 'Read-only session identity, model, context, and tool/token counters',
+    name: 'info',
+    run: host => openSessionInfo(host)
   },
   {
     // The gateway refuses its own /copy and /history (cli_only); Ink runs them on its transcript, as these do.

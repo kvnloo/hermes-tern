@@ -44,7 +44,7 @@ def ctx():
 def test_registers_only_public_plugin_apis(ctx):
     assert {n for n, _, _ in ctx.calls} == {
         "register_cli_command", "register_auxiliary_task", "register_tool", "register_system_prompt_section",
-        "register_hook", "register_middleware", "register_gateway_method", "on_unload"}
+        "register_hook", "register_middleware", "register_gateway_method", "register_command", "on_unload"}
 
 
 def test_the_tools_hook_and_middleware_are_the_declared_ones(ctx):
@@ -146,3 +146,15 @@ def test_media_registration_degrades_on_unpinned_older_hermes():
     hermes_tern_plugin.register(ctx)
     assert not ctx.of("register_gateway_method")
     assert ctx.of("register_cli_command")
+
+
+def test_ephemeral_ui_prompt_lists_every_pinned_kind(ctx):
+    from hermes_tern_plugin import ephemeral_cards
+
+    sections = {a[0]: a[1] for a, _ in ctx.of("register_system_prompt_section")}
+    text = sections["hermes-tern.ephemeral-ui"]
+    kinds = ephemeral_cards.kinds()
+    assert len(kinds) == 50
+    assert len(text) < 4000
+    assert all(f"{k}(" in text for k in kinds)
+    assert "synthetic demo content" in text
